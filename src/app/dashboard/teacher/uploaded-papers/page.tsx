@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 
-type Paper = { id: string; title: string; category: string; keyContent: string };
+type Paper = { id: string; title: string; category: string; questionContent: string; keyContent: string };
 
 export default function TeacherUploadedPapersPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -25,7 +25,7 @@ export default function TeacherUploadedPapersPage() {
       subtitle="Question papers loaded from Supabase."
       navItems={[
         { href: "/dashboard/teacher/upload-question-paper", label: "Upload question paper" },
-        { href: "/dashboard/teacher/answer-sheet", label: "Answer sheet" },
+        { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
         { href: "/dashboard/teacher/students", label: "Students" },
         { href: "/dashboard/teacher/uploaded-papers", label: "Uploaded papers" },
       ]}
@@ -37,7 +37,10 @@ export default function TeacherUploadedPapersPage() {
               <p className="font-medium">{p.title}</p>
               <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs">{p.category}</span>
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-[var(--muted)]">{p.keyContent}</p>
+            <p className="mt-2 text-xs uppercase tracking-wide text-[var(--muted)]">Question paper</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--muted)]">{p.questionContent}</p>
+            <p className="mt-3 text-xs uppercase tracking-wide text-[var(--muted)]">Answer key</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm">{p.keyContent || "Not uploaded yet."}</p>
           </li>
         ))}
       </ul>

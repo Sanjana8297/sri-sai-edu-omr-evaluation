@@ -34,7 +34,7 @@ export default function TeacherStudentsPage() {
       subtitle="Students assigned to your profile."
       navItems={[
         { href: "/dashboard/teacher/upload-question-paper", label: "Upload question paper" },
-        { href: "/dashboard/teacher/answer-sheet", label: "Answer sheet" },
+        { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
         { href: "/dashboard/teacher/students", label: "Students" },
         { href: "/dashboard/teacher/uploaded-papers", label: "Uploaded papers" },
       ]}

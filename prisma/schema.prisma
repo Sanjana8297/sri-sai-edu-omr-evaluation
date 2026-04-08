@@ -44,13 +44,14 @@ model Student {
 }
 
 model QuestionPaper {
-  id         String   @id @default(cuid())
-  teacherId  String
-  teacher    Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  category   String
-  title      String
-  keyContent String
-  createdAt  DateTime @default(now())
+  id              String   @id @default(cuid())
+  teacherId       String
+  teacher         Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  category        String
+  title           String
+  questionContent String
+  keyContent      String   @default("")
+  createdAt       DateTime @default(now())
 }
 
 model ExamAttempt {

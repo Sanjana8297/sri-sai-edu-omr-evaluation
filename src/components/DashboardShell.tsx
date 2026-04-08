@@ -27,8 +27,6 @@ export function DashboardShell({
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  const crumbs = pathname.split("/").filter(Boolean).slice(1);
-  const breadcrumbLabel = crumbs.map((x) => x.replace(/-/g, " ")).join(" / ");
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -47,9 +45,6 @@ export function DashboardShell({
             <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{badge}</p>
             <h1 className="text-xl font-semibold">{title}</h1>
             {subtitle ? <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p> : null}
-            {breadcrumbLabel ? (
-              <p className="mt-1 text-xs uppercase tracking-wide text-[var(--muted)]">{breadcrumbLabel}</p>
-            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
