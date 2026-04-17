@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { Role } from "@/lib/types";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -38,6 +39,12 @@ export default function LoginPage() {
         <ThemeToggle />
       </div>
       <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8 shadow-sm">
+        <Link
+          href="/"
+          className="inline-flex items-center rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--background)]"
+        >
+          Back to Website
+        </Link>
         <h1 className="text-2xl font-semibold text-[var(--foreground)]">Sign in</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
           JEE & NEET coaching portal. Accounts are created by your administrator.
