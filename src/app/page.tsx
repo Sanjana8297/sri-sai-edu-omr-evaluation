@@ -47,11 +47,20 @@ export default function Home() {
     <main className="min-h-screen bg-blue-50 text-blue-950">
       <header className="sticky top-0 z-20 border-b border-blue-100 bg-white/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-600 sm:text-xs">
-              Premier Educational Institute
-            </p>
-            <h1 className="text-base font-bold sm:text-2xl">Jr.KG to INTER</h1>
+          <div className="flex items-center gap-3">
+            <Image
+              src="/images/Sri-Sai-logo.png"
+              alt="Sri Sai Educational Institutions logo"
+              width={56}
+              height={56}
+              className="h-10 w-auto object-contain sm:h-14"
+            />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-600 sm:text-xs">
+                Premier Educational Institute
+              </p>
+              <h1 className="text-base font-bold sm:text-2xl">Jr.KG to INTER</h1>
+            </div>
           </div>
           <Link
             href="/login"
