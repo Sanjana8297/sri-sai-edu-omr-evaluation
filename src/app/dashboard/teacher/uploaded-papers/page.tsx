@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 
-type Paper = { id: string; title: string; category: string; questionContent: string; keyContent: string };
+type Paper = {
+  id: string;
+  title: string;
+  category: string;
+  questionContent: string;
+  keyContent: string;
+  questionPaperUrl?: string | null;
+  answerSheetUrl?: string | null;
+};
 
 export default function TeacherUploadedPapersPage() {
   const [papers, setPapers] = useState<Paper[]>([]);
@@ -22,7 +30,7 @@ export default function TeacherUploadedPapersPage() {
     <DashboardShell
       badge="Teacher"
       title="Uploaded Papers"
-      subtitle="Question papers loaded from Supabase."
+      subtitle="Question papers and answer keys stored in your database (text and file URLs)."
       navItems={[
         { href: "/dashboard/teacher/upload-question-paper", label: "Upload question paper" },
         { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
@@ -38,9 +46,37 @@ export default function TeacherUploadedPapersPage() {
               <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs">{p.category}</span>
             </div>
             <p className="mt-2 text-xs uppercase tracking-wide text-[var(--muted)]">Question paper</p>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--muted)]">{p.questionContent}</p>
+            {p.questionPaperUrl ? (
+              <a
+                className="mt-1 inline-block text-sm text-[var(--accent)] underline"
+                href={p.questionPaperUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {p.questionPaperUrl}
+              </a>
+            ) : null}
+            {p.questionContent ? (
+              <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--muted)]">{p.questionContent}</p>
+            ) : p.questionPaperUrl ? null : (
+              <p className="mt-1 text-sm text-[var(--muted)]">No text.</p>
+            )}
             <p className="mt-3 text-xs uppercase tracking-wide text-[var(--muted)]">Answer key</p>
-            <p className="mt-1 whitespace-pre-wrap text-sm">{p.keyContent || "Not uploaded yet."}</p>
+            {p.answerSheetUrl ? (
+              <a
+                className="mt-1 inline-block text-sm text-[var(--accent)] underline"
+                href={p.answerSheetUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {p.answerSheetUrl}
+              </a>
+            ) : null}
+            {p.keyContent ? (
+              <p className="mt-1 whitespace-pre-wrap text-sm">{p.keyContent}</p>
+            ) : p.answerSheetUrl ? null : (
+              <p className="mt-1 text-sm text-[var(--muted)]">Not uploaded yet.</p>
+            )}
           </li>
         ))}
       </ul>

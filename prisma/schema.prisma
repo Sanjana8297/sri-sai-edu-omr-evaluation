@@ -44,14 +44,18 @@ model Student {
 }
 
 model QuestionPaper {
-  id              String   @id @default(cuid())
-  teacherId       String
-  teacher         Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  category        String
-  title           String
-  questionContent String
-  keyContent      String   @default("")
-  createdAt       DateTime @default(now())
+  id                 String   @id @default(cuid())
+  teacherId          String
+  teacher            Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  category           String
+  title              String
+  questionContent    String
+  keyContent         String   @default("")
+  /// Public HTTPS URL only — binary lives in Supabase Storage, not in Postgres.
+  questionPaperUrl   String?
+  /// Public HTTPS URL only — binary lives in Supabase Storage, not in Postgres.
+  answerSheetUrl     String?
+  createdAt          DateTime @default(now())
 }
 
 model ExamAttempt {
