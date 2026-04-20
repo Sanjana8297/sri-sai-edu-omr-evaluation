@@ -15,6 +15,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "JEE & NEET Coaching Portal",
   description: "Login, performance tracking, and question papers",
+  icons: {
+    icon: [
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({
