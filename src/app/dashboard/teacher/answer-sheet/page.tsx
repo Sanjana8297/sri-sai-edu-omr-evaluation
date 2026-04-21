@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { teacherNavItems } from "@/lib/dashboard-nav";
 
 type Paper = { id: string; title: string; category: string; keyContent: string };
 
@@ -63,12 +64,7 @@ export default function TeacherAnswerSheetPage() {
       badge="Teacher"
       title="Upload Answer Key"
       subtitle="Paste the key and/or upload a file. The answer sheet URL is stored on the same question paper row."
-      navItems={[
-        { href: "/dashboard/teacher/upload-question-paper", label: "Upload question paper" },
-        { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
-        { href: "/dashboard/teacher/students", label: "Students" },
-        { href: "/dashboard/teacher/uploaded-papers", label: "Uploaded papers" },
-      ]}
+      navItems={teacherNavItems}
     >
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
         <form className="space-y-3" onSubmit={submit}>

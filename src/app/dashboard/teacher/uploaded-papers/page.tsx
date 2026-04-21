@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { teacherNavItems } from "@/lib/dashboard-nav";
 
 type Paper = {
   id: string;
@@ -31,12 +32,7 @@ export default function TeacherUploadedPapersPage() {
       badge="Teacher"
       title="Uploaded Papers"
       subtitle="Question papers and answer keys stored in your database (text and file URLs)."
-      navItems={[
-        { href: "/dashboard/teacher/upload-question-paper", label: "Upload question paper" },
-        { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
-        { href: "/dashboard/teacher/students", label: "Students" },
-        { href: "/dashboard/teacher/uploaded-papers", label: "Uploaded papers" },
-      ]}
+      navItems={teacherNavItems}
     >
       <ul className="space-y-3">
         {papers.map((p) => (

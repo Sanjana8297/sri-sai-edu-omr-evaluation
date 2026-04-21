@@ -3,6 +3,52 @@ import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
 import type { Category } from "@/lib/types";
 
+export async function GET(request: Request) {
+  const { session, response } = await requireRoles(["TEACHER"]);
+  if (response) return response;
+
+  const { searchParams } = new URL(request.url);
+  const examId = searchParams.get("examId")?.trim();
+
+  const whereClause = examId
+    ? { exam: { id: examId, teacherId: session.sub } }
+    : { exam: { teacherId: session.sub } };
+
+  const sessions = await prisma.examSession.findMany({
+    where: whereClause,
+    orderBy: { startedAt: "desc" },
+    include: {
+      student: { select: { id: true, name: true, email: true } },
+      exam: { select: { id: true, title: true, category: true, startTime: true, endTime: true } },
+      proctoringEvents: { orderBy: { occurredAt: "asc" } },
+    },
+  });
+
+  return NextResponse.json({
+    sessions: sessions.map((sessionRow) => ({
+      id: sessionRow.id,
+      status: sessionRow.status,
+      startedAt: sessionRow.startedAt.toISOString(),
+      submittedAt: sessionRow.submittedAt?.toISOString() ?? null,
+      violationCount: sessionRow.violationCount,
+      cameraGranted: sessionRow.cameraGranted,
+      micGranted: sessionRow.micGranted,
+      autoSubmittedReason: sessionRow.autoSubmittedReason,
+      student: sessionRow.student,
+      exam: {
+        ...sessionRow.exam,
+        startTime: sessionRow.exam.startTime.toISOString(),
+        endTime: sessionRow.exam.endTime.toISOString(),
+      },
+      proctoringEvents: sessionRow.proctoringEvents.map((event) => ({
+        ...event,
+        occurredAt: event.occurredAt.toISOString(),
+        createdAt: event.createdAt.toISOString(),
+      })),
+    })),
+  });
+}
+
 export async function POST(request: Request) {
   const { session, response } = await requireRoles(["TEACHER"]);
   if (response) return response;

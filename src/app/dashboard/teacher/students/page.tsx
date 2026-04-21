@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { teacherNavItems } from "@/lib/dashboard-nav";
 
 type Student = { id: string; name: string; email: string; category: string | null };
 
@@ -32,12 +33,7 @@ export default function TeacherStudentsPage() {
       badge="Teacher"
       title="Students"
       subtitle="Students assigned to your profile."
-      navItems={[
-        { href: "/dashboard/teacher/upload-question-paper", label: "Upload question paper" },
-        { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
-        { href: "/dashboard/teacher/students", label: "Students" },
-        { href: "/dashboard/teacher/uploaded-papers", label: "Uploaded papers" },
-      ]}
+      navItems={teacherNavItems}
     >
       <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
         <div className="border-b border-[var(--border)] p-3">

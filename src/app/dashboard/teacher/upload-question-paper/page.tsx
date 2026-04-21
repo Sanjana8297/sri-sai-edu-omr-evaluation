@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { teacherNavItems } from "@/lib/dashboard-nav";
 
 export default function TeacherUploadPaperPage() {
   const [track, setTrack] = useState<"JEE" | "NEET">("JEE");
@@ -61,12 +62,7 @@ export default function TeacherUploadPaperPage() {
       badge="Teacher"
       title="Upload Question Paper"
       subtitle="Paste question text and/or upload a file (PDF, DOCX, or image). URLs are stored in your database."
-      navItems={[
-        { href: "/dashboard/teacher/upload-question-paper", label: "Upload question paper" },
-        { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
-        { href: "/dashboard/teacher/students", label: "Students" },
-        { href: "/dashboard/teacher/uploaded-papers", label: "Uploaded papers" },
-      ]}
+      navItems={teacherNavItems}
     >
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
         <form className="space-y-3" onSubmit={submit}>

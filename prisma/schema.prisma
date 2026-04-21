@@ -26,6 +26,7 @@ model Teacher {
   category       String
   students       Student[]
   questionPapers QuestionPaper[]
+  exams          Exam[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 }
@@ -39,6 +40,7 @@ model Student {
   teacherId    String
   teacher      Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   examAttempts ExamAttempt[]
+  examSessions ExamSession[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
@@ -55,7 +57,61 @@ model QuestionPaper {
   questionPaperUrl   String?
   /// Public HTTPS URL only — binary lives in Supabase Storage, not in Postgres.
   answerSheetUrl     String?
+  exams              Exam[]
   createdAt          DateTime @default(now())
+}
+
+model Exam {
+  id              String        @id @default(cuid())
+  teacherId       String
+  teacher         Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  questionPaperId String
+  questionPaper   QuestionPaper @relation(fields: [questionPaperId], references: [id], onDelete: Cascade)
+  category        String
+  title           String
+  startTime       DateTime
+  endTime         DateTime
+  durationMinutes Int
+  isPublished     Boolean       @default(false)
+  examSessions    ExamSession[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([teacherId, startTime])
+  @@index([questionPaperId])
+}
+
+model ExamSession {
+  id                 String            @id @default(cuid())
+  examId             String
+  exam               Exam              @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId          String
+  student            Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  startedAt          DateTime          @default(now())
+  submittedAt        DateTime?
+  status             ExamSessionStatus @default(IN_PROGRESS)
+  violationCount     Int               @default(0)
+  cameraGranted      Boolean?
+  micGranted         Boolean?
+  autoSubmittedReason String?
+  proctoringEvents   ProctoringEvent[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@unique([examId, studentId])
+  @@index([studentId, startedAt])
+}
+
+model ProctoringEvent {
+  id         String             @id @default(cuid())
+  sessionId  String
+  session    ExamSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  eventType  ProctoringEventType
+  occurredAt DateTime           @default(now())
+  metadata   Json?
+  createdAt  DateTime           @default(now())
+
+  @@index([sessionId, occurredAt])
 }
 
 model ExamAttempt {
@@ -69,4 +125,20 @@ model ExamAttempt {
   maxMarks      Float
   analysis      String
   createdAt     DateTime @default(now())
+}
+
+enum ExamSessionStatus {
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+}
+
+enum ProctoringEventType {
+  TAB_HIDDEN
+  WINDOW_BLUR
+  PERMISSION_DENIED
+  PERMISSION_REVOKED
+  CAMERA_MISSING
+  MIC_MISSING
+  HEARTBEAT
 }

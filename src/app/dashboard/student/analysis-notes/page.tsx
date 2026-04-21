@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { studentNavItems } from "@/lib/dashboard-nav";
 
 type Exam = { id: string; title: string; analysis: string; examDate: string };
 
@@ -23,11 +24,7 @@ export default function StudentAnalysisNotesPage() {
       badge="Student"
       title="Analysis Notes"
       subtitle="Detailed notes from teacher feedback."
-      navItems={[
-        { href: "/dashboard/student/performance-summary", label: "Performance summary" },
-        { href: "/dashboard/student/exam-history", label: "Exam history" },
-        { href: "/dashboard/student/analysis-notes", label: "Analysis notes" },
-      ]}
+      navItems={studentNavItems}
     >
       <div className="space-y-4">
         {exams.map((exam) => (

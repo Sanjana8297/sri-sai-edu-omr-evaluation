@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { studentNavItems } from "@/lib/dashboard-nav";
 
 type Exam = {
   id: string;
@@ -31,11 +32,7 @@ export default function StudentExamHistoryPage() {
       badge="Student"
       title="Exam History"
       subtitle="All exam records from the database."
-      navItems={[
-        { href: "/dashboard/student/performance-summary", label: "Performance summary" },
-        { href: "/dashboard/student/exam-history", label: "Exam history" },
-        { href: "/dashboard/student/analysis-notes", label: "Analysis notes" },
-      ]}
+      navItems={studentNavItems}
     >
       <div className="space-y-4">
         {exams.map((exam) => (

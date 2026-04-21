@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { studentNavItems } from "@/lib/dashboard-nav";
 
 type Exam = { id: string; title: string; percentage: number };
 
@@ -26,11 +27,7 @@ export default function StudentPerformanceSummaryPage() {
       badge="Student"
       title={name ? `Hi, ${name}` : "Performance Summary"}
       subtitle="Summary from your exam records."
-      navItems={[
-        { href: "/dashboard/student/performance-summary", label: "Performance summary" },
-        { href: "/dashboard/student/exam-history", label: "Exam history" },
-        { href: "/dashboard/student/analysis-notes", label: "Analysis notes" },
-      ]}
+      navItems={studentNavItems}
     >
       <section className="grid gap-4 sm:grid-cols-3">
         <Card label="Exams recorded" value={String(exams.length)} />
