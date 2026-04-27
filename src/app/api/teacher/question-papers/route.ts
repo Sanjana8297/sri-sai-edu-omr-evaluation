@@ -4,6 +4,7 @@ import { requireRoles } from "@/lib/api-auth";
 import { uploadQuestionPaperFile } from "@/lib/question-paper-storage";
 import { getSupabaseStorageConfigError } from "@/lib/supabase-admin";
 import type { Category } from "@/lib/types";
+import { Prisma } from "@prisma/client";
 
 export async function GET() {
   const { session, response } = await requireRoles(["TEACHER"]);
@@ -21,6 +22,14 @@ function parseCategory(body: { category?: string }, meCategory: string): Categor
   if (category !== "JEE" && category !== "NEET") return null;
   if (category !== meCategory) return null;
   return category;
+}
+
+function toPrismaJsonInput(
+  value: unknown
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return Prisma.JsonNull;
+  return value as Prisma.InputJsonValue;
 }
 
 export async function POST(request: Request) {
@@ -96,8 +105,8 @@ export async function POST(request: Request) {
           keyContent,
           isAiGenerated,
           aiPromptVersion: aiPromptVersion || null,
-          aiConfig,
-          generationMeta,
+          aiConfig: toPrismaJsonInput(aiConfig),
+          generationMeta: toPrismaJsonInput(generationMeta),
         },
       });
 
@@ -156,8 +165,8 @@ export async function POST(request: Request) {
       keyContent,
       isAiGenerated: Boolean(body.isAiGenerated),
       aiPromptVersion: body.aiPromptVersion?.trim() || null,
-      aiConfig: body.aiConfig ?? null,
-      generationMeta: body.generationMeta ?? null,
+      aiConfig: toPrismaJsonInput(body.aiConfig),
+      generationMeta: toPrismaJsonInput(body.generationMeta),
     },
   });
   return NextResponse.json({ paper });
