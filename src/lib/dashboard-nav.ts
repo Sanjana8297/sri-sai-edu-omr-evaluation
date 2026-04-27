@@ -1,5 +1,6 @@
 export const teacherNavItems = [
-  { href: "/dashboard/teacher/upload-question-paper", label: "Upload question paper" },
+  { href: "/dashboard/teacher/manual-builder", label: "Manual Builder" },
+  { href: "/dashboard/teacher/ai-builder", label: "AI Builder Configuration" },
   { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
   { href: "/dashboard/teacher/exams", label: "Exams" },
   { href: "/dashboard/teacher/students", label: "Students" },

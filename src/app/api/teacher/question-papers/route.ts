@@ -47,6 +47,11 @@ export async function POST(request: Request) {
     }
     const title = String(form.get("title") ?? "").trim();
     const questionContent = String(form.get("questionContent") ?? "").trim();
+    const keyContent = String(form.get("keyContent") ?? "").trim();
+    const isAiGenerated = String(form.get("isAiGenerated") ?? "").trim() === "true";
+    const aiPromptVersion = String(form.get("aiPromptVersion") ?? "").trim();
+    const aiConfigRaw = String(form.get("aiConfig") ?? "").trim();
+    const generationMetaRaw = String(form.get("generationMeta") ?? "").trim();
     const category = parseCategory({ category: String(form.get("category") ?? "") }, me.category);
     const file = form.get("questionPaperFile");
 
@@ -64,6 +69,23 @@ export async function POST(request: Request) {
       );
     }
 
+    let aiConfig: unknown = null;
+    let generationMeta: unknown = null;
+    if (aiConfigRaw) {
+      try {
+        aiConfig = JSON.parse(aiConfigRaw);
+      } catch {
+        return NextResponse.json({ error: "Invalid aiConfig JSON" }, { status: 400 });
+      }
+    }
+    if (generationMetaRaw) {
+      try {
+        generationMeta = JSON.parse(generationMetaRaw);
+      } catch {
+        return NextResponse.json({ error: "Invalid generationMeta JSON" }, { status: 400 });
+      }
+    }
+
     try {
       const paper = await prisma.questionPaper.create({
         data: {
@@ -71,7 +93,11 @@ export async function POST(request: Request) {
           category,
           title,
           questionContent: questionContent || "",
-          keyContent: "",
+          keyContent,
+          isAiGenerated,
+          aiPromptVersion: aiPromptVersion || null,
+          aiConfig,
+          generationMeta,
         },
       });
 
@@ -95,7 +121,16 @@ export async function POST(request: Request) {
     }
   }
 
-  let body: { title?: string; questionContent?: string; category?: string };
+  let body: {
+    title?: string;
+    questionContent?: string;
+    keyContent?: string;
+    category?: string;
+    isAiGenerated?: boolean;
+    aiPromptVersion?: string;
+    aiConfig?: unknown;
+    generationMeta?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -103,6 +138,7 @@ export async function POST(request: Request) {
   }
   const title = body.title?.trim();
   const questionContent = body.questionContent?.trim();
+  const keyContent = body.keyContent?.trim() ?? "";
   const category = parseCategory(body, me.category);
   if (!title || !questionContent) {
     return NextResponse.json({ error: "Title and question paper content are required" }, { status: 400 });
@@ -117,7 +153,11 @@ export async function POST(request: Request) {
       category,
       title,
       questionContent,
-      keyContent: "",
+      keyContent,
+      isAiGenerated: Boolean(body.isAiGenerated),
+      aiPromptVersion: body.aiPromptVersion?.trim() || null,
+      aiConfig: body.aiConfig ?? null,
+      generationMeta: body.generationMeta ?? null,
     },
   });
   return NextResponse.json({ paper });

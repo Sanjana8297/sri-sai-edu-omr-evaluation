@@ -10,6 +10,8 @@ type Paper = {
   category: string;
   questionContent: string;
   keyContent: string;
+  isAiGenerated?: boolean;
+  aiPromptVersion?: string | null;
   questionPaperUrl?: string | null;
   answerSheetUrl?: string | null;
 };
@@ -39,7 +41,14 @@ export default function TeacherUploadedPapersPage() {
           <li key={p.id} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="font-medium">{p.title}</p>
-              <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs">{p.category}</span>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs">{p.category}</span>
+                {p.isAiGenerated ? (
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800">
+                    AI {p.aiPromptVersion ? `(${p.aiPromptVersion})` : ""}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <p className="mt-2 text-xs uppercase tracking-wide text-[var(--muted)]">Question paper</p>
             {p.questionPaperUrl ? (

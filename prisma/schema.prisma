@@ -53,6 +53,10 @@ model QuestionPaper {
   title              String
   questionContent    String
   keyContent         String   @default("")
+  isAiGenerated      Boolean  @default(false)
+  aiPromptVersion    String?
+  aiConfig           Json?
+  generationMeta     Json?
   /// Public HTTPS URL only — binary lives in Supabase Storage, not in Postgres.
   questionPaperUrl   String?
   /// Public HTTPS URL only — binary lives in Supabase Storage, not in Postgres.

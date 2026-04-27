@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function TeacherDashboardPage() {
-  redirect("/dashboard/teacher/upload-question-paper");
+  redirect("/dashboard/teacher/manual-builder");
 }
