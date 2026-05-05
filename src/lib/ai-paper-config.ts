@@ -9,6 +9,11 @@ export type ExamSection = {
   negativeMarks: number;
   topicFocus?: string[];
   difficulty: DifficultyLevel;
+  difficultyMix?: {
+    easy: number;
+    medium: number;
+    hard: number;
+  };
 };
 
 export type PaperBlueprint = {
@@ -119,6 +124,16 @@ const BLUEPRINT_SCHEMA = {
           negativeMarks: { type: "number", minimum: 0 },
           topicFocus: { type: "array", items: { type: "string" } },
           difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+          difficultyMix: {
+            type: "object",
+            additionalProperties: false,
+            required: ["easy", "medium", "hard"],
+            properties: {
+              easy: { type: "number", minimum: 0, maximum: 100 },
+              medium: { type: "number", minimum: 0, maximum: 100 },
+              hard: { type: "number", minimum: 0, maximum: 100 },
+            },
+          },
         },
       },
     },
@@ -148,14 +163,30 @@ const VALIDATE_SCHEMA = {
 
 export async function generateBlueprint(input: {
   category: Category;
-  subject: string;
   durationMinutes: number;
-  totalQuestions: number;
   difficultyDistribution?: string;
   extraInstructions?: string;
 }): Promise<PaperBlueprint> {
-  const system = "You are an assessment designer for Indian competitive exams. Return only strict JSON.";
-  const user = JSON.stringify(input);
+  const system = `
+You are an assessment designer for Indian competitive exams.
+Return only strict JSON matching the schema.
+
+For category = JEE, enforce this structure exactly:
+- Subject set must be Mathematics, Physics, Chemistry (all three mandatory).
+- Total questions = 75.
+- 25 questions per subject.
+- 2 sections per subject:
+  - Section 1: 20 single-correct MCQs
+  - Section 2: 5 numerical questions, each with options and only one correct option
+- Marking: +4 correct, 0 unattempted, -1 wrong.
+- Include instruction that decimal numerical answers should be rounded to nearest integer.
+- Difficulty distribution should be applied across generated sections/questions using the provided distribution text.
+`;
+  const user = JSON.stringify({
+    ...input,
+    jeeRequiredPattern:
+      "PCM only; 75 total; each subject 25 with Section 1 = 20 MCQ(single correct), Section 2 = 5 numerical questions with options and one correct option; +4/0/-1 marking.",
+  });
   return callJsonModel<PaperBlueprint>("paper_blueprint", BLUEPRINT_SCHEMA, system, user);
 }
 
@@ -165,7 +196,7 @@ export async function composeQuestionPaper(input: ComposeInput): Promise<{
   warnings: string[];
 }> {
   const system =
-    "You write high-quality exam papers from a blueprint. Match counts, marks, and difficulty. Return only strict JSON.";
+    "You write high-quality exam papers from a blueprint. Match counts and marks exactly. For each section, distribute question difficulties according to section.difficultyMix (apply the same mix within that section). Every question, including numerical section questions, must have options with only one correct option. Return only strict JSON.";
   const user = JSON.stringify(input);
   return callJsonModel("paper_compose", COMPOSE_SCHEMA, system, user);
 }
@@ -176,7 +207,7 @@ export async function validateQuestionPaper(input: {
   keyContent?: string;
 }): Promise<{ issues: string[]; passes: string[] }> {
   const system =
-    "You validate an exam paper against the blueprint. Report only concrete mismatches and concise pass checks. Return strict JSON.";
+    "You validate an exam paper against the blueprint. Report concrete mismatches including whether each section follows its difficultyMix distribution. Return concise pass checks and strict JSON.";
   const user = JSON.stringify(input);
   return callJsonModel("paper_validate", VALIDATE_SCHEMA, system, user);
 }

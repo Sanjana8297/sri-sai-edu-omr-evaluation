@@ -25,13 +25,13 @@ type PaperBlueprint = {
 
 export default function TeacherAiBuilderPage() {
   const [track, setTrack] = useState<"JEE" | "NEET">("JEE");
+  const [aiTrackProfile, setAiTrackProfile] = useState<"JEE" | "JEE ADV" | "NEET">("JEE");
   const [title, setTitle] = useState("");
   const [questionContent, setQuestionContent] = useState("");
   const [keyContent, setKeyContent] = useState("");
-  const [questionFile, setQuestionFile] = useState<File | null>(null);
-  const [aiSubject, setAiSubject] = useState("");
   const [aiDurationMinutes, setAiDurationMinutes] = useState(180);
-  const [aiTotalQuestions, setAiTotalQuestions] = useState(90);
+  const [aiTotalQuestions, setAiTotalQuestions] = useState(75);
+  const [aiTotalMarks, setAiTotalMarks] = useState(300);
   const [aiDifficultyDistribution, setAiDifficultyDistribution] = useState("30% easy, 50% medium, 20% hard");
   const [aiExtraInstructions, setAiExtraInstructions] = useState("");
   const [blueprint, setBlueprint] = useState<PaperBlueprint | null>(null);
@@ -39,6 +39,7 @@ export default function TeacherAiBuilderPage() {
   const [aiValidationIssues, setAiValidationIssues] = useState<string[]>([]);
   const [aiValidationPasses, setAiValidationPasses] = useState<string[]>([]);
   const [aiComposed, setAiComposed] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [loadingBlueprint, setLoadingBlueprint] = useState(false);
   const [loadingCompose, setLoadingCompose] = useState(false);
   const [loadingValidate, setLoadingValidate] = useState(false);
@@ -47,12 +48,26 @@ export default function TeacherAiBuilderPage() {
 
   const loadMe = useCallback(async () => {
     const u = await fetch("/api/me").then((r) => r.json());
-    if (u.user?.category) setTrack(u.user.category);
+    if (u.user?.category) {
+      setTrack(u.user.category);
+      setAiTrackProfile(u.user.category === "NEET" ? "NEET" : "JEE");
+    }
   }, []);
 
   useEffect(() => {
     void loadMe();
   }, [loadMe]);
+
+  useEffect(() => {
+    if (track === "JEE") {
+      setAiDurationMinutes(180);
+      setAiTotalQuestions(75);
+      setAiTotalMarks(300);
+    }
+    if (track === "NEET" && aiTrackProfile !== "NEET") {
+      setAiTrackProfile("NEET");
+    }
+  }, [track]);
 
   async function generateBlueprint() {
     setErr(null);
@@ -63,11 +78,11 @@ export default function TeacherAiBuilderPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          subject: aiSubject.trim(),
           durationMinutes: aiDurationMinutes,
-          totalQuestions: aiTotalQuestions,
           difficultyDistribution: aiDifficultyDistribution.trim(),
-          extraInstructions: aiExtraInstructions.trim(),
+          extraInstructions: [aiExtraInstructions.trim(), `Target exam profile: ${aiTrackProfile}`]
+            .filter(Boolean)
+            .join("\n"),
         }),
       });
       const j = await res.json();
@@ -115,6 +130,7 @@ export default function TeacherAiBuilderPage() {
       setKeyContent(generated.keyContent);
       setAiWarnings(generated.warnings ?? []);
       setAiComposed(true);
+      setShowPreview(true);
       setMsg("AI composed a full paper and answer key. Review and save.");
     } finally {
       setLoadingCompose(false);
@@ -161,40 +177,25 @@ export default function TeacherAiBuilderPage() {
     setErr(null);
     setMsg(null);
     const trimmed = questionContent.trim();
-    if (!trimmed && !questionFile) {
-      setErr("Add question text and/or upload a question paper file.");
+    if (!aiComposed || !trimmed) {
+      setErr("Please use AI Compose before saving.");
       return;
     }
 
-    let res: Response;
-    if (questionFile) {
-      const fd = new FormData();
-      fd.append("title", title.trim());
-      fd.append("category", track);
-      fd.append("questionContent", trimmed);
-      fd.append("keyContent", keyContent.trim());
-      fd.append("isAiGenerated", aiComposed ? "true" : "false");
-      fd.append("aiPromptVersion", aiComposed ? "v1" : "");
-      if (blueprint) fd.append("aiConfig", JSON.stringify(blueprint));
-      if (aiWarnings.length) fd.append("generationMeta", JSON.stringify({ warnings: aiWarnings }));
-      fd.append("questionPaperFile", questionFile);
-      res = await fetch("/api/teacher/question-papers", { method: "POST", body: fd });
-    } else {
-      res = await fetch("/api/teacher/question-papers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title.trim(),
-          questionContent: trimmed,
-          keyContent: keyContent.trim(),
-          category: track,
-          isAiGenerated: aiComposed,
-          aiPromptVersion: aiComposed ? "v1" : null,
-          aiConfig: blueprint,
-          generationMeta: aiWarnings.length ? { warnings: aiWarnings } : null,
-        }),
-      });
-    }
+    const res = await fetch("/api/teacher/question-papers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: title.trim(),
+        questionContent: trimmed,
+        keyContent: keyContent.trim(),
+        category: track,
+        isAiGenerated: aiComposed,
+        aiPromptVersion: aiComposed ? "v1" : null,
+        aiConfig: blueprint,
+        generationMeta: aiWarnings.length ? { warnings: aiWarnings } : null,
+      }),
+    });
 
     const j = await res.json();
     if (!res.ok) {
@@ -204,7 +205,6 @@ export default function TeacherAiBuilderPage() {
     setTitle("");
     setQuestionContent("");
     setKeyContent("");
-    setQuestionFile(null);
     setAiComposed(false);
     setMsg("Question paper saved.");
   }
@@ -221,13 +221,59 @@ export default function TeacherAiBuilderPage() {
           <p className="text-sm font-semibold">AI Paper Configuration</p>
           <p className="mt-1 text-xs text-[var(--muted)]">Generate blueprint, compose paper, then validate before saving.</p>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <input className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Subject (e.g., Physics)" value={aiSubject} onChange={(e) => setAiSubject(e.target.value)} />
-            <input className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" value={track} disabled />
-            <input className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" type="number" min={1} max={480} value={aiDurationMinutes} onChange={(e) => setAiDurationMinutes(Number(e.target.value || 0))} placeholder="Duration minutes" />
-            <input className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" type="number" min={1} max={300} value={aiTotalQuestions} onChange={(e) => setAiTotalQuestions(Number(e.target.value || 0))} placeholder="Total questions" />
+            <label className="text-xs text-[var(--muted)]">
+              Track
+              <select
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+                value={aiTrackProfile}
+                onChange={(e) => setAiTrackProfile(e.target.value as "JEE" | "JEE ADV" | "NEET")}
+                disabled={track === "NEET"}
+              >
+                <option value="JEE">JEE</option>
+                <option value="JEE ADV">JEE ADV</option>
+                <option value="NEET">NEET</option>
+              </select>
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Duration (minutes)
+              <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" type="number" min={1} max={480} value={aiDurationMinutes} onChange={(e) => setAiDurationMinutes(Number(e.target.value || 0))} disabled={track === "JEE"} />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Total Questions
+              <input
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                type="number"
+                min={1}
+                max={300}
+                value={aiTotalQuestions}
+                onChange={(e) => setAiTotalQuestions(Number(e.target.value || 0))}
+                disabled={track === "JEE"}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Total Marks
+              <input
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                type="number"
+                value={aiTotalMarks}
+                disabled={track === "JEE"}
+                onChange={(e) => setAiTotalMarks(Number(e.target.value || 0))}
+              />
+            </label>
           </div>
-          <textarea className="mt-3 min-h-[70px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="Difficulty split (e.g., 30% easy, 50% medium, 20% hard)" value={aiDifficultyDistribution} onChange={(e) => setAiDifficultyDistribution(e.target.value)} />
-          <textarea className="mt-3 min-h-[90px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="Additional constraints (syllabus focus, question style, etc.)" value={aiExtraInstructions} onChange={(e) => setAiExtraInstructions(e.target.value)} />
+          {track === "JEE" ? (
+            <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs text-[var(--muted)]">
+              JEE Main format is fixed: 180 minutes (3 hours), Mathematics/Physics/Chemistry (25 questions each; 20 MCQ + 5 Numerical-with-options per subject), marking +4 / 0 / -1.
+            </div>
+          ) : null}
+          <label className="mt-3 block text-xs text-[var(--muted)]">
+            Difficulty Configuration
+            <textarea className="mt-1 min-h-[70px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="e.g., 30% easy, 50% medium, 20% hard" value={aiDifficultyDistribution} onChange={(e) => setAiDifficultyDistribution(e.target.value)} />
+          </label>
+          <label className="mt-3 block text-xs text-[var(--muted)]">
+            Additional Constraints
+            <textarea className="mt-1 min-h-[90px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="Syllabus focus, question style, excluded topics, etc." value={aiExtraInstructions} onChange={(e) => setAiExtraInstructions(e.target.value)} />
+          </label>
           <div className="mt-3 flex flex-wrap gap-2">
             <button className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60" type="button" disabled={loadingBlueprint} onClick={generateBlueprint}>
               {loadingBlueprint ? "Generating blueprint..." : "1) Generate Blueprint"}
@@ -238,22 +284,44 @@ export default function TeacherAiBuilderPage() {
             <button className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60" type="button" disabled={!blueprint || loadingValidate} onClick={validatePaper}>
               {loadingValidate ? "Validating..." : "3) Validate"}
             </button>
+            <button
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium disabled:opacity-60"
+              type="button"
+              disabled={!aiComposed}
+              onClick={() => setShowPreview((v) => !v)}
+            >
+              {showPreview ? "Hide Preview" : "Preview Composed Paper"}
+            </button>
           </div>
           {blueprint ? <pre className="mt-3 max-h-64 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs">{JSON.stringify(blueprint, null, 2)}</pre> : null}
           {aiWarnings.length ? <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"><p className="font-semibold">AI warnings</p><ul className="mt-1 list-disc pl-5">{aiWarnings.map((warning, idx) => <li key={`${warning}-${idx}`}>{warning}</li>)}</ul></div> : null}
           {aiValidationIssues.length ? <div className="mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-900"><p className="font-semibold">Validation issues</p><ul className="mt-1 list-disc pl-5">{aiValidationIssues.map((issue, idx) => <li key={`${issue}-${idx}`}>{issue}</li>)}</ul></div> : null}
           {aiValidationPasses.length ? <div className="mt-3 rounded-lg border border-green-300 bg-green-50 p-3 text-xs text-green-900"><p className="font-semibold">Validation checks passed</p><ul className="mt-1 list-disc pl-5">{aiValidationPasses.map((pass, idx) => <li key={`${pass}-${idx}`}>{pass}</li>)}</ul></div> : null}
+          {showPreview && aiComposed ? (
+            <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
+              <p className="text-sm font-semibold">Preview: Composed Question Paper</p>
+              <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
+                {questionContent || "No question content composed yet."}
+              </pre>
+              <p className="mt-3 text-sm font-semibold">Preview: Composed Answer Key</p>
+              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
+                {keyContent || "No answer key composed yet."}
+              </pre>
+            </div>
+          ) : null}
         </div>
 
         <form className="space-y-3" onSubmit={submit}>
           <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-          <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" value={track} disabled />
-          <label className="block text-sm text-[var(--muted)]">
-            Question paper file
-            <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm file:mr-3" type="file" accept=".pdf,.docx,image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => setQuestionFile(e.target.files?.[0] ?? null)} />
-          </label>
-          <textarea className="min-h-[220px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Paste/type the complete question paper here (optional if you upload a file)..." value={questionContent} onChange={(e) => setQuestionContent(e.target.value)} required={!questionFile} />
-          <textarea className="min-h-[140px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Answer key (optional, AI compose fills this for you)" value={keyContent} onChange={(e) => setKeyContent(e.target.value)} />
+          {aiComposed ? (
+            <p className="text-xs text-[var(--muted)]">
+              AI content is generated and ready. Click save to store this paper.
+            </p>
+          ) : (
+            <p className="text-xs text-[var(--muted)]">
+              Run step 2 (Compose Paper) to generate question content before saving.
+            </p>
+          )}
           <button className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" type="submit">
             Save paper
           </button>
