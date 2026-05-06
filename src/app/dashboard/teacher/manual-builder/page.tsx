@@ -168,7 +168,15 @@ export default function TeacherManualBuilderPage() {
   }
 
   async function addGeneratedQuestionToBank(
-    q: { questionText: string; options: string[]; correctAnswer: "A" | "B" | "C" | "D"; chapter: string | null; difficulty: "easy" | "medium" | "hard" }
+    q: {
+      questionText: string;
+      options: string[];
+      correctAnswer: "A" | "B" | "C" | "D";
+      chapter: string | null;
+      difficulty: "easy" | "medium" | "hard";
+      sourceName?: string;
+      sourceUrl?: string;
+    }
   ) {
     setErr(null);
     const res = await fetch("/api/teacher/question-bank", {
