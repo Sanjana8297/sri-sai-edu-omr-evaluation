@@ -72,6 +72,7 @@ export async function POST(request: Request, context: { params: Promise<{ examId
       violationCount: sessionRow.violationCount,
       cameraGranted: sessionRow.cameraGranted,
       micGranted: sessionRow.micGranted,
+      submittedAnswers: sessionRow.submittedAnswers,
       deadline: deadline.toISOString(),
     },
   });

@@ -34,6 +34,9 @@ export async function GET(request: Request) {
       cameraGranted: sessionRow.cameraGranted,
       micGranted: sessionRow.micGranted,
       autoSubmittedReason: sessionRow.autoSubmittedReason,
+      submittedAnswers: sessionRow.submittedAnswers,
+      scoreObtained: sessionRow.scoreObtained,
+      scoreMax: sessionRow.scoreMax,
       student: sessionRow.student,
       exam: {
         ...sessionRow.exam,

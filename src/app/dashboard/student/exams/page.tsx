@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { studentNavItems } from "@/lib/dashboard-nav";
@@ -25,6 +24,7 @@ type StudentExam = {
 export default function StudentExamsPage() {
   const [exams, setExams] = useState<StudentExam[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const hasLiveExams = exams.some((exam) => exam.status === "LIVE");
 
   const load = useCallback(async () => {
     const res = await fetch("/api/student/exams/available");
@@ -50,7 +50,20 @@ export default function StudentExamsPage() {
     >
       <div className="space-y-4">
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        {exams.length === 0 ? <p className="text-sm text-[var(--muted)]">No exams available for your track yet.</p> : null}
+        {exams.length === 0 ? (
+          <div className="flex min-h-[40vh] items-center justify-center">
+            <p className="text-center text-2xl font-semibold text-[var(--muted)]">
+              No exams available for your track yet.
+            </p>
+          </div>
+        ) : null}
+        {exams.length > 0 && !hasLiveExams ? (
+          <div className="flex min-h-[20vh] items-center justify-center">
+            <p className="text-center text-2xl font-semibold text-[var(--muted)]">
+              No Live Exams to be taken.
+            </p>
+          </div>
+        ) : null}
         {exams.map((exam) => {
           const latestSession = exam.examSessions[0];
           return (
@@ -69,14 +82,18 @@ export default function StudentExamsPage() {
                     {latestSession ? ` · Last attempt: ${latestSession.status}` : ""}
                   </p>
                 </div>
-                <Link
-                  href={`/dashboard/student/exams/${exam.id}/take`}
-                  className={`rounded-lg px-3 py-2 text-sm font-medium text-white ${
-                    exam.status === "LIVE" ? "bg-[var(--accent)]" : "bg-[var(--muted)]"
-                  }`}
-                >
-                  {exam.status === "LIVE" ? "Start / Resume" : "View"}
-                </Link>
+                {exam.status === "LIVE" ? (
+                  <a
+                    href={`/dashboard/student/exams/${exam.id}/take`}
+                    className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white"
+                  >
+                    Start / Resume
+                  </a>
+                ) : (
+                  <span className="rounded-lg bg-[var(--muted)] px-3 py-2 text-sm font-medium text-white">
+                    Not available
+                  </span>
+                )}
               </div>
             </article>
           );

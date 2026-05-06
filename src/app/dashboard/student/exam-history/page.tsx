@@ -6,12 +6,14 @@ import { studentNavItems } from "@/lib/dashboard-nav";
 
 type Exam = {
   id: string;
+  examId: string;
   title: string;
   category: string;
   examDate: string;
   marksObtained: number;
   maxMarks: number;
   percentage: number;
+  status: "SUBMITTED" | "AUTO_SUBMITTED";
 };
 
 export default function StudentExamHistoryPage() {
@@ -31,10 +33,17 @@ export default function StudentExamHistoryPage() {
     <DashboardShell
       badge="Student"
       title="Exam History"
-      subtitle="All exam records from the database."
+      subtitle="Exams taken by you."
       navItems={studentNavItems}
     >
       <div className="space-y-4">
+        {exams.length === 0 ? (
+          <div className="flex min-h-[40vh] items-center justify-center">
+            <p className="text-center text-2xl font-semibold text-[var(--muted)]">
+              No exams taken yet.
+            </p>
+          </div>
+        ) : null}
         {exams.map((exam) => (
           <article key={exam.id} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -44,6 +53,7 @@ export default function StudentExamHistoryPage() {
             <p className="mt-2 text-sm text-[var(--muted)]">
               {exam.category} · {exam.marksObtained} / {exam.maxMarks} · {exam.percentage}%
             </p>
+            <p className="mt-1 text-xs text-[var(--muted)]">Session status: {exam.status}</p>
           </article>
         ))}
       </div>

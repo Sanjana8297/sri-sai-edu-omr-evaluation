@@ -1,0 +1,2 @@
+-- Placeholder migration restored to satisfy Prisma migration history.
+-- Intentionally no-op: initial schema is represented by subsequent migrations.

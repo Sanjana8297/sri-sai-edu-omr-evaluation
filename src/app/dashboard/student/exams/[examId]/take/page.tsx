@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { studentNavItems } from "@/lib/dashboard-nav";
+import { parseQuestionPaperContent } from "@/lib/exam-paper-parser";
 
 type StartResponse = {
   exam: {
@@ -28,6 +29,7 @@ type StartResponse = {
     violationCount: number;
     cameraGranted: boolean | null;
     micGranted: boolean | null;
+    submittedAnswers?: Record<string, string> | null;
     deadline: string;
   };
 };
@@ -40,11 +42,20 @@ export default function StudentTakeExamPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const streamRef = useRef<MediaStream | null>(null);
   const finalizedRef = useRef(false);
 
   const deadlineMs = useMemo(() => (data ? new Date(data.session.deadline).getTime() : null), [data]);
   const remainingMs = deadlineMs == null ? null : Math.max(0, deadlineMs - now);
+  const parsedPaper = useMemo(() => {
+    const content = data?.exam.questionPaper.questionContent ?? "";
+    return parseQuestionPaperContent(content);
+  }, [data?.exam.questionPaper.questionContent]);
+  const activeSection = parsedPaper.sections[activeSectionIndex] ?? null;
+  const activeQuestion = activeSection?.questions[activeQuestionIndex] ?? null;
 
   const stopMediaAccess = useCallback(() => {
     if (!streamRef.current) return;
@@ -88,7 +99,7 @@ export default function StudentTakeExamPage() {
       const res = await fetch(`/api/student/exams/${params.examId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason, answers }),
       });
       const json = await res.json();
       setSubmitting(false);
@@ -100,7 +111,7 @@ export default function StudentTakeExamPage() {
       stopMediaAccess();
       router.push("/dashboard/student/exams");
     },
-    [params.examId, router, stopMediaAccess],
+    [answers, params.examId, router, stopMediaAccess],
   );
 
   const startSession = useCallback(async () => {
@@ -132,6 +143,7 @@ export default function StudentTakeExamPage() {
       return;
     }
     setData(json);
+    setAnswers((json.session.submittedAnswers as Record<string, string> | null) ?? {});
 
     if (cameraGranted === false || micGranted === false) {
       await sendEvent("PERMISSION_DENIED", { cameraGranted, micGranted });
@@ -139,6 +151,32 @@ export default function StudentTakeExamPage() {
       if (micGranted === false) await sendEvent("MIC_MISSING", {});
     }
   }, [params.examId, sendEvent]);
+
+  function goPrevious() {
+    if (!activeSection) return;
+    if (activeQuestionIndex > 0) {
+      setActiveQuestionIndex((v) => v - 1);
+      return;
+    }
+    if (activeSectionIndex > 0) {
+      const prevSectionIdx = activeSectionIndex - 1;
+      const prevSection = parsedPaper.sections[prevSectionIdx];
+      setActiveSectionIndex(prevSectionIdx);
+      setActiveQuestionIndex(Math.max(0, prevSection.questions.length - 1));
+    }
+  }
+
+  function saveAndNext() {
+    if (!activeSection) return;
+    if (activeQuestionIndex < activeSection.questions.length - 1) {
+      setActiveQuestionIndex((v) => v + 1);
+      return;
+    }
+    if (activeSectionIndex < parsedPaper.sections.length - 1) {
+      setActiveSectionIndex((v) => v + 1);
+      setActiveQuestionIndex(0);
+    }
+  }
 
   useEffect(() => {
     void startSession();
@@ -205,19 +243,94 @@ export default function StudentTakeExamPage() {
             </p>
           </div>
 
-          <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-            <h3 className="font-semibold">Question Paper</h3>
-            {data.exam.questionPaper.questionPaperUrl ? (
-              <a className="mt-2 inline-block text-sm text-[var(--accent)] underline" href={data.exam.questionPaper.questionPaperUrl} target="_blank" rel="noreferrer">
-                Open uploaded question paper
-              </a>
-            ) : null}
-            {data.exam.questionPaper.questionContent ? (
-              <pre className="mt-3 whitespace-pre-wrap text-sm">{data.exam.questionPaper.questionContent}</pre>
-            ) : (
-              <p className="mt-3 text-sm text-[var(--muted)]">Question content is in uploaded file only.</p>
-            )}
-          </article>
+          <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+            <aside className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+              <p className="text-sm font-semibold">Sections</p>
+              <div className="mt-3 space-y-2">
+                {parsedPaper.sections.map((section, idx) => (
+                  <button
+                    key={section.name}
+                    type="button"
+                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${idx === activeSectionIndex ? "border-[var(--accent)]" : "border-[var(--border)]"}`}
+                    onClick={() => {
+                      setActiveSectionIndex(idx);
+                      setActiveQuestionIndex(0);
+                    }}
+                  >
+                    {section.name}
+                  </button>
+                ))}
+              </div>
+            </aside>
+
+            <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+              {activeSection ? (
+                <>
+                  <h3 className="font-semibold">{activeSection.name}</h3>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {activeSection.questions.map((question, idx) => {
+                      const answered = Boolean(answers[question.id]);
+                      return (
+                        <button
+                          key={question.id}
+                          type="button"
+                          className={`h-8 min-w-8 rounded border px-2 text-xs ${idx === activeQuestionIndex ? "border-[var(--accent)]" : "border-[var(--border)]"} ${answered ? "bg-emerald-50" : ""}`}
+                          onClick={() => setActiveQuestionIndex(idx)}
+                        >
+                          {question.indexInSection}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {activeQuestion ? (
+                    <div className="mt-4 space-y-3">
+                      <p className="whitespace-pre-wrap text-sm">
+                        <strong>Q{activeQuestion.indexInSection}.</strong> {activeQuestion.prompt}
+                      </p>
+                      <div className="space-y-2">
+                        {activeQuestion.options.map((option) => {
+                          const label = option.split(".")[0].trim();
+                          return (
+                            <label key={`${activeQuestion.id}-${option}`} className="flex items-start gap-2 text-sm">
+                              <input
+                                type="radio"
+                                name={activeQuestion.id}
+                                checked={(answers[activeQuestion.id] ?? "") === label}
+                                onChange={() =>
+                                  setAnswers((prev) => ({ ...prev, [activeQuestion.id]: label }))
+                                }
+                              />
+                              <span>{option}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+                          onClick={goPrevious}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+                          onClick={saveAndNext}
+                        >
+                          Save and Next
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-sm text-[var(--muted)]">No parsed questions found in this paper format.</p>
+              )}
+            </article>
+          </div>
 
           <button
             type="button"

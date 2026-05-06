@@ -98,6 +98,9 @@ model ExamSession {
   cameraGranted      Boolean?
   micGranted         Boolean?
   autoSubmittedReason String?
+  submittedAnswers   Json?
+  scoreObtained      Float?
+  scoreMax           Float?
   proctoringEvents   ProctoringEvent[]
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
