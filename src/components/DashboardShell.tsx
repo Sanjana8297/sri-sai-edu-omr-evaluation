@@ -47,6 +47,16 @@ export function DashboardShell({
             {subtitle ? <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p> : null}
           </div>
           <div className="flex items-center gap-2">
+            {badge === "Teacher" ? (
+              <Link
+                href="/dashboard/teacher/manual-builder#ai-question-generator"
+                className="inline-flex items-center gap-1 rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
+                title="AI Question Fetch"
+              >
+                <span aria-hidden>✨</span>
+                <span>AI</span>
+              </Link>
+            ) : null}
             <ThemeToggle />
             <LogoutButton />
           </div>

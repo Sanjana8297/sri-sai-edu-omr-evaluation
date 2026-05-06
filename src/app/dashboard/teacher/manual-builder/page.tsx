@@ -39,6 +39,24 @@ export default function TeacherManualBuilderPage() {
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([]);
   const [bankOffset, setBankOffset] = useState(0);
   const [bankTotal, setBankTotal] = useState(0);
+  const [aiSubject, setAiSubject] = useState("Maths");
+  const [aiYear, setAiYear] = useState(new Date().getFullYear());
+  const [aiChapter, setAiChapter] = useState("");
+  const [aiDifficulty, setAiDifficulty] = useState<"easy" | "medium" | "hard">("medium");
+  const [aiCount, setAiCount] = useState(3);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiQuestions, setAiQuestions] = useState<
+    Array<{
+      questionText: string;
+      options: string[];
+      correctAnswer: "A" | "B" | "C" | "D";
+      chapter: string | null;
+      difficulty: "easy" | "medium" | "hard";
+      sourceName?: string;
+      sourceUrl?: string;
+    }>
+  >([]);
+  const [selectedAiQuestionIndices, setSelectedAiQuestionIndices] = useState<number[]>([]);
   const pageSize = 40;
 
   const loadMe = useCallback(async () => {
@@ -121,6 +139,94 @@ export default function TeacherManualBuilderPage() {
     };
   }
 
+  async function generateAiQuestions() {
+    setErr(null);
+    setAiLoading(true);
+    try {
+      const res = await fetch("/api/teacher/question-bank/ai-fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: track,
+          subject: aiSubject,
+          year: aiYear,
+          topic: aiChapter.trim() || undefined,
+          difficulty: aiDifficulty,
+          count: aiCount,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setErr(j.error ?? "Could not generate AI questions");
+        return;
+      }
+      setAiQuestions(j.questions ?? []);
+      setSelectedAiQuestionIndices([]);
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function addGeneratedQuestionToBank(
+    q: { questionText: string; options: string[]; correctAnswer: "A" | "B" | "C" | "D"; chapter: string | null; difficulty: "easy" | "medium" | "hard" }
+  ) {
+    setErr(null);
+    const res = await fetch("/api/teacher/question-bank", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject: aiSubject,
+        questionText: q.questionText,
+        options: q.options,
+        correctAnswer: q.correctAnswer,
+        chapter: q.chapter,
+        difficulty: q.difficulty,
+        tags: ["teacher-added", "ai-generated"],
+      sourceName: q.sourceName || "Teacher AI Internet Fetch",
+      sourceUrl: q.sourceUrl || "dashboard/teacher/manual-builder",
+      }),
+    });
+    const j = await res.json();
+    if (!res.ok) {
+      setErr(j.error ?? "Could not add question");
+      return;
+    }
+    setMsg("Question added to question bank.");
+    await loadQuestionBank();
+  }
+
+  async function addSelectedAiQuestionsToBank() {
+    if (selectedAiQuestionIndices.length === 0) {
+      setErr("Select at least one fetched question.");
+      return;
+    }
+    setErr(null);
+    let added = 0;
+    for (const idx of selectedAiQuestionIndices) {
+      const q = aiQuestions[idx];
+      if (!q) continue;
+      const res = await fetch("/api/teacher/question-bank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: aiSubject,
+          questionText: q.questionText,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          chapter: q.chapter,
+          difficulty: q.difficulty,
+          year: aiYear,
+          tags: ["teacher-added", "ai-internet-fetch"],
+          sourceName: q.sourceName || "Teacher AI Internet Fetch",
+          sourceUrl: q.sourceUrl || "dashboard/teacher/manual-builder",
+        }),
+      });
+      if (res.ok) added += 1;
+    }
+    setMsg(`${added} selected questions added to question bank.`);
+    await loadQuestionBank();
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -179,6 +285,132 @@ export default function TeacherManualBuilderPage() {
       navItems={teacherNavItems}
     >
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
+        <div id="ai-question-generator" className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+          <p className="text-sm font-semibold">AI Question Generator</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Fetch questions from internet with AI assistance, then select and add to your question bank.
+          </p>
+          <div className="mt-3 grid gap-2 md:grid-cols-4">
+            <label className="text-xs text-[var(--muted)]">
+              Subject
+              <select
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                value={aiSubject}
+                onChange={(e) => setAiSubject(e.target.value)}
+              >
+                {streamSubjects[track].map((subject) => (
+                  <option key={subject}>{subject}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Year
+              <input
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                type="number"
+                min={2000}
+                max={2100}
+                value={aiYear}
+                onChange={(e) => setAiYear(Number(e.target.value || new Date().getFullYear()))}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Chapter / Topic
+              <input
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                placeholder="Optional"
+                value={aiChapter}
+                onChange={(e) => setAiChapter(e.target.value)}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Difficulty
+              <select
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                value={aiDifficulty}
+                onChange={(e) => setAiDifficulty(e.target.value as "easy" | "medium" | "hard")}
+              >
+                <option value="easy">easy</option>
+                <option value="medium">medium</option>
+                <option value="hard">hard</option>
+              </select>
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Question Count
+              <input
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                type="number"
+                min={1}
+                max={10}
+                value={aiCount}
+                onChange={(e) => setAiCount(Number(e.target.value || 1))}
+              />
+            </label>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm text-white disabled:opacity-60"
+              onClick={() => void generateAiQuestions()}
+              disabled={aiLoading}
+              title="AI internet fetch"
+            >
+              {aiLoading ? "Fetching..." : "[AI] Fetch Questions"}
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm disabled:opacity-60"
+              disabled={selectedAiQuestionIndices.length === 0}
+              onClick={() => void addSelectedAiQuestionsToBank()}
+            >
+              Add to Question Bank
+            </button>
+          </div>
+          {aiQuestions.length > 0 ? (
+            <div className="mt-3 max-h-72 space-y-2 overflow-auto">
+              {aiQuestions.map((q, idx) => (
+                <div key={`${q.questionText}-${idx}`} className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
+                  <label className="mb-2 inline-flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedAiQuestionIndices.includes(idx)}
+                      onChange={(e) =>
+                        setSelectedAiQuestionIndices((prev) =>
+                          e.target.checked ? [...prev, idx] : prev.filter((v) => v !== idx)
+                        )
+                      }
+                    />
+                    Select
+                  </label>
+                  <p className="text-sm">{q.questionText}</p>
+                  <ul className="mt-2 text-xs text-[var(--muted)]">
+                    {q.options.map((o, oIdx) => (
+                      <li key={`${o}-${oIdx}`}>({String.fromCharCode(65 + oIdx)}) {o}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-xs">
+                    Correct: <strong>{q.correctAnswer}</strong> · Difficulty: <strong>{q.difficulty}</strong>
+                  </p>
+                  {q.sourceUrl ? (
+                    <a className="mt-1 inline-block text-xs text-[var(--accent)] underline" href={q.sourceUrl} target="_blank" rel="noreferrer">
+                      Source: {q.sourceName || q.sourceUrl}
+                    </a>
+                  ) : null}
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs"
+                      onClick={() => void addGeneratedQuestionToBank(q)}
+                    >
+                      Add this Question
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
         <div className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
           <p className="text-sm font-semibold">Manual Builder</p>
           <p className="mt-1 text-xs text-[var(--muted)]">
