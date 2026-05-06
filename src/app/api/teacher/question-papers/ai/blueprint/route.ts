@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRoles } from "@/lib/api-auth";
 import { getAiConfigError, generateBlueprint } from "@/lib/ai-paper-config";
-import { prisma } from "@/lib/prisma";
 
 type DifficultyLevel = "easy" | "medium" | "hard";
 
@@ -67,6 +66,7 @@ export async function POST(request: Request) {
     durationMinutes?: number;
     difficultyDistribution?: string;
     extraInstructions?: string;
+    examProfile?: "JEE" | "JEE ADV" | "NEET";
   };
   try {
     body = await request.json();
@@ -79,20 +79,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "durationMinutes is required" }, { status: 400 });
   }
 
-  const me = await prisma.teacher.findUnique({
-    where: { id: session.sub },
-    select: { category: true },
-  });
-  if (!me) return NextResponse.json({ error: "Invalid teacher profile" }, { status: 400 });
-
   try {
-    const isJee = me.category === "JEE";
+    const requestedProfile = body.examProfile;
+    const targetCategory =
+      requestedProfile === "NEET" ? "NEET" : "JEE";
+    const isJee = targetCategory === "JEE";
+    const isNeet = targetCategory === "NEET";
     const blueprint = await generateBlueprint({
-      category: me.category as "JEE" | "NEET",
+      category: targetCategory,
       durationMinutes,
       difficultyDistribution: body.difficultyDistribution?.trim(),
       extraInstructions: body.extraInstructions?.trim(),
     });
+    blueprint.category = targetCategory;
 
     if (isJee) {
       const difficultyMix = buildDifficultyMix(
@@ -118,6 +117,30 @@ export async function POST(request: Request) {
         { name: "Physics - Section 2 (Numerical with options)", questionCount: 5, marksPerQuestion: 4, negativeMarks: 1, topicFocus: ["Physics"], difficulty: "medium", difficultyMix },
         { name: "Chemistry - Section 1 (MCQ)", questionCount: 20, marksPerQuestion: 4, negativeMarks: 1, topicFocus: ["Chemistry"], difficulty: "medium", difficultyMix },
         { name: "Chemistry - Section 2 (Numerical with options)", questionCount: 5, marksPerQuestion: 4, negativeMarks: 1, topicFocus: ["Chemistry"], difficulty: "medium", difficultyMix },
+      ];
+    }
+
+    if (isNeet) {
+      const difficultyMix = buildDifficultyMix(
+        body.difficultyDistribution?.trim(),
+        blueprint.sections
+      );
+      blueprint.subject = "Botany, Zoology, Physics, Chemistry";
+      blueprint.durationMinutes = 180;
+      blueprint.totalQuestions = 180;
+      blueprint.totalMarks = 720;
+      blueprint.instructions = [
+        "This paper has 4 parts: Botany, Zoology, Physics, and Chemistry.",
+        "Each subject has 45 questions.",
+        "All questions are single-correct-option MCQs.",
+        "Marking scheme: +4 for correct, 0 for unattempted, -1 for incorrect.",
+        `Within each section, keep difficulty mix as Easy ${difficultyMix.easy}%, Medium ${difficultyMix.medium}%, Hard ${difficultyMix.hard}%.`,
+      ];
+      blueprint.sections = [
+        { name: "Part 1 - Botany", questionCount: 45, marksPerQuestion: 4, negativeMarks: 1, topicFocus: ["Botany"], difficulty: "medium", difficultyMix },
+        { name: "Part 2 - Zoology", questionCount: 45, marksPerQuestion: 4, negativeMarks: 1, topicFocus: ["Zoology"], difficulty: "medium", difficultyMix },
+        { name: "Part 3 - Physics", questionCount: 45, marksPerQuestion: 4, negativeMarks: 1, topicFocus: ["Physics"], difficulty: "medium", difficultyMix },
+        { name: "Part 4 - Chemistry", questionCount: 45, marksPerQuestion: 4, negativeMarks: 1, topicFocus: ["Chemistry"], difficulty: "medium", difficultyMix },
       ];
     }
 

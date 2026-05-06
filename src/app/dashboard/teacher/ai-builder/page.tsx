@@ -59,15 +59,17 @@ export default function TeacherAiBuilderPage() {
   }, [loadMe]);
 
   useEffect(() => {
-    if (track === "JEE") {
+    if (aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV") {
       setAiDurationMinutes(180);
       setAiTotalQuestions(75);
       setAiTotalMarks(300);
     }
-    if (track === "NEET" && aiTrackProfile !== "NEET") {
-      setAiTrackProfile("NEET");
+    if (aiTrackProfile === "NEET") {
+      setAiDurationMinutes(180);
+      setAiTotalQuestions(180);
+      setAiTotalMarks(720);
     }
-  }, [track]);
+  }, [aiTrackProfile]);
 
   async function generateBlueprint() {
     setErr(null);
@@ -80,6 +82,7 @@ export default function TeacherAiBuilderPage() {
         body: JSON.stringify({
           durationMinutes: aiDurationMinutes,
           difficultyDistribution: aiDifficultyDistribution.trim(),
+          examProfile: aiTrackProfile,
           extraInstructions: [aiExtraInstructions.trim(), `Target exam profile: ${aiTrackProfile}`]
             .filter(Boolean)
             .join("\n"),
@@ -227,7 +230,6 @@ export default function TeacherAiBuilderPage() {
                 className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
                 value={aiTrackProfile}
                 onChange={(e) => setAiTrackProfile(e.target.value as "JEE" | "JEE ADV" | "NEET")}
-                disabled={track === "NEET"}
               >
                 <option value="JEE">JEE</option>
                 <option value="JEE ADV">JEE ADV</option>
@@ -236,7 +238,7 @@ export default function TeacherAiBuilderPage() {
             </label>
             <label className="text-xs text-[var(--muted)]">
               Duration (minutes)
-              <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" type="number" min={1} max={480} value={aiDurationMinutes} onChange={(e) => setAiDurationMinutes(Number(e.target.value || 0))} disabled={track === "JEE"} />
+              <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" type="number" min={1} max={480} value={aiDurationMinutes} onChange={(e) => setAiDurationMinutes(Number(e.target.value || 0))} disabled={aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV" || aiTrackProfile === "NEET"} />
             </label>
             <label className="text-xs text-[var(--muted)]">
               Total Questions
@@ -247,7 +249,7 @@ export default function TeacherAiBuilderPage() {
                 max={300}
                 value={aiTotalQuestions}
                 onChange={(e) => setAiTotalQuestions(Number(e.target.value || 0))}
-                disabled={track === "JEE"}
+                disabled={aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV" || aiTrackProfile === "NEET"}
               />
             </label>
             <label className="text-xs text-[var(--muted)]">
@@ -256,14 +258,19 @@ export default function TeacherAiBuilderPage() {
                 className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
                 type="number"
                 value={aiTotalMarks}
-                disabled={track === "JEE"}
+                disabled={aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV" || aiTrackProfile === "NEET"}
                 onChange={(e) => setAiTotalMarks(Number(e.target.value || 0))}
               />
             </label>
           </div>
-          {track === "JEE" ? (
+          {aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV" ? (
             <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs text-[var(--muted)]">
               JEE Main format is fixed: 180 minutes (3 hours), Mathematics/Physics/Chemistry (25 questions each; 20 MCQ + 5 Numerical-with-options per subject), marking +4 / 0 / -1.
+            </div>
+          ) : null}
+          {aiTrackProfile === "NEET" ? (
+            <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs text-[var(--muted)]">
+              NEET format is fixed: 180 minutes (3 hours), 4 parts (Botany, Zoology, Physics, Chemistry), 45 questions each, total 180 questions, marking +4 / 0 / -1, total marks 720.
             </div>
           ) : null}
           <label className="mt-3 block text-xs text-[var(--muted)]">

@@ -86,7 +86,7 @@ export default function TeacherManualBuilderPage() {
 
   const streamSubjects: Record<"JEE" | "NEET", string[]> = {
     JEE: ["Maths", "Physics", "Chemistry"],
-    NEET: ["Physics", "Chemistry", "Biology"],
+    NEET: ["Physics", "Chemistry", "Botany", "Zoology"],
   };
 
   function toggleQuestionSelection(id: number) {

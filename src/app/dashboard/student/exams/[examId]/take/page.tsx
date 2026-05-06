@@ -46,6 +46,12 @@ export default function StudentTakeExamPage() {
   const deadlineMs = useMemo(() => (data ? new Date(data.session.deadline).getTime() : null), [data]);
   const remainingMs = deadlineMs == null ? null : Math.max(0, deadlineMs - now);
 
+  const stopMediaAccess = useCallback(() => {
+    if (!streamRef.current) return;
+    streamRef.current.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  }, []);
+
   const sendEvent = useCallback(
     async (eventType: string, metadata: Record<string, unknown> = {}) => {
       if (!params.examId || finalizedRef.current) return;
@@ -67,11 +73,12 @@ export default function StudentTakeExamPage() {
         });
         if (json.autoSubmitted) {
           finalizedRef.current = true;
+          stopMediaAccess();
           setError("Auto-submitted after repeated tab/window switching.");
         }
       }
     },
-    [data, params.examId],
+    [data, params.examId, stopMediaAccess],
   );
 
   const submitExam = useCallback(
@@ -90,12 +97,10 @@ export default function StudentTakeExamPage() {
         return;
       }
       finalizedRef.current = true;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      stopMediaAccess();
       router.push("/dashboard/student/exams");
     },
-    [params.examId, router],
+    [params.examId, router, stopMediaAccess],
   );
 
   const startSession = useCallback(async () => {
@@ -138,11 +143,9 @@ export default function StudentTakeExamPage() {
   useEffect(() => {
     void startSession();
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      stopMediaAccess();
     };
-  }, [startSession]);
+  }, [startSession, stopMediaAccess]);
 
   useEffect(() => {
     if (!data || finalizedRef.current) return;

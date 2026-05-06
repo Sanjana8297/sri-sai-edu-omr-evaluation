@@ -99,6 +99,75 @@ async function callJsonModel<T>(schemaName: string, schema: object, system: stri
   return JSON.parse(content) as T;
 }
 
+function hasAbbreviationMarkers(text: string): boolean {
+  const lowered = text.toLowerCase();
+  if (/\[\s*\d+\s+more/i.test(text)) return true;
+  if (/\.\.\./.test(text)) return true;
+  if (lowered.includes("more questions")) return true;
+  if (lowered.includes("remaining questions")) return true;
+  if (lowered.includes("truncated")) return true;
+  return false;
+}
+
+function countQuestionsInSection(content: string, sectionName: string): number {
+  const heading = `## ${sectionName}`;
+  const start = content.indexOf(heading);
+  if (start < 0) return 0;
+  const rest = content.slice(start + heading.length);
+  const nextHeadingPos = rest.indexOf("\n## ");
+  const sectionBody = nextHeadingPos >= 0 ? rest.slice(0, nextHeadingPos) : rest;
+  const matches = sectionBody.match(/(?:^|\n)Q\d+\./g);
+  return matches ? matches.length : 0;
+}
+
+function validateComposedCounts(
+  blueprint: PaperBlueprint,
+  questionContent: string,
+  keyContent: string
+): { ok: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  for (const section of blueprint.sections) {
+    const actual = countQuestionsInSection(questionContent, section.name);
+    if (actual !== section.questionCount) {
+      errors.push(
+        `${section.name}: expected ${section.questionCount} questions, found ${actual}`
+      );
+    }
+  }
+
+  const totalExpected = blueprint.sections.reduce((sum, s) => sum + s.questionCount, 0);
+  const totalQuestions = (questionContent.match(/(?:^|\n)Q\d+\./g) ?? []).length;
+  if (totalQuestions !== totalExpected) {
+    errors.push(`Total questions mismatch: expected ${totalExpected}, found ${totalQuestions}`);
+  }
+
+  let totalKey = 0;
+  for (const section of blueprint.sections) {
+    const heading = `## ${section.name}`;
+    const start = keyContent.indexOf(heading);
+    if (start < 0) {
+      errors.push(`Answer key missing section heading: ${section.name}`);
+      continue;
+    }
+    const rest = keyContent.slice(start + heading.length);
+    const nextHeadingPos = rest.indexOf("\n## ");
+    const sectionBody = nextHeadingPos >= 0 ? rest.slice(0, nextHeadingPos) : rest;
+    const entries = sectionBody.match(/(?:^|\n)[^\n]+Q\d+:\s*/g) ?? [];
+    totalKey += entries.length;
+    if (entries.length !== section.questionCount) {
+      errors.push(
+        `Answer key ${section.name}: expected ${section.questionCount} entries, found ${entries.length}`
+      );
+    }
+  }
+  if (totalKey !== totalExpected) {
+    errors.push(`Answer key entries mismatch: expected ${totalExpected}, found ${totalKey}`);
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
 const BLUEPRINT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -116,7 +185,7 @@ const BLUEPRINT_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "questionCount", "marksPerQuestion", "negativeMarks", "topicFocus", "difficulty"],
+        required: ["name", "questionCount", "marksPerQuestion", "negativeMarks", "topicFocus", "difficulty", "difficultyMix"],
         properties: {
           name: { type: "string" },
           questionCount: { type: "integer", minimum: 1, maximum: 200 },
@@ -196,9 +265,42 @@ export async function composeQuestionPaper(input: ComposeInput): Promise<{
   warnings: string[];
 }> {
   const system =
-    "You write high-quality exam papers from a blueprint. Match counts and marks exactly. For each section, distribute question difficulties according to section.difficultyMix (apply the same mix within that section). Every question, including numerical section questions, must have options with only one correct option. Return only strict JSON.";
+    "You write high-quality exam papers from a blueprint. Match counts and marks exactly. For each section, distribute question difficulties according to section.difficultyMix (apply the same mix within that section). Every question, including numerical section questions, must have options with only one correct option. IMPORTANT: Do not abbreviate, summarize, truncate, or use placeholders like '... [N more questions]'. Output the FULL paper and FULL answer key with all questions explicitly listed. Format rules: questionContent must contain each section with exact heading '## <section name>' in blueprint order. Under each section, list questions as 'Q1.', 'Q2.' ... local to that section. keyContent must be section-wise with exact heading '## <section name>' for every section and answers in that section as '<section name> Q1: <answer>' ... '<section name> QN: <answer>'. Return only strict JSON.";
   const user = JSON.stringify(input);
-  return callJsonModel("paper_compose", COMPOSE_SCHEMA, system, user);
+  const first = await callJsonModel<{
+    questionContent: string;
+    keyContent: string;
+    warnings: string[];
+  }>("paper_compose", COMPOSE_SCHEMA, system, user);
+
+  const firstCounts = validateComposedCounts(input.blueprint, first.questionContent, first.keyContent);
+  if (
+    !hasAbbreviationMarkers(first.questionContent) &&
+    !hasAbbreviationMarkers(first.keyContent) &&
+    firstCounts.ok
+  ) {
+    return first;
+  }
+
+  const retrySystem =
+    `${system} This is a retry because your previous output was abbreviated or had count mismatch. You MUST output every question and every answer entry with no omissions, and exact section counts.`;
+  const second = await callJsonModel<{
+    questionContent: string;
+    keyContent: string;
+    warnings: string[];
+  }>("paper_compose", COMPOSE_SCHEMA, retrySystem, user);
+
+  const secondCounts = validateComposedCounts(input.blueprint, second.questionContent, second.keyContent);
+  if (
+    hasAbbreviationMarkers(second.questionContent) ||
+    hasAbbreviationMarkers(second.keyContent) ||
+    !secondCounts.ok
+  ) {
+    throw new Error(
+      `Compose output invalid. ${secondCounts.errors.join("; ") || "Abbreviated output detected."}`
+    );
+  }
+  return second;
 }
 
 export async function validateQuestionPaper(input: {

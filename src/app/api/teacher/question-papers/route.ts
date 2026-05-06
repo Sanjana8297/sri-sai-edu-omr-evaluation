@@ -255,3 +255,31 @@ export async function PATCH(request: Request) {
   });
   return NextResponse.json({ paper: updated });
 }
+
+export async function DELETE(request: Request) {
+  const { session, response } = await requireRoles(["TEACHER"]);
+  if (response) return response;
+
+  let body: { paperId?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const paperId = body.paperId?.trim();
+  if (!paperId) {
+    return NextResponse.json({ error: "paperId is required" }, { status: 400 });
+  }
+
+  const paper = await prisma.questionPaper.findFirst({
+    where: { id: paperId, teacherId: session.sub },
+    select: { id: true },
+  });
+  if (!paper) {
+    return NextResponse.json({ error: "Question paper not found under your account" }, { status: 404 });
+  }
+
+  await prisma.questionPaper.delete({ where: { id: paperId } });
+  return NextResponse.json({ ok: true });
+}
