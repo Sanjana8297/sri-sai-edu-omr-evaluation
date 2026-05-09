@@ -352,9 +352,9 @@ export async function validateQuestionPaper(input: {
     let remaining = questionCount - assigned;
     if (remaining > 0) {
       const order: Array<{ level: DifficultyLevel; remainder: number; weight: number }> = [
-        { level: "easy", remainder: raw.easy - base.easy, weight: mix.easy },
-        { level: "medium", remainder: raw.medium - base.medium, weight: mix.medium },
-        { level: "hard", remainder: raw.hard - base.hard, weight: mix.hard },
+        { level: "easy" as DifficultyLevel, remainder: raw.easy - base.easy, weight: mix.easy },
+        { level: "medium" as DifficultyLevel, remainder: raw.medium - base.medium, weight: mix.medium },
+        { level: "hard" as DifficultyLevel, remainder: raw.hard - base.hard, weight: mix.hard },
       ].sort((a, b) => {
         if (b.remainder !== a.remainder) return b.remainder - a.remainder;
         return b.weight - a.weight;
