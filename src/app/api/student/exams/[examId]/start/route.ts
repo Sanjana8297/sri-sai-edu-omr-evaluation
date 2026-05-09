@@ -70,6 +70,7 @@ export async function POST(request: Request, context: { params: Promise<{ examId
       startedAt: sessionRow.startedAt.toISOString(),
       submittedAt: toIso(sessionRow.submittedAt),
       violationCount: sessionRow.violationCount,
+      autoSubmittedReason: sessionRow.autoSubmittedReason,
       cameraGranted: sessionRow.cameraGranted,
       micGranted: sessionRow.micGranted,
       submittedAnswers: sessionRow.submittedAnswers,

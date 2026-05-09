@@ -59,16 +59,32 @@ export async function POST(request: Request, context: { params: Promise<{ examId
   }
   const scoreMax = keyEntries.length * 4;
 
-  const updated = await prisma.examSession.update({
-    where: { id: sessionRow.id },
-    data: {
-      status,
-      submittedAt: now,
-      autoSubmittedReason,
-      submittedAnswers: submittedAnswers as Prisma.InputJsonValue,
-      scoreObtained: obtained,
-      scoreMax,
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    const finalized = await tx.examSession.update({
+      where: { id: sessionRow.id },
+      data: {
+        status,
+        submittedAt: now,
+        autoSubmittedReason,
+        submittedAnswers: submittedAnswers as Prisma.InputJsonValue,
+        scoreObtained: obtained,
+        scoreMax,
+      },
+    });
+
+    await tx.examAttempt.create({
+      data: {
+        studentId: sessionRow.studentId,
+        category: sessionRow.exam.category,
+        title: sessionRow.exam.title,
+        examDate: now,
+        marksObtained: obtained,
+        maxMarks: scoreMax,
+        analysis: `Recorded from ${status === "AUTO_SUBMITTED" ? "auto-submitted" : "submitted"} exam session ${finalized.id}.`,
+      },
+    });
+
+    return finalized;
   });
 
   return NextResponse.json({

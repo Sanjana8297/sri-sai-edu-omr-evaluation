@@ -220,16 +220,6 @@ const COMPOSE_SCHEMA = {
   },
 };
 
-const VALIDATE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["issues", "passes"],
-  properties: {
-    issues: { type: "array", items: { type: "string" } },
-    passes: { type: "array", items: { type: "string" } },
-  },
-};
-
 export async function generateBlueprint(input: {
   category: Category;
   durationMinutes: number;
@@ -308,8 +298,161 @@ export async function validateQuestionPaper(input: {
   questionContent: string;
   keyContent?: string;
 }): Promise<{ issues: string[]; passes: string[] }> {
-  const system =
-    "You validate an exam paper against the blueprint. Report concrete mismatches including whether each section follows its difficultyMix distribution. Return concise pass checks and strict JSON.";
-  const user = JSON.stringify(input);
-  return callJsonModel("paper_validate", VALIDATE_SCHEMA, system, user);
+  const issues: string[] = [];
+  const passes: string[] = [];
+
+  function getSectionBody(content: string, sectionName: string): string | null {
+    const heading = `## ${sectionName}`;
+    const start = content.indexOf(heading);
+    if (start < 0) return null;
+    const rest = content.slice(start + heading.length);
+    const nextHeadingPos = rest.indexOf("\n## ");
+    return nextHeadingPos >= 0 ? rest.slice(0, nextHeadingPos) : rest;
+  }
+
+  function getDifficultyCountsFromSection(sectionBody: string): {
+    counts: Record<DifficultyLevel, number>;
+    totalQuestions: number;
+    inferredQuestions: number;
+  } {
+    const questionRegex = /(?:^|\n)(Q\d+\.[\s\S]*?)(?=(?:\nQ\d+\.|\n## |\s*$))/g;
+    const matches = [...sectionBody.matchAll(questionRegex)];
+    const counts: Record<DifficultyLevel, number> = { easy: 0, medium: 0, hard: 0 };
+    let inferredQuestions = 0;
+
+    for (const m of matches) {
+      const block = m[1]?.toLowerCase() ?? "";
+      const isEasy = /\b(?:difficulty\s*[:=-]?\s*easy|easy\s*level|\[easy\]|\(easy\))\b/i.test(block);
+      const isMedium = /\b(?:difficulty\s*[:=-]?\s*medium|medium\s*level|\[medium\]|\(medium\))\b/i.test(block);
+      const isHard = /\b(?:difficulty\s*[:=-]?\s*hard|hard\s*level|\[hard\]|\(hard\))\b/i.test(block);
+      const hitCount = Number(isEasy) + Number(isMedium) + Number(isHard);
+      if (hitCount === 1) {
+        inferredQuestions += 1;
+        if (isEasy) counts.easy += 1;
+        else if (isMedium) counts.medium += 1;
+        else counts.hard += 1;
+      }
+    }
+
+    return { counts, totalQuestions: matches.length, inferredQuestions };
+  }
+
+  function expectedDifficultyCounts(questionCount: number, mix: { easy: number; medium: number; hard: number }) {
+    const raw = {
+      easy: (questionCount * mix.easy) / 100,
+      medium: (questionCount * mix.medium) / 100,
+      hard: (questionCount * mix.hard) / 100,
+    };
+    const base: Record<DifficultyLevel, number> = {
+      easy: Math.floor(raw.easy),
+      medium: Math.floor(raw.medium),
+      hard: Math.floor(raw.hard),
+    };
+    let assigned = base.easy + base.medium + base.hard;
+    let remaining = questionCount - assigned;
+    if (remaining > 0) {
+      const order: Array<{ level: DifficultyLevel; remainder: number; weight: number }> = [
+        { level: "easy", remainder: raw.easy - base.easy, weight: mix.easy },
+        { level: "medium", remainder: raw.medium - base.medium, weight: mix.medium },
+        { level: "hard", remainder: raw.hard - base.hard, weight: mix.hard },
+      ].sort((a, b) => {
+        if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+        return b.weight - a.weight;
+      });
+      let i = 0;
+      while (remaining > 0) {
+        const level = order[i % order.length].level;
+        base[level] += 1;
+        remaining -= 1;
+        i += 1;
+      }
+      assigned = base.easy + base.medium + base.hard;
+    }
+    if (assigned !== questionCount) {
+      base.hard += questionCount - assigned;
+    }
+    return base;
+  }
+
+  const bySubjectExpected = new Map<string, number>();
+  const bySubjectActual = new Map<string, number>();
+  for (const section of input.blueprint.sections) {
+    const sectionBody = getSectionBody(input.questionContent, section.name);
+    if (!sectionBody) {
+      issues.push(`${section.name}: Section heading not found in paper.`);
+      continue;
+    }
+
+    const actualCount = (sectionBody.match(/(?:^|\n)Q\d+\./g) ?? []).length;
+    if (actualCount !== section.questionCount) {
+      issues.push(
+        `${section.name}: expected ${section.questionCount} questions, found ${actualCount}.`
+      );
+    } else {
+      passes.push(`${section.name}: question count matches expected ${section.questionCount}.`);
+    }
+
+    const subject = section.name.split(" - ")[0]?.trim();
+    if (subject) {
+      bySubjectExpected.set(subject, (bySubjectExpected.get(subject) ?? 0) + section.questionCount);
+      bySubjectActual.set(subject, (bySubjectActual.get(subject) ?? 0) + actualCount);
+    }
+
+    if (section.difficultyMix) {
+      const { counts, totalQuestions, inferredQuestions } = getDifficultyCountsFromSection(sectionBody);
+      const expected = expectedDifficultyCounts(section.questionCount, section.difficultyMix);
+      if (totalQuestions !== section.questionCount) {
+        continue;
+      }
+      if (inferredQuestions !== totalQuestions) {
+        passes.push(
+          `${section.name}: difficulty mix check skipped because explicit per-question difficulty labels were not found for all questions.`
+        );
+        continue;
+      }
+      if (
+        counts.easy !== expected.easy ||
+        counts.medium !== expected.medium ||
+        counts.hard !== expected.hard
+      ) {
+        issues.push(
+          `Difficulty mix mismatch in ${section.name}: expected Easy ${expected.easy}, Medium ${expected.medium}, Hard ${expected.hard}; found Easy ${counts.easy}, Medium ${counts.medium}, Hard ${counts.hard}.`
+        );
+      } else {
+        passes.push(
+          `${section.name}: difficulty mix matches expected Easy ${expected.easy}, Medium ${expected.medium}, Hard ${expected.hard}.`
+        );
+      }
+    }
+  }
+
+  for (const [subject, expected] of bySubjectExpected.entries()) {
+    const actual = bySubjectActual.get(subject) ?? 0;
+    if (actual !== expected) {
+      issues.push(
+        `Total questions per subject mismatch in ${subject}: expected ${expected}, found ${actual}.`
+      );
+    } else {
+      passes.push(`${subject}: total questions match expected ${expected}.`);
+    }
+  }
+
+  const totalExpected = input.blueprint.sections.reduce((sum, s) => sum + s.questionCount, 0);
+  const totalActual = (input.questionContent.match(/(?:^|\n)Q\d+\./g) ?? []).length;
+  if (totalActual !== totalExpected) {
+    issues.push(`Total questions mismatch: expected ${totalExpected}, found ${totalActual}.`);
+  } else {
+    passes.push(`Total questions match expected ${totalExpected}.`);
+  }
+
+  if (input.keyContent) {
+    const keyValidation = validateComposedCounts(input.blueprint, input.questionContent, input.keyContent);
+    if (!keyValidation.ok) {
+      issues.push(...keyValidation.errors);
+    } else {
+      passes.push("Answer key sections and entry counts match the blueprint.");
+    }
+  }
+
+  return { issues, passes };
 }

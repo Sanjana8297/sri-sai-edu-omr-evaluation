@@ -4,6 +4,7 @@ import { requireRoles } from "@/lib/api-auth";
 import { VIOLATION_LIMIT, computeSessionDeadline, toIso } from "@/lib/proctoring";
 import { Prisma } from "@prisma/client";
 import type { ProctoringEventType } from "@prisma/client";
+import { parseAnswerKeyByQuestion } from "@/lib/exam-paper-parser";
 
 const strikeEvents: ProctoringEventType[] = ["TAB_HIDDEN", "WINDOW_BLUR"];
 
@@ -25,7 +26,7 @@ export async function POST(request: Request, context: { params: Promise<{ examId
 
   const sessionRow = await prisma.examSession.findFirst({
     where: { examId, studentId: session.sub },
-    include: { exam: true },
+    include: { exam: { include: { questionPaper: true } } },
   });
   if (!sessionRow) return NextResponse.json({ error: "Exam session not found" }, { status: 404 });
   if (sessionRow.status !== "IN_PROGRESS") {
@@ -52,6 +53,24 @@ export async function POST(request: Request, context: { params: Promise<{ examId
     });
 
     if (nextViolationCount >= VIOLATION_LIMIT) {
+      const existingAnswers =
+        (sessionRow.submittedAnswers as Record<string, string> | null) ?? {};
+      const answerKey = parseAnswerKeyByQuestion(sessionRow.exam.questionPaper.keyContent ?? "");
+      const keyEntries = Object.entries(answerKey);
+      let obtained = 0;
+      for (const [questionId, expected] of keyEntries) {
+        const selectedRaw = existingAnswers[questionId];
+        if (!selectedRaw) continue;
+        const selected = selectedRaw.trim().toUpperCase();
+        const normalizedExpected = expected.trim().toUpperCase();
+        if (selected === normalizedExpected) {
+          obtained += 4;
+        } else {
+          obtained -= 1;
+        }
+      }
+      const scoreMax = keyEntries.length * 4;
+
       const autoSubmitted = await tx.examSession.update({
         where: { id: sessionRow.id },
         data: {
@@ -59,8 +78,23 @@ export async function POST(request: Request, context: { params: Promise<{ examId
           status: "AUTO_SUBMITTED",
           submittedAt: new Date(),
           autoSubmittedReason: "VIOLATION_LIMIT_REACHED",
+          scoreObtained: obtained,
+          scoreMax,
         },
       });
+
+      await tx.examAttempt.create({
+        data: {
+          studentId: sessionRow.studentId,
+          category: sessionRow.exam.category,
+          title: sessionRow.exam.title,
+          examDate: autoSubmitted.submittedAt ?? new Date(),
+          marksObtained: obtained,
+          maxMarks: scoreMax,
+          analysis: `Recorded from auto-submitted exam session ${autoSubmitted.id} after proctoring violations.`,
+        },
+      });
+
       return { session: autoSubmitted, autoSubmitted: true };
     }
 

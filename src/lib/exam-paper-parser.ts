@@ -10,6 +10,10 @@ function normalizeLabel(value: string): string {
   return value.trim().toUpperCase();
 }
 
+function letterByIndex(index: number): string {
+  return String.fromCharCode(65 + index);
+}
+
 export function parseQuestionPaperContent(content: string): {
   sections: Array<{ name: string; questions: ParsedQuestion[] }>;
   flatQuestions: ParsedQuestion[];
@@ -30,7 +34,7 @@ export function parseQuestionPaperContent(content: string): {
       continue;
     }
 
-    const questionMatch = line.match(/^Q(\d+)\.\s*(.+)$/);
+    const questionMatch = line.match(/^Q(\d+)[\.\):\-]\s*(.+)$/i);
     if (questionMatch && currentSection) {
       if (currentQuestion) currentSection.questions.push(currentQuestion);
       currentQuestion = {
@@ -43,9 +47,19 @@ export function parseQuestionPaperContent(content: string): {
       continue;
     }
 
-    const optionMatch = line.match(/^\(([A-D])\)\s*(.+)$/i);
+    const optionMatch =
+      line.match(/^\(([A-H])\)\s*(.+)$/i) ??
+      line.match(/^([A-H])[\.\)]\s*(.+)$/i) ??
+      line.match(/^option\s*([A-H])\s*[:\.\-\)]\s*(.+)$/i);
     if (optionMatch && currentQuestion) {
       currentQuestion.options.push(`${normalizeLabel(optionMatch[1])}. ${optionMatch[2].trim()}`);
+      continue;
+    }
+
+    const numericOptionMatch = line.match(/^([1-9][0-9]?)\s*[\.\)]\s*(.+)$/);
+    if (numericOptionMatch && currentQuestion && currentQuestion.options.length < 8) {
+      const label = letterByIndex(currentQuestion.options.length);
+      currentQuestion.options.push(`${label}. ${numericOptionMatch[2].trim()}`);
       continue;
     }
 

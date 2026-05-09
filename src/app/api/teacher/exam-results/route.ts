@@ -11,8 +11,8 @@ export async function GET(request: Request) {
   const examId = searchParams.get("examId")?.trim();
 
   const whereClause = examId
-    ? { exam: { id: examId, teacherId: session.sub } }
-    : { exam: { teacherId: session.sub } };
+    ? { exam: { is: { id: examId, teacherId: session.sub } } }
+    : { exam: { is: { teacherId: session.sub } } };
 
   const sessions = await prisma.examSession.findMany({
     where: whereClause,

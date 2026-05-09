@@ -27,6 +27,7 @@ type StartResponse = {
     startedAt: string;
     submittedAt: string | null;
     violationCount: number;
+    autoSubmittedReason?: string | null;
     cameraGranted: boolean | null;
     micGranted: boolean | null;
     submittedAnswers?: Record<string, string> | null;
@@ -72,24 +73,27 @@ export default function StudentTakeExamPage() {
         body: JSON.stringify({ eventType, metadata }),
       });
       const json = await res.json();
-      if (res.ok && data) {
-        setData({
-          ...data,
-          session: {
-            ...data.session,
-            status: json.session.status,
-            submittedAt: json.session.submittedAt,
-            violationCount: json.session.violationCount,
-          },
+      if (res.ok) {
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            session: {
+              ...prev.session,
+              status: json.session.status,
+              submittedAt: json.session.submittedAt,
+              violationCount: json.session.violationCount,
+            },
+          };
         });
         if (json.autoSubmitted) {
           finalizedRef.current = true;
           stopMediaAccess();
-          setError("Auto-submitted after repeated tab/window switching.");
+          setError("Your exam was auto-submitted because you switched tabs/windows.");
         }
       }
     },
-    [data, params.examId, stopMediaAccess],
+    [params.examId, stopMediaAccess],
   );
 
   const submitExam = useCallback(
@@ -144,6 +148,15 @@ export default function StudentTakeExamPage() {
     }
     setData(json);
     setAnswers((json.session.submittedAnswers as Record<string, string> | null) ?? {});
+
+    if (json.session.status !== "IN_PROGRESS") {
+      finalizedRef.current = true;
+      stopMediaAccess();
+      if (json.session.status === "AUTO_SUBMITTED" && json.session.autoSubmittedReason === "VIOLATION_LIMIT_REACHED") {
+        setError("Your exam was auto-submitted because you switched tabs/windows.");
+      }
+      return;
+    }
 
     if (cameraGranted === false || micGranted === false) {
       await sendEvent("PERMISSION_DENIED", { cameraGranted, micGranted });
@@ -219,7 +232,7 @@ export default function StudentTakeExamPage() {
   }, [data, sendEvent]);
 
   return (
-    <DashboardShell badge="Student" title="Exam Runtime" subtitle="Stay in this tab. Violations are tracked." navItems={studentNavItems}>
+    <DashboardShell badge="Student" title="Exam Runtime" subtitle="Do not switch tabs/windows. One violation auto-submits the exam." navItems={studentNavItems}>
       {loading ? <p className="text-sm text-[var(--muted)]">Starting your exam session...</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {data ? (
@@ -236,7 +249,7 @@ export default function StudentTakeExamPage() {
               </strong>
             </p>
             <p className="text-sm">
-              Violations: <strong>{data.session.violationCount}</strong> / 3
+              Violations: <strong>{data.session.violationCount}</strong> / 1
             </p>
             <p className="text-sm text-[var(--muted)]">
               Camera: {data.session.cameraGranted ? "On" : "Denied"} · Mic: {data.session.micGranted ? "On" : "Denied"}
@@ -291,18 +304,36 @@ export default function StudentTakeExamPage() {
                       <div className="space-y-2">
                         {activeQuestion.options.map((option) => {
                           const label = option.split(".")[0].trim();
+                          const isChecked = (answers[activeQuestion.id] ?? "") === label;
                           return (
-                            <label key={`${activeQuestion.id}-${option}`} className="flex items-start gap-2 text-sm">
-                              <input
-                                type="radio"
-                                name={activeQuestion.id}
-                                checked={(answers[activeQuestion.id] ?? "") === label}
-                                onChange={() =>
-                                  setAnswers((prev) => ({ ...prev, [activeQuestion.id]: label }))
-                                }
-                              />
+                            <button
+                              key={`${activeQuestion.id}-${option}`}
+                              type="button"
+                              aria-pressed={isChecked}
+                              className="flex w-full items-start gap-3 rounded-lg border border-[var(--border)] px-3 py-2 text-left text-sm"
+                              onClick={() =>
+                                setAnswers((prev) => {
+                                  if (isChecked) {
+                                    const next = { ...prev };
+                                    delete next[activeQuestion.id];
+                                    return next;
+                                  }
+                                  return { ...prev, [activeQuestion.id]: label };
+                                })
+                              }
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold ${
+                                  isChecked
+                                    ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+                                    : "border-slate-400 bg-transparent text-transparent"
+                                }`}
+                              >
+                                ✓
+                              </span>
                               <span>{option}</span>
-                            </label>
+                            </button>
                           );
                         })}
                       </div>
