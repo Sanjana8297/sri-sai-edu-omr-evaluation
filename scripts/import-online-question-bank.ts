@@ -9,6 +9,10 @@ import { PrismaClient } from "@prisma/client";
 type Subject = "Maths" | "Physics" | "Chemistry" | "Botany" | "Zoology";
 type JeeMainSubject = "Maths" | "Physics" | "Chemistry";
 
+function isJeeMainSubject(s: Subject): s is JeeMainSubject {
+  return s === "Maths" || s === "Physics" || s === "Chemistry";
+}
+
 type QuestionRow = {
   exam: "JEE" | "NEET";
   subject: Subject;
@@ -397,7 +401,7 @@ async function main(): Promise<void> {
   const bySubjectHash = new Map<string, QuestionRow>();
 
   for (const q of all) {
-    if (!desiredSubjects.includes(q.subject)) continue;
+    if (!isJeeMainSubject(q.subject)) continue;
     const hash = hashText(q.question_text);
     const key = `${q.subject}:${hash}`;
     frequency.set(key, (frequency.get(key) ?? 0) + 1);
