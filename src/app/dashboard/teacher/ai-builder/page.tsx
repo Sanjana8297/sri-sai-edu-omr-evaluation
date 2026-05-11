@@ -215,7 +215,7 @@ export default function TeacherAiBuilderPage() {
   return (
     <DashboardShell
       badge="Teacher"
-      title="AI Builder Configuration"
+      title="AI Question Paper Generator"
       subtitle="Generate blueprint, compose paper, validate, and save."
       navItems={teacherNavItems}
     >

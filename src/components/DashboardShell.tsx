@@ -49,7 +49,7 @@ export function DashboardShell({
           <div className="flex items-center gap-2">
             {badge === "Teacher" ? (
               <Link
-                href="/dashboard/teacher/manual-builder#ai-question-generator"
+                href="/dashboard/teacher/fetch-new-question-using-ai"
                 className="inline-flex items-center gap-1 rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
                 title="AI Question Fetch"
               >

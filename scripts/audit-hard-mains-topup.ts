@@ -1,0 +1,29 @@
+import "dotenv/config";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+async function main() {
+  const rows = await prisma.$queryRawUnsafe<Array<{ subject: string; cnt: number }>>(
+    `
+      SELECT subject, COUNT(*)::int AS cnt
+      FROM question_bank
+      WHERE exam = 'JEE'
+        AND exam_type = 'mains'
+        AND difficulty = 'hard'
+        AND source_name = 'AI generated JEE mains hard top-up'
+      GROUP BY subject
+      ORDER BY subject
+    `
+  );
+  console.log(JSON.stringify(rows, null, 2));
+}
+
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

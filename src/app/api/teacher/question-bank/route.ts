@@ -11,6 +11,16 @@ function parseBool(value: string | null): boolean | null {
   return null;
 }
 
+type JeeExamType = "mains" | "advanced";
+
+function parseJeeExamType(value: string | null): JeeExamType | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "mains") return "mains";
+  if (normalized === "advanced") return "advanced";
+  return null;
+}
+
 function normalizeText(input: string): string {
   return input
     .toLowerCase()
@@ -46,6 +56,7 @@ export async function GET(request: Request) {
   const offset = Math.max(Number(searchParams.get("offset") ?? "0"), 0);
   const important = parseBool(searchParams.get("important"));
   const repeated = parseBool(searchParams.get("repeated"));
+  const jeeExamType = parseJeeExamType(searchParams.get("jeeExamType"));
 
   const conditions: Prisma.Sql[] = [Prisma.sql`exam = ${me.category}`];
   if (subject) conditions.push(Prisma.sql`subject = ${subject}`);
@@ -60,6 +71,12 @@ export async function GET(request: Request) {
   }
   if (important !== null) conditions.push(Prisma.sql`is_important = ${important}`);
   if (repeated !== null) conditions.push(Prisma.sql`is_repeated = ${repeated}`);
+  if (jeeExamType === "mains") {
+    conditions.push(Prisma.sql`exam_type = 'mains'`);
+  }
+  if (jeeExamType === "advanced") {
+    conditions.push(Prisma.sql`exam_type = 'advanced'`);
+  }
 
   const whereClause =
     conditions.length > 0

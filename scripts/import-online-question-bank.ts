@@ -7,10 +7,12 @@ import { tmpdir } from "node:os";
 import { PrismaClient } from "@prisma/client";
 
 type Subject = "Maths" | "Physics" | "Chemistry" | "Botany" | "Zoology";
+type JeeMainSubject = "Maths" | "Physics" | "Chemistry";
 
 type QuestionRow = {
   exam: "JEE" | "NEET";
   subject: Subject;
+  exam_type?: "mains" | "advanced" | null;
   year: number | null;
   question_text: string;
   options: string[] | null;
@@ -95,6 +97,34 @@ type GeneratedQuestion = {
   difficulty: Difficulty;
 };
 
+function inferJeeExamType(input: {
+  questionText: string;
+  chapter?: string | null;
+  sourceName?: string | null;
+  sourceUrl?: string | null;
+  tags?: string[];
+}): "mains" | "advanced" {
+  const sample = normalizeText(
+    [
+      input.questionText,
+      input.chapter ?? "",
+      input.sourceName ?? "",
+      input.sourceUrl ?? "",
+      ...(input.tags ?? []),
+    ].join(" ")
+  );
+  const advancedHints = [
+    "advanced",
+    "integer type",
+    "multiple correct",
+    "matrix match",
+    "comprehension",
+    "paper 2",
+  ];
+  if (advancedHints.some((hint) => sample.includes(hint))) return "advanced";
+  return "mains";
+}
+
 function buildDeterministicTopupQuestion(subject: Subject, serial: number): GeneratedQuestion {
   const topicBank: Record<Subject, string[]> = {
     Maths: ["Calculus", "Algebra", "Coordinate Geometry", "Probability", "Matrices", "Trigonometry"],
@@ -148,6 +178,7 @@ async function fetchNeetBiology(): Promise<QuestionRow[]> {
       questions.push({
         exam: "NEET",
         subject,
+        exam_type: null,
         year: null,
         question_text: item.row.question,
         options: item.row.choices ?? null,
@@ -193,6 +224,13 @@ function fetchJeebench(): QuestionRow[] {
     result.push({
       exam: "JEE",
       subject,
+      exam_type: inferJeeExamType({
+        questionText: item.question,
+        chapter: item.description?.trim() || null,
+        sourceName: "dair-iitd/jeebench (GitHub)",
+        sourceUrl: "https://github.com/dair-iitd/jeebench",
+        tags: ["previous-year", "online-dataset", "jee"],
+      }),
       year: null,
       question_text: item.question,
       options: null,
@@ -262,6 +300,7 @@ async function ensureTable(): Promise<void> {
   `);
   await prisma.$executeRawUnsafe(`ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS chapter TEXT NULL;`);
   await prisma.$executeRawUnsafe(`ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS difficulty TEXT NULL;`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS exam_type TEXT NULL;`);
 }
 
 function getOpenAiApiKey(): string {
@@ -349,11 +388,10 @@ Generate exactly ${input.count} unique ${input.exam} ${input.subject} MCQ questi
 
 async function main(): Promise<void> {
   console.log("Fetching online question datasets...");
-  const [neetBiology, jeeQuestions] = await Promise.all([fetchNeetBiology(), Promise.resolve(fetchJeebench())]);
-  const all = [...neetBiology, ...jeeQuestions];
-  const desiredSubjects: Subject[] = ["Maths", "Physics", "Chemistry", "Botany", "Zoology"];
+  const jeeQuestions = fetchJeebench();
+  const all = [...jeeQuestions];
+  const desiredSubjects: JeeMainSubject[] = ["Maths", "Physics", "Chemistry"];
   const targetPerSubject = 1000;
-  const biologyToDelete = "Biology";
 
   const frequency = new Map<string, number>();
   const bySubjectHash = new Map<string, QuestionRow>();
@@ -369,7 +407,7 @@ async function main(): Promise<void> {
   await ensureTable();
   await prisma.$executeRawUnsafe(
     `DELETE FROM question_bank WHERE subject = ANY($1::text[])`,
-    [biologyToDelete, ...desiredSubjects]
+    desiredSubjects
   );
 
   let inserted = 0;
@@ -390,14 +428,15 @@ async function main(): Promise<void> {
     await prisma.$executeRawUnsafe(
       `
       INSERT INTO question_bank (
-        exam, subject, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
+        exam, subject, exam_type, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
         content_hash, repetition_count, is_repeated, is_important, updated_at
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, NOW()
+        $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, NOW()
       )
       ON CONFLICT (content_hash)
       DO UPDATE SET
+        exam_type = COALESCE(EXCLUDED.exam_type, question_bank.exam_type),
         chapter = COALESCE(EXCLUDED.chapter, question_bank.chapter),
         difficulty = COALESCE(EXCLUDED.difficulty, question_bank.difficulty),
         repetition_count = EXCLUDED.repetition_count,
@@ -407,6 +446,15 @@ async function main(): Promise<void> {
       `,
       base.exam,
       base.subject,
+      base.exam === "JEE"
+        ? inferJeeExamType({
+            questionText: base.question_text,
+            chapter,
+            sourceName: base.source_name,
+            sourceUrl: base.source_url,
+            tags: base.tags,
+          })
+        : null,
       year,
       chapter,
       difficulty,
@@ -426,12 +474,10 @@ async function main(): Promise<void> {
     }
   }
 
-  const examForSubject: Record<Subject, "JEE" | "NEET"> = {
+  const examForSubject: Record<JeeMainSubject, "JEE"> = {
     Maths: "JEE",
-    Physics: "NEET",
-    Chemistry: "NEET",
-    Botany: "NEET",
-    Zoology: "NEET",
+    Physics: "JEE",
+    Chemistry: "JEE",
   };
 
   for (const subject of desiredSubjects) {
@@ -451,16 +497,17 @@ async function main(): Promise<void> {
       await prisma.$executeRawUnsafe(
         `
         INSERT INTO question_bank (
-          exam, subject, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
+          exam, subject, exam_type, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
           content_hash, repetition_count, is_repeated, is_important, updated_at
         )
         VALUES (
-          $1, $2, NULL, $3, $4, $5, $6::jsonb, $7, $8, $9, $10::jsonb, $11, 1, false, false, NOW()
+          $1, $2, $3, NULL, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::jsonb, $12, 1, false, false, NOW()
         )
         ON CONFLICT (content_hash) DO NOTHING
         `,
         examForSubject[subject],
         subject,
+        "mains",
         q.chapter?.trim() || null,
         q.difficulty,
         q.question_text.trim(),
@@ -500,6 +547,23 @@ async function main(): Promise<void> {
       targetPerSubject
     );
   }
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE question_bank
+    SET exam_type = CASE
+      WHEN exam <> 'JEE' THEN NULL
+      WHEN lower(coalesce(question_text, '')) LIKE '%advanced%'
+        OR lower(coalesce(question_text, '')) LIKE '%integer type%'
+        OR lower(coalesce(question_text, '')) LIKE '%multiple correct%'
+        OR lower(coalesce(source_name, '')) LIKE '%advanced%'
+        OR lower(coalesce(source_url, '')) LIKE '%advanced%'
+        OR lower(coalesce(chapter, '')) LIKE '%advanced%'
+        OR lower(coalesce(tags::text, '')) LIKE '%advanced%'
+      THEN 'advanced'
+      ELSE 'mains'
+    END
+    WHERE subject IN ('Maths', 'Physics', 'Chemistry');
+  `);
 
   const summary = await prisma.$queryRawUnsafe<Array<{ subject: string; cnt: number }>>(
     `SELECT subject, COUNT(*)::int AS cnt FROM question_bank GROUP BY subject ORDER BY subject;`
