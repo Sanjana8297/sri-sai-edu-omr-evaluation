@@ -1,3 +1,60 @@
+/** Decode common HTML entities (no DOM; safe on server and client). */
+export function decodeHtmlEntities(input: string): string {
+  let s = input
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/gi, "'");
+  s = s.replace(/&#(\d+);/g, (_, n) => {
+    const code = Number(n);
+    return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+  });
+  s = s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => {
+    const code = parseInt(h, 16);
+    return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+  });
+  return s;
+}
+
+/**
+ * Convert HTML-heavy question strings (e.g. JEE Mains CSV) to readable plain text.
+ * Handles &lt;sup&gt;, &lt;sub&gt;, &lt;p&gt;, lists, and strips remaining tags.
+ */
+export function stripHtmlToPlainText(html: string): string {
+  if (!html) return "";
+  let s = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "");
+
+  s = s.replace(/<sup[^>]*>([\s\S]*?)<\/sup>/gi, (_m, inner: string) => {
+    const t = decodeHtmlEntities(inner.replace(/<[^>]+>/g, ""));
+    return t ? `^(${t})` : "";
+  });
+  s = s.replace(/<sub[^>]*>([\s\S]*?)<\/sub>/gi, (_m, inner: string) => {
+    const t = decodeHtmlEntities(inner.replace(/<[^>]+>/g, ""));
+    return t ? `_${t}_` : "";
+  });
+
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = s.replace(/<\/(p|div|h[1-6]|tr)\s*>/gi, "\n");
+  s = s.replace(/<(p|div|h[1-6])[^>]*>/gi, "\n");
+  s = s.replace(/<li[^>]*>/gi, "\n• ");
+  s = s.replace(/<\/li>/gi, "");
+  s = s.replace(/<\/(ul|ol)>/gi, "\n");
+  s = s.replace(/<[^>]+>/g, "");
+
+  s = decodeHtmlEntities(s);
+  return s
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 const LATEX_SYMBOL_MAP: Array<[RegExp, string]> = [
   [/\\times\b/g, "x"],
   [/\\cdot\b/g, "·"],
@@ -58,10 +115,12 @@ function stripGeneratedPrefixes(text: string): string {
 export function formatQuestionTextForDisplay(input: string | null | undefined): string {
   if (!input) return "";
 
-  const normalized = input
-    .replace(/\r\n/g, "\n")
-    .replace(/\u00a0/g, " ")
-    .trim();
+  const normalized = stripHtmlToPlainText(
+    input
+      .replace(/\r\n/g, "\n")
+      .replace(/\u00a0/g, " ")
+      .trim()
+  );
 
   const cleaned = stripGeneratedPrefixes(simplifyLatexCommands(unwrapLatexDelimiters(normalized)));
   return cleaned

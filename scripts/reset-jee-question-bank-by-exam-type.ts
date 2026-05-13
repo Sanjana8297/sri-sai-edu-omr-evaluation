@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PrismaClient } from "@prisma/client";
 import { parse } from "csv-parse/sync";
+import { coerceQuestionOptionsFromDb } from "../src/lib/question-bank-display";
 
 type JeeSubject = "Maths" | "Physics" | "Chemistry";
 type JeeExamType = "mains" | "advanced";
@@ -60,16 +61,7 @@ function extractYear(input: string): number | null {
 }
 
 function parseMainsOptions(raw: unknown): string[] | null {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw) as Array<{ identifier?: string; content?: string }>;
-    const options = parsed
-      .map((item) => item.content?.trim() ?? "")
-      .filter(Boolean);
-    return options.length > 0 ? options : null;
-  } catch {
-    return null;
-  }
+  return coerceQuestionOptionsFromDb(raw);
 }
 
 function parseCorrectAnswer(raw: unknown): string | null {

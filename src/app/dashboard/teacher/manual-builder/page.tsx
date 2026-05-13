@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { teacherNavItems } from "@/lib/dashboard-nav";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
@@ -18,6 +18,23 @@ type QuestionBankItem = {
   is_repeated: boolean;
   is_important: boolean;
 };
+
+type PaperSlot =
+  | { kind: "bank"; id: number }
+  | {
+      kind: "custom";
+      key: string;
+      question_text: string;
+      options: string[] | null;
+      correct_answer: string | null;
+    };
+
+function formatOptionsBlock(options: string[] | null): string {
+  if (!options || options.length === 0) return "";
+  return `\n${options.map((option, optionIdx) => `(${String.fromCharCode(65 + optionIdx)}) ${option}`).join("\n")}`;
+}
+
+type WorkflowStep = 0 | 1 | 2 | 3;
 
 function CorrectAnswerBlock({
   correctAnswer,
@@ -47,12 +64,59 @@ function CorrectAnswerBlock({
   );
 }
 
+function RoadmapNote({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)]">
+      {children}
+    </p>
+  );
+}
+
+/** Highest Q index found in paper body (Q1., Q2:, etc.). */
+function countQuestionsInBody(body: string): number {
+  if (!body.trim()) return 0;
+  let max = 0;
+  const re = /\bQ\s*(\d+)\s*[.:]/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    const n = parseInt(m[1], 10);
+    if (!Number.isNaN(n)) max = Math.max(max, n);
+  }
+  return max;
+}
+
+/** Parse answer-key lines of the form `Q1: answer` (stops caring after solutions delimiter). */
+function parseAnswerKeyLines(keyText: string): Map<number, string> {
+  const map = new Map<number, string>();
+  const cut = keyText.split(/\n---\s*Solutions/i)[0] ?? keyText;
+  for (const line of cut.split("\n")) {
+    const trimmed = line.trim();
+    const m = trimmed.match(/^Q\s*(\d+)\s*:\s*(.*)$/i);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (!Number.isNaN(n)) map.set(n, m[2].trim());
+    }
+  }
+  return map;
+}
+
+type PostSaveSnapshot = {
+  title: string;
+  questionBody: string;
+  savedAnswerKey: string;
+  expectedQuestionCount: number;
+  paperId?: string;
+};
+
 export default function TeacherManualBuilderPage() {
+  const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(0);
   const [track, setTrack] = useState<"JEE" | "NEET">("JEE");
   const [title, setTitle] = useState("");
   const [questionContent, setQuestionContent] = useState("");
   const [keyContent, setKeyContent] = useState("");
+  const [solutionNotes, setSolutionNotes] = useState("");
   const [questionFile, setQuestionFile] = useState<File | null>(null);
+  const [keyFile, setKeyFile] = useState<File | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -64,12 +128,58 @@ export default function TeacherManualBuilderPage() {
   const [bankChapter, setBankChapter] = useState("");
   const [bankSearch, setBankSearch] = useState("");
   const [bankExamType, setBankExamType] = useState<"All" | "mains" | "advanced">("All");
+  const [bankQuestionType, setBankQuestionType] = useState<"All" | "MCQ" | "Numerical">("All");
   const [bankItems, setBankItems] = useState<QuestionBankItem[]>([]);
   const [bankLoading, setBankLoading] = useState(false);
-  const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([]);
+  const [paperSlots, setPaperSlots] = useState<PaperSlot[]>([]);
+  const [selectionDetails, setSelectionDetails] = useState<Map<number, QuestionBankItem>>(() => new Map());
   const [bankOffset, setBankOffset] = useState(0);
   const [bankTotal, setBankTotal] = useState(0);
+  const [dragPaperIndex, setDragPaperIndex] = useState<number | null>(null);
+
+  const [typedQuestionDraft, setTypedQuestionDraft] = useState("");
+  const [typedMatchSubject, setTypedMatchSubject] = useState("Physics");
+  const [typedLookupLoading, setTypedLookupLoading] = useState(false);
+  const [typedLookupError, setTypedLookupError] = useState<string | null>(null);
+  const [typedLookupFound, setTypedLookupFound] = useState<QuestionBankItem | null>(null);
+  const [typedLookupCompleted, setTypedLookupCompleted] = useState(false);
+  const [customAddSaving, setCustomAddSaving] = useState(false);
+  const [customOptionsLines, setCustomOptionsLines] = useState("");
+  const [customCorrectAnswer, setCustomCorrectAnswer] = useState("");
+  const [section1Tab, setSection1Tab] = useState<"bank" | "typed">("bank");
+
+  /** After a successful save, used to auto-fill section 3 and run Validate against what was saved. */
+  const [postSaveSnapshot, setPostSaveSnapshot] = useState<PostSaveSnapshot | null>(null);
+  const [validateResult, setValidateResult] = useState<{ ok: boolean; lines: string[] } | null>(null);
+
+  const [sectionLayout, setSectionLayout] = useState<"single" | "neet_abc" | "jee_adv_abc">("single");
+  const [paperDurationMin, setPaperDurationMin] = useState("");
+  const [paperMaxMarks, setPaperMaxMarks] = useState("");
+  const [langEn, setLangEn] = useState(true);
+  const [langTe, setLangTe] = useState(false);
+  const [langHi, setLangHi] = useState(false);
+  const [headerLogo, setHeaderLogo] = useState(false);
+  const [headerDate, setHeaderDate] = useState(true);
+  const [headerRollField, setHeaderRollField] = useState(true);
+  const [paperSetVariant, setPaperSetVariant] = useState<"none" | "A" | "B" | "C" | "D">("none");
+
   const pageSize = 40;
+
+  useEffect(() => {
+    const bankIds = paperSlots
+      .filter((s): s is { kind: "bank"; id: number } => s.kind === "bank")
+      .map((s) => s.id);
+    setSelectionDetails((prev) => {
+      const m = new Map(prev);
+      for (const q of bankItems) {
+        if (bankIds.includes(q.id)) m.set(q.id, q);
+      }
+      for (const id of [...m.keys()]) {
+        if (!bankIds.includes(id)) m.delete(id);
+      }
+      return m;
+    });
+  }, [bankItems, paperSlots]);
 
   const loadMe = useCallback(async () => {
     const u = await fetch("/api/me").then((r) => r.json());
@@ -92,6 +202,8 @@ export default function TeacherManualBuilderPage() {
       if (bankChapter.trim()) params.set("chapter", bankChapter.trim());
       if (bankSearch.trim()) params.set("search", bankSearch.trim());
       if (track === "JEE" && bankExamType !== "All") params.set("jeeExamType", bankExamType);
+      if (bankQuestionType === "MCQ") params.set("questionType", "mcq");
+      if (bankQuestionType === "Numerical") params.set("questionType", "numerical");
       params.set("limit", String(pageSize));
       params.set("offset", String(bankOffset));
       const res = await fetch(`/api/teacher/question-bank?${params.toString()}`);
@@ -115,6 +227,7 @@ export default function TeacherManualBuilderPage() {
     bankSubject,
     bankYear,
     bankExamType,
+    bankQuestionType,
     track,
   ]);
 
@@ -124,39 +237,192 @@ export default function TeacherManualBuilderPage() {
 
   useEffect(() => {
     setBankOffset(0);
-  }, [bankSubject, bankDifficulty, bankImportantOnly, bankRepeatedOnly, bankYear, bankChapter, bankSearch, bankExamType]);
+  }, [bankSubject, bankDifficulty, bankImportantOnly, bankRepeatedOnly, bankYear, bankChapter, bankSearch, bankExamType, bankQuestionType]);
 
   const streamSubjects: Record<"JEE" | "NEET", string[]> = {
     JEE: ["Maths", "Physics", "Chemistry"],
     NEET: ["Physics", "Chemistry", "Botany", "Zoology"],
   };
 
+  useEffect(() => {
+    setTypedMatchSubject((s) => (streamSubjects[track].includes(s) ? s : streamSubjects[track][0]));
+  }, [track]);
+
   function toggleQuestionSelection(id: number) {
-    setSelectedQuestionIds((prev) =>
-      prev.includes(id) ? prev.filter((existingId) => existingId !== id) : [...prev, id]
-    );
+    setPaperSlots((prev) => {
+      const exists = prev.some((s) => s.kind === "bank" && s.id === id);
+      if (exists) return prev.filter((s) => !(s.kind === "bank" && s.id === id));
+      return [...prev, { kind: "bank", id }];
+    });
   }
 
   function toggleSelectAllCurrentPage() {
     const pageIds = bankItems.map((item) => item.id);
-    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedQuestionIds.includes(id));
+    const inPaper = (id: number) => paperSlots.some((s) => s.kind === "bank" && s.id === id);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => inPaper(id));
     if (allSelected) {
-      setSelectedQuestionIds((prev) => prev.filter((id) => !pageIds.includes(id)));
+      setPaperSlots((prev) => prev.filter((s) => !(s.kind === "bank" && pageIds.includes(s.id))));
       return;
     }
-    setSelectedQuestionIds((prev) => Array.from(new Set([...prev, ...pageIds])));
+    setPaperSlots((prev) => {
+      const without = prev.filter((s) => !(s.kind === "bank" && pageIds.includes(s.id)));
+      const existing = new Set(without.filter((s): s is { kind: "bank"; id: number } => s.kind === "bank").map((s) => s.id));
+      const additions = pageIds.filter((id) => !existing.has(id)).map((id) => ({ kind: "bank" as const, id }));
+      return [...without, ...additions];
+    });
   }
 
-  function buildContentFromSelected(items: QuestionBankItem[]): { questionContent: string; keyContent: string } {
-    const selected = items.filter((item) => selectedQuestionIds.includes(item.id));
-    const questionBlocks = selected.map((item, idx) => {
-      const optionsBlock =
-        item.options && item.options.length
-          ? `\n${item.options.map((option, optionIdx) => `(${String.fromCharCode(65 + optionIdx)}) ${option}`).join("\n")}`
-          : "";
-      return `Q${idx + 1}. ${item.question_text}${optionsBlock}`;
+  function deselectAllQuestions() {
+    setPaperSlots([]);
+  }
+
+  function removePaperSlot(index: number) {
+    setPaperSlots((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function movePaperQuestion(from: number, to: number) {
+    if (to < 0 || to >= paperSlots.length) return;
+    setPaperSlots((prev) => {
+      const next = [...prev];
+      const [removed] = next.splice(from, 1);
+      next.splice(to, 0, removed);
+      return next;
     });
-    const keyBlocks = selected.map((item, idx) => `Q${idx + 1}: ${item.correct_answer ?? "N/A"}`);
+  }
+
+  function addBankQuestionToPaper(item: QuestionBankItem) {
+    setSelectionDetails((prev) => new Map(prev).set(item.id, item));
+    setPaperSlots((prev) => {
+      if (prev.some((s) => s.kind === "bank" && s.id === item.id)) return prev;
+      return [...prev, { kind: "bank", id: item.id }];
+    });
+    setMsg(`Added question #${item.id} from the bank to your paper.`);
+  }
+
+  function parseCustomOptionsFromLines(text: string): string[] | null {
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return null;
+    return lines;
+  }
+
+  async function addCustomQuestionToPaper() {
+    const stem = typedQuestionDraft.trim();
+    if (!stem) {
+      setErr("Enter the question text before adding a custom question.");
+      return;
+    }
+    setErr(null);
+    setCustomAddSaving(true);
+    try {
+      const rawOpts = parseCustomOptionsFromLines(customOptionsLines) ?? [];
+      const optionsPayload = rawOpts.slice(0, 20);
+      const correctRaw = customCorrectAnswer.trim();
+
+      const res = await fetch("/api/teacher/question-bank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          flexible: true,
+          subject: typedMatchSubject,
+          questionText: stem,
+          options: optionsPayload,
+          ...(correctRaw ? { correctAnswer: correctRaw } : {}),
+        }),
+      });
+      const j = (await res.json()) as { id?: number; error?: string; alreadyExisted?: boolean };
+      if (!res.ok) {
+        setErr(j.error ?? "Could not save this question to the question bank");
+        return;
+      }
+      const id = Number(j.id);
+      if (!Number.isFinite(id)) {
+        setErr("Unexpected response from server.");
+        return;
+      }
+
+      const optionsForItem = optionsPayload.length > 0 ? optionsPayload : null;
+      let correctStored: string | null = correctRaw.length > 0 ? correctRaw : null;
+      if (correctStored && optionsForItem && optionsForItem.length === 4 && /^[a-d]$/i.test(correctStored)) {
+        correctStored = correctStored.toUpperCase();
+      }
+
+      const newItem: QuestionBankItem = {
+        id,
+        subject: typedMatchSubject,
+        year: null,
+        chapter: null,
+        difficulty: null,
+        question_text: stem,
+        options: optionsForItem,
+        correct_answer: correctStored,
+        repetition_count: 1,
+        is_repeated: false,
+        is_important: true,
+      };
+      setSelectionDetails((prev) => new Map(prev).set(id, newItem));
+      setPaperSlots((prev) => {
+        if (prev.some((s) => s.kind === "bank" && s.id === id)) return prev;
+        return [...prev, { kind: "bank", id }];
+      });
+      setMsg(
+        j.alreadyExisted
+          ? `That question was already in the bank (#${id}); it has been added to your paper.`
+          : `Saved the new question to the question bank (#${id}) and added it to your paper.`
+      );
+    } finally {
+      setCustomAddSaving(false);
+    }
+  }
+
+  async function runTypedQuestionLookup() {
+    setTypedLookupError(null);
+    setErr(null);
+    setTypedLookupCompleted(false);
+    setTypedLookupFound(null);
+    const text = typedQuestionDraft.trim();
+    if (text.length < 8) {
+      setTypedLookupError("Enter at least 8 characters of the question text to check the bank.");
+      return;
+    }
+    setTypedLookupLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("matchText", text);
+      params.set("matchSubject", typedMatchSubject);
+      const res = await fetch(`/api/teacher/question-bank?${params.toString()}`);
+      const j = await res.json();
+      if (!res.ok) {
+        setTypedLookupError(j.error ?? "Could not check the bank");
+        return;
+      }
+      if (j.match) {
+        setTypedLookupFound(j.match as QuestionBankItem);
+      } else {
+        setTypedLookupFound(null);
+      }
+      setTypedLookupCompleted(true);
+    } finally {
+      setTypedLookupLoading(false);
+    }
+  }
+
+  function buildContentFromSelected(): { questionContent: string; keyContent: string } {
+    const questionBlocks: string[] = [];
+    const keyBlocks: string[] = [];
+    let idx = 0;
+    for (const slot of paperSlots) {
+      if (slot.kind === "bank") {
+        const item = selectionDetails.get(slot.id);
+        if (!item) continue;
+        idx += 1;
+        questionBlocks.push(`Q${idx}. ${item.question_text}${formatOptionsBlock(item.options)}`);
+        keyBlocks.push(`Q${idx}: ${item.correct_answer ?? "N/A"}`);
+      } else {
+        idx += 1;
+        questionBlocks.push(`Q${idx}. ${slot.question_text}${formatOptionsBlock(slot.options)}`);
+        keyBlocks.push(`Q${idx}: ${slot.correct_answer ?? "N/A"}`);
+      }
+    }
     return {
       questionContent: questionBlocks.join("\n\n"),
       keyContent: keyBlocks.join("\n"),
@@ -169,13 +435,32 @@ export default function TeacherManualBuilderPage() {
     setMsg(null);
     const trimmed = questionContent.trim();
     const { questionContent: generatedQuestionContent, keyContent: generatedKeyContent } =
-      selectedQuestionIds.length > 0 ? buildContentFromSelected(bankItems) : { questionContent: "", keyContent: "" };
-    const finalQuestionContent = trimmed || generatedQuestionContent;
-    const finalKeyContent = keyContent.trim() || generatedKeyContent;
-    if (!finalQuestionContent && !questionFile) {
+      paperSlots.length > 0 ? buildContentFromSelected() : { questionContent: "", keyContent: "" };
+    const langs = [
+      langEn ? "EN" : null,
+      langTe ? "Telugu" : null,
+      langHi ? "Hindi" : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const composerLines = [
+      sectionLayout !== "single" ? `Section layout: ${sectionLayout}` : null,
+      paperDurationMin.trim() ? `Duration (min): ${paperDurationMin.trim()}` : null,
+      paperMaxMarks.trim() ? `Max marks: ${paperMaxMarks.trim()}` : null,
+      langs ? `Languages: ${langs}` : null,
+      `Header — logo: ${headerLogo ? "yes" : "no"}, date: ${headerDate ? "yes" : "no"}, roll no. field: ${headerRollField ? "yes" : "no"}`,
+      paperSetVariant !== "none" ? `Paper set: ${paperSetVariant}` : null,
+    ].filter(Boolean);
+    const composerAppend =
+      composerLines.length > 0 ? `\n\n--- Paper composer (workflow) ---\n${composerLines.join("\n")}` : "";
+    const bodyCore = trimmed || generatedQuestionContent;
+    if (!bodyCore && !questionFile) {
       setErr("Add question text and/or upload a question paper file.");
       return;
     }
+    const finalQuestionContent = bodyCore + composerAppend;
+    const extraKey = solutionNotes.trim() ? `\n\n--- Solutions / notes ---\n${solutionNotes.trim()}` : "";
+    const finalKeyContent = (keyContent.trim() || generatedKeyContent) + extraKey;
 
     let res: Response;
     if (questionFile) {
@@ -205,137 +490,860 @@ export default function TeacherManualBuilderPage() {
       setErr(j.error ?? "Could not save paper");
       return;
     }
-    setTitle("");
-    setQuestionContent("");
-    setKeyContent("");
+
+    const rawPaperId = j.paper?.id;
+    const paperId = rawPaperId != null && String(rawPaperId).length > 0 ? String(rawPaperId) : undefined;
+    const inferredQuestionCount =
+      paperSlots.length > 0 ? paperSlots.length : countQuestionsInBody(bodyCore);
+
+    setPostSaveSnapshot({
+      title: title.trim(),
+      questionBody: bodyCore,
+      savedAnswerKey: finalKeyContent,
+      expectedQuestionCount: inferredQuestionCount,
+      paperId,
+    });
+    setKeyContent(finalKeyContent);
+    setValidateResult(null);
+    setWorkflowStep(3);
+
+    setTitle(title.trim());
+    setQuestionContent(bodyCore);
+    setSolutionNotes("");
     setQuestionFile(null);
-    setSelectedQuestionIds([]);
-    setMsg("Question paper saved.");
+    setKeyFile(null);
+    setPaperSlots([]);
+    setSelectionDetails(new Map());
+    setMsg(
+      inferredQuestionCount > 0
+        ? "Question paper saved. Section 3 shows the answer key that was stored—use Validate to check it against the question count."
+        : "Question paper saved. Section 3 shows the stored answer key. Validate could not infer a question count from the body (use Q1., Q2., … labels or bank picks for automatic checks)."
+    );
   }
+
+  function validatePostSaveAnswerKey() {
+    setValidateResult(null);
+    if (!postSaveSnapshot) {
+      setValidateResult({
+        ok: false,
+        lines: ["Validate compares your key to the last paper saved on this page. Save a paper first, then click Validate."],
+      });
+      return;
+    }
+    const expected = postSaveSnapshot.expectedQuestionCount;
+    if (expected <= 0) {
+      setValidateResult({
+        ok: false,
+        lines: [
+          "No question count was recorded for that save (e.g. only a file upload with no Q1., Q2., … markers in the text). Add labelled questions in the body next time, or rely on bank picks for automatic counting.",
+        ],
+      });
+      return;
+    }
+    const keyMap = parseAnswerKeyLines(keyContent);
+    const missing: number[] = [];
+    const weak: string[] = [];
+    for (let i = 1; i <= expected; i++) {
+      const ans = keyMap.get(i);
+      if (ans === undefined) missing.push(i);
+      else if (!ans || /^n\/?a$/i.test(ans)) weak.push(`Q${i} is empty or marked N/A`);
+    }
+    const extra = [...keyMap.keys()].filter((k) => k < 1 || k > expected);
+    const lines: string[] = [];
+    if (missing.length) lines.push(`Missing key lines for: ${missing.map((n) => `Q${n}`).join(", ")}`);
+    if (extra.length) lines.push(`Key entries beyond Q${expected}: ${extra.map((n) => `Q${n}`).join(", ")}`);
+    lines.push(...weak);
+    if (lines.length === 0) {
+      setValidateResult({
+        ok: true,
+        lines: [
+          `Looks good: ${expected} question(s) each have a corresponding Qn: line with a non-empty answer (before any solutions block).`,
+        ],
+      });
+    } else {
+      setValidateResult({ ok: false, lines });
+    }
+  }
+
+  const sectionCards: {
+    step: 1 | 2 | 3;
+    badge: string;
+    title: string;
+    description: string;
+    points: string[];
+  }[] = [
+    {
+      step: 1,
+      badge: "1",
+      title: "Select from question bank",
+      description: "Type a question to find duplicates, pick from the bank, or add custom items—then filter and order.",
+      points: ["Type a question to match the bank or add custom", "Filters, search, bulk select", "Drag to reorder in paper"],
+    },
+    {
+      step: 2,
+      badge: "2",
+      title: "Paper composer",
+      description: "Layout, timing, bilingual options, header, set code, then title and question body.",
+      points: ["Sections (NEET / JEE Advanced style)", "Duration & max marks", "EN · Telugu · Hindi", "PDF export (planned)"],
+    },
+    {
+      step: 3,
+      badge: "3",
+      title: "Answer key & solutions",
+      description: "After you save, the key is filled here automatically; validate, edit, then save again if needed.",
+      points: ["Auto-filled key after save", "Validate against question count", "Solutions / worked steps", "Key file (planned)"],
+    },
+  ];
+
+  const fullPageSection = workflowStep !== 0;
 
   return (
     <DashboardShell
       badge="Teacher"
       title="Manual Question Paper Generator"
-      subtitle="Select from question bank with filters and create papers manually."
+      subtitle={fullPageSection ? undefined : "Choose a step below, or return here anytime from inside a section."}
       navItems={teacherNavItems}
+      fullWidthContent={fullPageSection}
     >
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
-        <div className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+      <div
+        className={
+          fullPageSection
+            ? "flex min-h-0 flex-1 flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm sm:p-6 lg:min-h-[calc(100dvh-10rem)]"
+            : "rounded-xl border border-[var(--border)] bg-[var(--card)] p-6"
+        }
+      >
+        {fullPageSection ? null : (
+        <div className="mb-6">
           <p className="text-sm font-semibold">Manual Question Paper Generator</p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Fetch online-imported question bank and select questions for your paper.
+            Start from the overview. Open one section at a time—each card opens its full workflow.
           </p>
-          <div className="mt-3 grid gap-2 md:grid-cols-5">
-            <select className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" value={bankSubject} onChange={(e) => setBankSubject(e.target.value)}>
-              <option>All</option>
-              {streamSubjects[track].map((subject) => (
-                <option key={subject}>{subject}</option>
-              ))}
-            </select>
-            {track === "JEE" ? (
-              <select
-                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                value={bankExamType}
-                onChange={(e) => setBankExamType(e.target.value as "All" | "mains" | "advanced")}
+        </div>
+        )}
+
+        {workflowStep === 0 ? (
+          <div className="grid gap-4 md:grid-cols-3" role="navigation" aria-label="Manual paper workflow sections">
+            {sectionCards.map((card) => (
+              <button
+                key={card.step}
+                type="button"
+                onClick={() => setWorkflowStep(card.step)}
+                className="flex flex-col rounded-xl border-2 border-[var(--border)] bg-[var(--background)] p-5 text-left shadow-sm transition hover:border-[var(--accent)] hover:bg-[var(--card)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)]"
               >
-                <option value="All">All exam types</option>
-                <option value="mains">JEE Mains</option>
-                <option value="advanced">JEE Advanced</option>
-              </select>
-            ) : null}
-            <select className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" value={bankDifficulty} onChange={(e) => setBankDifficulty(e.target.value)}>
-              <option>All</option>
-              <option>easy</option>
-              <option>medium</option>
-              <option>hard</option>
-            </select>
-            <input className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="Year (optional)" value={bankYear} onChange={(e) => setBankYear(e.target.value)} />
-            <input className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="Chapter (optional)" value={bankChapter} onChange={(e) => setBankChapter(e.target.value)} />
-          </div>
-          <input className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="Search keywords" value={bankSearch} onChange={(e) => setBankSearch(e.target.value)} />
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={bankImportantOnly} onChange={(e) => setBankImportantOnly(e.target.checked)} />
-              Important only
-            </label>
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={bankRepeatedOnly} onChange={(e) => setBankRepeatedOnly(e.target.checked)} />
-              Repeated only
-            </label>
-            <button type="button" className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-white" onClick={loadQuestionBank} disabled={bankLoading}>
-              {bankLoading ? "Loading..." : "Refresh"}
-            </button>
-            <button type="button" className="rounded-lg border border-[var(--border)] px-3 py-1.5" onClick={toggleSelectAllCurrentPage} disabled={bankLoading || bankItems.length === 0}>
-              {bankItems.length > 0 && bankItems.every((item) => selectedQuestionIds.includes(item.id)) ? "Unselect all on page" : "Select all on page"}
-            </button>
-          </div>
-          <div className="mt-3 max-h-80 space-y-2 overflow-auto">
-            {bankItems.map((item) => (
-              <div key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <label className="inline-flex items-center gap-2">
-                    <input type="checkbox" checked={selectedQuestionIds.includes(item.id)} onChange={() => toggleQuestionSelection(item.id)} />
-                    Select
-                  </label>
-                  <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.subject}</span>
-                  {item.year ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.year}</span> : null}
-                  {item.chapter ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.chapter}</span> : null}
-                  {item.difficulty ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.difficulty}</span> : null}
-                  {item.is_important ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">important</span> : null}
-                  {item.is_repeated ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">repeated x{item.repetition_count}</span> : null}
-                </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm">
-                  {formatQuestionTextForDisplay(item.question_text)}
-                </p>
-                {item.options && item.options.length > 0 ? (
-                  <ul className="mt-2 list-none space-y-1 text-sm">
-                    {item.options.map((option, optionIdx) => (
-                      <li key={optionIdx} className="whitespace-pre-wrap">
-                        <span className="font-medium text-[var(--muted)]">
-                          ({String.fromCharCode(65 + optionIdx)}){" "}
-                        </span>
-                        {formatQuestionTextForDisplay(option)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                {item.correct_answer ? (
-                  <CorrectAnswerBlock correctAnswer={item.correct_answer} options={item.options} />
-                ) : null}
-              </div>
-            ))}
-            {!bankLoading && bankItems.length === 0 ? <p className="text-sm text-[var(--muted)]">No questions match these filters.</p> : null}
-          </div>
-          <p className="mt-2 text-xs text-[var(--muted)]">Selected questions: {selectedQuestionIds.length}. Clicking Save paper will create the paper from these selected questions if the text box is empty.</p>
-          <div className="mt-2 flex items-center justify-between text-xs text-[var(--muted)]">
-            <p>
-              Showing {bankItems.length === 0 ? 0 : bankOffset + 1}-{Math.min(bankOffset + bankItems.length, bankTotal)} of {bankTotal}
-            </p>
-            <div className="flex items-center gap-2">
-              <button type="button" className="rounded-lg border border-[var(--border)] px-2 py-1 disabled:opacity-50" disabled={bankOffset === 0 || bankLoading} onClick={() => setBankOffset((old) => Math.max(old - pageSize, 0))}>
-                Prev
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-bold text-white">
+                  {card.badge}
+                </span>
+                <span className="mt-3 text-base font-semibold leading-snug">{card.title}</span>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{card.description}</p>
+                <ul className="mt-3 list-inside list-disc space-y-1 border-t border-[var(--border)] pt-3 text-xs text-[var(--muted)]">
+                  {card.points.map((pt) => (
+                    <li key={pt}>{pt}</li>
+                  ))}
+                </ul>
+                <span className="mt-4 text-sm font-medium text-[var(--accent)]">Open section →</span>
               </button>
-              <button type="button" className="rounded-lg border border-[var(--border)] px-2 py-1 disabled:opacity-50" disabled={bankLoading || bankOffset + pageSize >= bankTotal} onClick={() => setBankOffset((old) => old + pageSize)}>
-                Next
+            ))}
+          </div>
+        ) : (
+          <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-[var(--border)] pb-4">
+            <button
+              type="button"
+              onClick={() => setWorkflowStep(0)}
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium hover:bg-[var(--card)]"
+            >
+              ← All steps
+            </button>
+            <span className="text-sm text-[var(--muted)]">
+              {workflowStep === 1 ? "Section 1 · Questions" : workflowStep === 2 ? "Section 2 · Paper composer" : "Section 3 · Answer key & solutions"}
+            </span>
+          </div>
+        )}
+
+        {workflowStep === 1 ? (
+          <section className="mb-8 space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4" aria-labelledby="step1-heading">
+            <h2 id="step1-heading" className="text-sm font-semibold">
+              1) Add questions to your paper
+            </h2>
+            <ul className="list-inside list-disc text-xs text-[var(--muted)]">
+              <li>Use the bar below to browse the bank or type your own question</li>
+              <li>Filters, search, bulk select, and drag-to-reorder in the paper preview</li>
+            </ul>
+
+            <div
+              className="flex rounded-lg border border-[var(--border)] bg-[var(--card)] p-0.5 text-sm shadow-sm"
+              role="tablist"
+              aria-label="How to add questions"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={section1Tab === "bank"}
+                className={`flex-1 rounded-md px-3 py-2 font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)] ${
+                  section1Tab === "bank"
+                    ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm"
+                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                }`}
+                onClick={() => setSection1Tab("bank")}
+              >
+                Choose from bank
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={section1Tab === "typed"}
+                className={`flex-1 rounded-md px-3 py-2 font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)] ${
+                  section1Tab === "typed"
+                    ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm"
+                    : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                }`}
+                onClick={() => setSection1Tab("typed")}
+              >
+                Type a question
               </button>
             </div>
-          </div>
-        </div>
 
-        <form className="space-y-3" onSubmit={submit}>
-          <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-          <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" value={track} disabled />
-          <label className="block text-sm text-[var(--muted)]">
-            Question paper file
-            <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm file:mr-3" type="file" accept=".pdf,.docx,image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => setQuestionFile(e.target.files?.[0] ?? null)} />
-          </label>
-          <textarea className="min-h-[220px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Paste/type the complete question paper here (optional if you upload a file)..." value={questionContent} onChange={(e) => setQuestionContent(e.target.value)} required={!questionFile} />
-          <textarea className="min-h-[140px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Answer key (optional)" value={keyContent} onChange={(e) => setKeyContent(e.target.value)} />
-          <button className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" type="submit">
-            Save paper
-          </button>
+            {section1Tab === "bank" ? (
+            <>
+            <div className="mt-3 grid gap-2 md:grid-cols-3 lg:grid-cols-6">
+              <select className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" value={bankSubject} onChange={(e) => setBankSubject(e.target.value)}>
+                <option>All</option>
+                {streamSubjects[track].map((subject) => (
+                  <option key={subject}>{subject}</option>
+                ))}
+              </select>
+              {track === "JEE" ? (
+                <select
+                  className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
+                  value={bankExamType}
+                  onChange={(e) => setBankExamType(e.target.value as "All" | "mains" | "advanced")}
+                >
+                  <option value="All">All exam types</option>
+                  <option value="mains">JEE Mains</option>
+                  <option value="advanced">JEE Advanced</option>
+                </select>
+              ) : (
+                <span className="hidden lg:block" />
+              )}
+              <select
+                className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
+                value={bankQuestionType}
+                onChange={(e) => setBankQuestionType(e.target.value as "All" | "MCQ" | "Numerical")}
+                title="MCQ: four options or tagged MCQ. Numericals: tagged numerical / fill-in style or fewer than four options with blanks."
+              >
+                <option value="All">All question types</option>
+                <option value="MCQ">MCQ</option>
+                <option value="Numerical">Numericals</option>
+              </select>
+              <select className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" value={bankDifficulty} onChange={(e) => setBankDifficulty(e.target.value)}>
+                <option>All</option>
+                <option>easy</option>
+                <option>medium</option>
+                <option>hard</option>
+              </select>
+              <input className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" placeholder="Year (optional)" value={bankYear} onChange={(e) => setBankYear(e.target.value)} />
+              <input className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" placeholder="Chapter (optional)" value={bankChapter} onChange={(e) => setBankChapter(e.target.value)} />
+            </div>
+            <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" placeholder="Search keywords" value={bankSearch} onChange={(e) => setBankSearch(e.target.value)} />
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={bankImportantOnly} onChange={(e) => setBankImportantOnly(e.target.checked)} />
+                Important only
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={bankRepeatedOnly} onChange={(e) => setBankRepeatedOnly(e.target.checked)} />
+                Repeated only
+              </label>
+              <button type="button" className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-white" onClick={loadQuestionBank} disabled={bankLoading}>
+                {bankLoading ? "Loading..." : "Refresh"}
+              </button>
+              <button type="button" className="rounded-lg border border-[var(--border)] px-3 py-1.5" onClick={toggleSelectAllCurrentPage} disabled={bankLoading || bankItems.length === 0}>
+                {bankItems.length > 0 && bankItems.every((item) => paperSlots.some((s) => s.kind === "bank" && s.id === item.id))
+                  ? "Unselect all on page"
+                  : "Select all on page"}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 disabled:opacity-50"
+                onClick={deselectAllQuestions}
+                disabled={paperSlots.length === 0}
+              >
+                Deselect all ({paperSlots.length})
+              </button>
+            </div>
+
+            <div
+              className={`${fullPageSection ? "max-h-[min(68vh,52rem)]" : "max-h-80"} space-y-2 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--card)] p-2`}
+            >
+              {bankItems.map((item) => {
+                const isSelected = paperSlots.some((s) => s.kind === "bank" && s.id === item.id);
+                return (
+                <div
+                  key={item.id}
+                  role="checkbox"
+                  aria-checked={isSelected}
+                  tabIndex={0}
+                  onClick={() => toggleQuestionSelection(item.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleQuestionSelection(item.id);
+                    }
+                  }}
+                  className={`rounded-lg border bg-[var(--background)] p-3 outline-none transition hover:bg-[var(--card)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)] ${
+                    isSelected ? "cursor-pointer border-[var(--accent)] ring-1 ring-[var(--accent)]" : "cursor-pointer border-[var(--border)]"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="inline-flex select-none items-center gap-2 text-[var(--muted)]">
+                      <input
+                        type="checkbox"
+                        tabIndex={-1}
+                        aria-hidden
+                        checked={isSelected}
+                        onChange={() => {}}
+                        className="pointer-events-none accent-[var(--accent)]"
+                      />
+                      Tap to select
+                    </span>
+                    <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.subject}</span>
+                    {item.year ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.year}</span> : null}
+                    {item.chapter ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.chapter}</span> : null}
+                    {item.difficulty ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.difficulty}</span> : null}
+                    {item.is_important ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">important</span> : null}
+                    {item.is_repeated ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">repeated x{item.repetition_count}</span> : null}
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap text-sm">{formatQuestionTextForDisplay(item.question_text)}</p>
+                  {item.options && item.options.length > 0 ? (
+                    <ul className="mt-2 list-none space-y-1 text-sm">
+                      {item.options.map((option, optionIdx) => (
+                        <li key={optionIdx} className="whitespace-pre-wrap">
+                          <span className="font-medium text-[var(--muted)]">({String.fromCharCode(65 + optionIdx)}) </span>
+                          {formatQuestionTextForDisplay(option)}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {item.correct_answer ? <CorrectAnswerBlock correctAnswer={item.correct_answer} options={item.options} /> : null}
+                </div>
+              );
+              })}
+              {!bankLoading && bankItems.length === 0 ? <p className="p-3 text-sm text-[var(--muted)]">No questions match these filters.</p> : null}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--muted)]">
+              <p>
+                Showing {bankItems.length === 0 ? 0 : bankOffset + 1}-{Math.min(bankOffset + bankItems.length, bankTotal)} of {bankTotal}
+              </p>
+              <div className="flex items-center gap-2">
+                <button type="button" className="rounded-lg border border-[var(--border)] px-2 py-1 disabled:opacity-50" disabled={bankOffset === 0 || bankLoading} onClick={() => setBankOffset((old) => Math.max(old - pageSize, 0))}>
+                  Prev
+                </button>
+                <button type="button" className="rounded-lg border border-[var(--border)] px-2 py-1 disabled:opacity-50" disabled={bankLoading || bankOffset + pageSize >= bankTotal} onClick={() => setBankOffset((old) => old + pageSize)}>
+                  Next
+                </button>
+              </div>
+            </div>
+            </>
+            ) : (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 space-y-3">
+              <p className="text-sm font-semibold">Type a question</p>
+              <p className="text-xs text-[var(--muted)]">
+                Duplicate detection uses the same normalized fingerprint as the database (subject + question text). Pick the subject this item belongs under, paste the full stem, then check the bank. If a row exists, add it from the bank; if not, save it to the bank and add it to your paper with optional options and an answer.
+              </p>
+              <div className="grid gap-2 md:max-w-md">
+                <label className="block text-xs font-medium text-[var(--muted)]">
+                  Subject for duplicate check
+                  <select
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    value={typedMatchSubject}
+                    onChange={(e) => {
+                      setTypedMatchSubject(e.target.value);
+                      setTypedLookupCompleted(false);
+                      setTypedLookupFound(null);
+                    }}
+                  >
+                    {streamSubjects[track].map((subject) => (
+                      <option key={subject} value={subject}>
+                        {subject}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="block text-xs font-medium text-[var(--muted)]">
+                Question text
+                <textarea
+                  className="mt-1 min-h-[120px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                  placeholder="Paste or type the full question stem (LaTeX/HTML is fine)…"
+                  value={typedQuestionDraft}
+                  onChange={(e) => {
+                    setTypedQuestionDraft(e.target.value);
+                    setTypedLookupCompleted(false);
+                    setTypedLookupFound(null);
+                  }}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  onClick={() => void runTypedQuestionLookup()}
+                  disabled={typedLookupLoading}
+                >
+                  {typedLookupLoading ? "Checking…" : "Check question bank"}
+                </button>
+              </div>
+              {typedLookupError ? <p className="text-sm text-red-600">{typedLookupError}</p> : null}
+              {typedLookupCompleted && typedLookupFound ? (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50/90 p-3 text-[var(--foreground)] dark:border-emerald-900 dark:bg-emerald-950/40">
+                  <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-100">Found in question bank</p>
+                  <div className="mt-2 rounded-md border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
+                    <div className="flex flex-wrap gap-2 text-xs text-[var(--muted)]">
+                      <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{typedLookupFound.subject}</span>
+                      {typedLookupFound.year ? (
+                        <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{typedLookupFound.year}</span>
+                      ) : null}
+                      {typedLookupFound.chapter ? (
+                        <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{typedLookupFound.chapter}</span>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap text-sm">{formatQuestionTextForDisplay(typedLookupFound.question_text)}</p>
+                    {typedLookupFound.options && typedLookupFound.options.length > 0 ? (
+                      <ul className="mt-2 list-none space-y-1 text-sm">
+                        {typedLookupFound.options.map((option, optionIdx) => (
+                          <li key={optionIdx} className="whitespace-pre-wrap">
+                            <span className="font-medium text-[var(--muted)]">({String.fromCharCode(65 + optionIdx)}) </span>
+                            {formatQuestionTextForDisplay(option)}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {typedLookupFound.correct_answer ? (
+                      <CorrectAnswerBlock correctAnswer={typedLookupFound.correct_answer} options={typedLookupFound.options} />
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="mt-3 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+                    onClick={() => addBankQuestionToPaper(typedLookupFound)}
+                  >
+                    Add this bank question to paper
+                  </button>
+                </div>
+              ) : null}
+              {typedLookupCompleted && !typedLookupFound ? (
+                <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50/90 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+                  <p className="text-xs font-semibold text-amber-950 dark:text-amber-100">No matching bank row</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    This exact question (under {typedMatchSubject}) is not stored with the same fingerprint. Add options and an answer if you have them, then save to the <strong>question bank</strong> and add it to your paper in one step.
+                  </p>
+                  <label className="block text-xs font-medium text-[var(--muted)]">
+                    Options (optional, one per line — up to 4 lines for A–D)
+                    <textarea
+                      className="mt-1 min-h-[88px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                      placeholder={"Line 1 → (A)\nLine 2 → (B)\n…"}
+                      value={customOptionsLines}
+                      onChange={(e) => setCustomOptionsLines(e.target.value)}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-[var(--muted)]">
+                    Answer for this question (key line)
+                    <input
+                      className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                      placeholder="e.g. A, B, 42, 2.5, N/A"
+                      value={customCorrectAnswer}
+                      onChange={(e) => setCustomCorrectAnswer(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                    disabled={customAddSaving}
+                    onClick={() => void addCustomQuestionToPaper()}
+                  >
+                    {customAddSaving ? "Saving…" : "Save to question bank & add to paper"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            )}
+
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
+              <p className="text-sm font-medium">Preview — questions in paper order ({paperSlots.length})</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Drag a row by the handle, or use ↑ / ↓. Save uses this order when the composer body is empty.</p>
+              {paperSlots.length === 0 ? (
+                <p className="mt-2 text-sm text-[var(--muted)]">No questions in the paper yet.</p>
+              ) : (
+                <ul className="mt-2 space-y-2">
+                  {paperSlots.map((slot, paperIdx) => {
+                    let preview: string;
+                    let showEllipsis = false;
+                    let isCustom = false;
+                    if (slot.kind === "custom") {
+                      isCustom = true;
+                      const t = formatQuestionTextForDisplay(slot.question_text);
+                      preview = t.slice(0, 160);
+                      showEllipsis = t.length > 160;
+                    } else {
+                      const bankItem = selectionDetails.get(slot.id);
+                      if (!bankItem) {
+                        preview = `Bank #${slot.id} (open the bank list page that contains this id to load preview text)`;
+                        showEllipsis = false;
+                      } else {
+                        const t = formatQuestionTextForDisplay(bankItem.question_text);
+                        preview = t.slice(0, 160);
+                        showEllipsis = t.length > 160;
+                      }
+                    }
+                    const listKey = slot.kind === "bank" ? `bank-${slot.id}` : `custom-${slot.key}`;
+                    return (
+                      <li
+                        key={listKey}
+                        draggable
+                        onDragStart={() => setDragPaperIndex(paperIdx)}
+                        onDragOver={(ev) => ev.preventDefault()}
+                        onDrop={() => {
+                          if (dragPaperIndex === null || dragPaperIndex === paperIdx) return;
+                          movePaperQuestion(dragPaperIndex, paperIdx);
+                          setDragPaperIndex(null);
+                        }}
+                        onDragEnd={() => setDragPaperIndex(null)}
+                        className="flex items-start gap-2 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-2 text-sm"
+                      >
+                        <span className="cursor-grab select-none text-[var(--muted)]" title="Drag to reorder">
+                          ::
+                        </span>
+                        <span className="shrink-0 font-mono text-xs text-[var(--muted)]">Q{paperIdx + 1}</span>
+                        <span className="min-w-0 flex-1 whitespace-pre-wrap text-xs">
+                          {isCustom ? (
+                            <span className="mr-1 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-800 dark:bg-violet-950 dark:text-violet-200">
+                              custom
+                            </span>
+                          ) : null}
+                          {preview}
+                          {showEllipsis ? "…" : ""}
+                        </span>
+                        <span className="flex shrink-0 flex-col gap-0.5">
+                          <button type="button" className="rounded border border-[var(--border)] px-1.5 text-xs" disabled={paperIdx === 0} onClick={() => movePaperQuestion(paperIdx, paperIdx - 1)} aria-label="Move up">
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-[var(--border)] px-1.5 text-xs"
+                            disabled={paperIdx >= paperSlots.length - 1}
+                            onClick={() => movePaperQuestion(paperIdx, paperIdx + 1)}
+                            aria-label="Move down"
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-red-200 px-1.5 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                            onClick={() => removePaperSlot(paperIdx)}
+                            aria-label="Remove from paper"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(0)}>
+                Close section
+              </button>
+              <button type="button" className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" onClick={() => setWorkflowStep(2)}>
+                Next: Paper composer
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {workflowStep === 2 ? (
+          <section className="mb-8 space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4" aria-labelledby="step2-heading">
+            <h2 id="step2-heading" className="text-sm font-semibold">
+              2) Paper composer
+            </h2>
+            <ul className="list-inside list-disc text-xs text-[var(--muted)]">
+              <li>Structure and section builder</li>
+              <li>Section A / B / C (NEET / JEE Advanced)</li>
+              <li>Duration and max-marks config</li>
+              <li>Bilingual (EN / Telugu / Hindi)</li>
+              <li>Header: logo, date, roll no. field</li>
+              <li>Set A / B / C / D paper shuffling</li>
+              <li>Print-ready PDF export</li>
+            </ul>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block text-xs font-medium text-[var(--muted)]">
+                Section layout
+                <select className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" value={sectionLayout} onChange={(e) => setSectionLayout(e.target.value as typeof sectionLayout)}>
+                  <option value="single">Single section (default)</option>
+                  <option value="neet_abc">NEET-style A / B / C</option>
+                  <option value="jee_adv_abc">JEE Advanced-style A / B / C</option>
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-xs font-medium text-[var(--muted)]">
+                  Duration (min)
+                  <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" inputMode="numeric" placeholder="e.g. 180" value={paperDurationMin} onChange={(e) => setPaperDurationMin(e.target.value)} />
+                </label>
+                <label className="block text-xs font-medium text-[var(--muted)]">
+                  Max marks
+                  <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" inputMode="numeric" placeholder="e.g. 300" value={paperMaxMarks} onChange={(e) => setPaperMaxMarks(e.target.value)} />
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-medium text-[var(--muted)]">Bilingual paper</p>
+              <div className="mt-1 flex flex-wrap gap-3 text-sm">
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={langEn} onChange={(e) => setLangEn(e.target.checked)} />
+                  English
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={langTe} onChange={(e) => setLangTe(e.target.checked)} />
+                  Telugu
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={langHi} onChange={(e) => setLangHi(e.target.checked)} />
+                  Hindi
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-medium text-[var(--muted)]">Header</p>
+              <div className="mt-1 flex flex-wrap gap-3 text-sm">
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={headerLogo} onChange={(e) => setHeaderLogo(e.target.checked)} />
+                  Logo placeholder
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={headerDate} onChange={(e) => setHeaderDate(e.target.checked)} />
+                  Date line
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={headerRollField} onChange={(e) => setHeaderRollField(e.target.checked)} />
+                  Roll no. field
+                </label>
+              </div>
+            </div>
+
+            <label className="block text-xs font-medium text-[var(--muted)]">
+              Set-wise shuffling (paper code)
+              <select className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" value={paperSetVariant} onChange={(e) => setPaperSetVariant(e.target.value as typeof paperSetVariant)}>
+                <option value="none">No set label</option>
+                <option value="A">Set A</option>
+                <option value="B">Set B</option>
+                <option value="C">Set C</option>
+                <option value="D">Set D</option>
+              </select>
+            </label>
+
+            <RoadmapNote>
+              Section layout, timing, languages, header blocks, set codes, and PDF export are captured in the UI for your workflow. They are not yet merged into print-ready PDF; use the question body and file upload for the paper you distribute today.
+            </RoadmapNote>
+
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(0)}>
+                All steps
+              </button>
+              <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(1)}>
+                Back
+              </button>
+              <button type="button" className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" onClick={() => setWorkflowStep(3)}>
+                Next: Answer key & solutions
+              </button>
+              <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm opacity-60" disabled title="Coming soon">
+                Export PDF
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {workflowStep !== 0 ? (
+        <form className="space-y-4" onSubmit={submit}>
+          {workflowStep === 2 || workflowStep === 3 ? (
+            <>
+              {workflowStep === 2 ? (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Paper body</p>
+                  <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
+                  <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" value={track} disabled />
+                  <label className="block text-sm text-[var(--muted)]">
+                    Question paper file
+                    <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm file:mr-3" type="file" accept=".pdf,.docx,image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => setQuestionFile(e.target.files?.[0] ?? null)} />
+                  </label>
+                  <textarea
+                    className="min-h-[220px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+                    placeholder="Paste/type the complete question paper here (optional if you upload a file or use bank picks from step 1)…"
+                    value={questionContent}
+                    onChange={(e) => setQuestionContent(e.target.value)}
+                    required={!questionFile && paperSlots.length === 0}
+                  />
+                </>
+              ) : null}
+
+              {workflowStep === 3 ? (
+                <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4" aria-labelledby="step3-heading">
+                  <h2 id="step3-heading" className="text-sm font-semibold">
+                    3) Answer key & solutions
+                  </h2>
+                  <ul className="list-inside list-disc text-xs text-[var(--muted)]">
+                    <li>After you save the paper, the answer key text is generated and shown here</li>
+                    <li>Use Validate to check Q1: … Qn: lines against the saved question count</li>
+                    <li>Key file upload and bulk CSV (planned)</li>
+                    <li>Set-wise key mapping (A / B / C / D) (planned)</li>
+                  </ul>
+
+                  {postSaveSnapshot ? (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] px-3 py-2 text-sm">
+                      <p className="font-medium text-[var(--foreground)]">Last saved on this page</p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        Title: <span className="text-[var(--foreground)]">{postSaveSnapshot.title}</span>
+                        {postSaveSnapshot.paperId ? (
+                          <span className="ml-2 font-mono text-[var(--muted)]">({postSaveSnapshot.paperId})</span>
+                        ) : null}
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        Questions used for validation:{" "}
+                        {postSaveSnapshot.expectedQuestionCount > 0 ? postSaveSnapshot.expectedQuestionCount : "not detected — see Validate message"}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[var(--muted)]">
+                      When you save a paper, this section opens with the answer key that was stored. You can edit it and save again with the same title if you need to update the key.
+                    </p>
+                  )}
+
+                  <label className="block text-sm text-[var(--muted)]">
+                    Answer key file (optional)
+                    <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm file:mr-3" type="file" accept=".pdf,.csv,text/csv,application/pdf" onChange={(e) => setKeyFile(e.target.files?.[0] ?? null)} />
+                  </label>
+                  {keyFile ? <p className="text-xs text-[var(--muted)]">Selected: {keyFile.name} (stored locally until upload API is wired)</p> : null}
+
+                  <div className="flex flex-wrap items-end justify-between gap-2">
+                    <label className="block flex-1 text-sm text-[var(--muted)]">
+                      Answer key (text)
+                      <textarea
+                        className="mt-1 min-h-[160px] w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 font-mono text-xs"
+                        placeholder="One line per question (Q1: …), or paste full key…"
+                        value={keyContent}
+                        onChange={(e) => {
+                          setKeyContent(e.target.value);
+                          setValidateResult(null);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+                      onClick={() => validatePostSaveAnswerKey()}
+                    >
+                      Validate
+                    </button>
+                    {postSaveSnapshot ? (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+                        onClick={() => {
+                          setKeyContent(postSaveSnapshot.savedAnswerKey);
+                          setValidateResult(null);
+                        }}
+                      >
+                        Restore key from last save
+                      </button>
+                    ) : null}
+                  </div>
+                  {validateResult ? (
+                    <div
+                      role="status"
+                      className={`rounded-lg border px-3 py-2 text-sm ${
+                        validateResult.ok
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
+                          : "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+                      }`}
+                    >
+                      <p className="font-medium">{validateResult.ok ? "Validation passed" : "Validation issues"}</p>
+                      <ul className="mt-2 list-inside list-disc space-y-1 text-xs">
+                        {validateResult.lines.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  <label className="block text-sm text-[var(--muted)]">
+                    Solutions / worked steps (appended to saved key block)
+                    <textarea className="mt-1 min-h-[140px] w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2" placeholder="Optional step-by-step solutions…" value={solutionNotes} onChange={(e) => setSolutionNotes(e.target.value)} />
+                  </label>
+
+                  <RoadmapNote>
+                    Saving fills the key from your inputs and bank picks (when the key box was empty). Validate checks Q1: … style lines against the question count from that save. Timed release and per-set key tables are still planned.
+                  </RoadmapNote>
+
+                  <label className="block text-sm font-medium text-[var(--foreground)]">
+                    Paper title (required to save)
+                    <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2" placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
+                  </label>
+                  <p className="text-xs text-[var(--muted)]">
+                    Question body and file are edited under Paper composer (step 2). Questions in paper order: {paperSlots.length} (bank + custom).
+                  </p>
+                  <button type="button" className="text-xs text-[var(--accent)] underline" onClick={() => setWorkflowStep(2)}>
+                    Open paper composer
+                  </button>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(0)}>
+                      All steps
+                    </button>
+                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(2)}>
+                      Back: Paper composer
+                    </button>
+                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(1)}>
+                      Bank
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+
+              {workflowStep === 2 ? (
+                <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+                  <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(0)}>
+                    All steps
+                  </button>
+                  <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(1)}>
+                    Back: Question bank
+                  </button>
+                  <button type="button" className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" onClick={() => setWorkflowStep(3)}>
+                    Continue to answer key
+                  </button>
+                </div>
+              ) : null}
+
+              {workflowStep === 3 ? (
+                <button className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" type="submit">
+                  Save paper
+                </button>
+              ) : null}
+            </>
+          ) : null}
+
+          {workflowStep === 1 ? (
+            <p className="text-xs text-[var(--muted)]">
+              Use <strong>Next: Paper composer</strong> for title and body, then open <strong>Answer key & solutions</strong> from the overview or the next-step button to save.
+            </p>
+          ) : null}
         </form>
+        ) : null}
+
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="mt-2 text-sm text-green-700">{msg}</p> : null}
       </div>

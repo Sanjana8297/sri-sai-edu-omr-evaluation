@@ -3,9 +3,11 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LogoutButton } from "@/components/LogoutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
+
+const SIDEBAR_COLLAPSED_KEY = "dashboard-sidebar-collapsed";
 
 type NavItem = {
   href: string;
@@ -18,28 +20,71 @@ export function DashboardShell({
   badge,
   navItems = [],
   children,
+  fullWidthContent = false,
 }: {
   title: string;
   subtitle?: string;
   badge?: string;
   navItems?: NavItem[];
   children: ReactNode;
+  /** Use full main width and extra vertical space (e.g. multi-step tools). */
+  fullWidthContent?: boolean;
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") setSidebarCollapsed(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function persistSidebarCollapsed(next: boolean) {
+    setSidebarCollapsed(next);
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const hasNav = navItems.length > 0;
+  const mainOffsetLg = hasNav && !sidebarCollapsed;
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <header className="border-b border-[var(--border)] bg-[var(--card)]">
-        <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 lg:pl-[290px]">
+    <div
+      className={`min-h-screen bg-[var(--background)] text-[var(--foreground)] ${fullWidthContent ? "flex flex-col" : ""}`}
+    >
+      <header className="shrink-0 border-b border-[var(--border)] bg-[var(--card)]">
+        <div
+          className={`flex flex-wrap items-center justify-between gap-4 px-6 py-4 transition-[padding] duration-200 ${mainOffsetLg ? "lg:pl-[290px]" : ""}`}
+        >
           <div>
-            {navItems.length > 0 ? (
+            {hasNav ? (
               <button
                 type="button"
                 className="mb-2 rounded-md border border-[var(--border)] px-3 py-1 text-xs font-medium lg:hidden"
                 onClick={() => setMenuOpen(true)}
               >
                 Menu
+              </button>
+            ) : null}
+            {hasNav && sidebarCollapsed ? (
+              <button
+                type="button"
+                className="mb-2 hidden items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--accent-soft)] lg:inline-flex"
+                onClick={() => persistSidebarCollapsed(false)}
+                aria-controls="dashboard-nav-sidebar"
+                aria-expanded={false}
+                title="Open sidebar"
+              >
+                <span aria-hidden className="select-none">
+                  »
+                </span>
+                Open sidebar
               </button>
             ) : null}
             <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{badge}</p>
@@ -62,9 +107,15 @@ export function DashboardShell({
           </div>
         </div>
       </header>
-      <main className="px-6 py-8 lg:pl-[290px]">
-        <div>
-          {navItems.length > 0 ? (
+      <main
+        className={`transition-[padding] duration-200 ${mainOffsetLg ? "lg:pl-[290px]" : ""} ${
+          fullWidthContent
+            ? "flex min-h-0 flex-1 flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-10"
+            : "px-6 py-8"
+        }`}
+      >
+        <div className={fullWidthContent ? "flex min-h-0 flex-1 flex-col" : ""}>
+          {hasNav ? (
             <>
               <div
                 className={`fixed inset-0 z-40 bg-black/40 transition-opacity lg:hidden ${
@@ -73,11 +124,12 @@ export function DashboardShell({
                 onClick={() => setMenuOpen(false)}
               />
               <aside
-                className={`fixed inset-y-0 left-0 z-50 w-[260px] border-r border-[var(--border)] bg-[var(--card)] p-4 transition-transform lg:z-30 ${
+                id="dashboard-nav-sidebar"
+                className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[var(--border)] bg-[var(--card)] p-4 transition-transform duration-200 ease-out lg:z-30 ${
                   menuOpen ? "translate-x-0" : "-translate-x-full"
-                } lg:translate-x-0`}
+                } ${sidebarCollapsed ? "lg:-translate-x-full" : "lg:translate-x-0"}`}
               >
-                <div className="mb-3 flex items-center justify-between lg:hidden">
+                <div className="mb-3 flex shrink-0 items-center justify-between lg:hidden">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Tasks</p>
                   <button
                     type="button"
@@ -87,10 +139,23 @@ export function DashboardShell({
                     Close
                   </button>
                 </div>
-                <p className="hidden text-xs font-semibold uppercase tracking-wide text-[var(--muted)] lg:block">
-                  Tasks
-                </p>
-                <nav className="mt-3 space-y-1">
+                <div className="mb-1 hidden shrink-0 items-center justify-between lg:flex">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Tasks</p>
+                  <button
+                    type="button"
+                    className="rounded-md border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--foreground)]"
+                    onClick={() => persistSidebarCollapsed(true)}
+                    aria-controls="dashboard-nav-sidebar"
+                    aria-expanded={!sidebarCollapsed}
+                    title="Collapse sidebar"
+                  >
+                    <span className="sr-only">Collapse sidebar</span>
+                    <span aria-hidden className="select-none">
+                      «
+                    </span>
+                  </button>
+                </div>
+                <nav className="mt-1 min-h-0 flex-1 space-y-1 overflow-y-auto">
                   {navItems.map((item) => (
                     <Link
                       key={item.href}
@@ -107,7 +172,15 @@ export function DashboardShell({
               </aside>
             </>
           ) : null}
-          <section className="max-w-6xl">{children}</section>
+          <section
+            className={
+              fullWidthContent
+                ? "flex min-h-0 w-full max-w-none flex-1 flex-col"
+                : "max-w-6xl"
+            }
+          >
+            {children}
+          </section>
         </div>
       </main>
     </div>

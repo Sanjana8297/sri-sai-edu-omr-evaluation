@@ -3,7 +3,6 @@ export const teacherNavItems = [
   { href: "/dashboard/teacher/fetch-new-question-using-ai", label: "Fetch new Question using AI" },
   { href: "/dashboard/teacher/question-bank", label: "Question Bank" },
   { href: "/dashboard/teacher/ai-builder", label: "AI Question Paper Generator" },
-  { href: "/dashboard/teacher/answer-sheet", label: "Upload answer key" },
   { href: "/dashboard/teacher/exams", label: "Exams" },
   { href: "/dashboard/teacher/students", label: "Students" },
   { href: "/dashboard/teacher/uploaded-papers", label: "Uploaded papers" },
