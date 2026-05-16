@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { teacherNavItems } from "@/lib/dashboard-nav";
 
@@ -25,7 +26,95 @@ type SessionReview = {
   proctoringEvents: Array<{ id: string; eventType: string; occurredAt: string }>;
 };
 
-export default function TeacherExamsPage() {
+type DeliverySection = "scheduling" | "omr" | "online";
+
+const SECTION_LABELS: Record<DeliverySection, string> = {
+  scheduling: "Exam Scheduling",
+  omr: "OMR Sheet Management",
+  online: "Online Exam Module",
+};
+
+const SECTION_SUBTITLES: Record<DeliverySection, string> = {
+  scheduling: "Schedule exam windows and publish them for students.",
+  omr: "Design, print and scan",
+  online: "CBT / hybrid delivery",
+};
+
+const ROADMAP_MODULES: Record<
+  "omr" | "online",
+  { title: string; subtitle: string; items: string[] }
+> = {
+  omr: {
+    title: "OMR Sheet Management",
+    subtitle: "Design, print and scan",
+    items: [
+      "OMR template designer (NEET/JEE)",
+      "Print-ready OMR + paper bundle",
+      "Camera / scanner OMR capture",
+      "AI bubble-fill detection engine",
+      "Error and smudge alert flags",
+    ],
+  },
+  online: {
+    title: "Online Exam Module",
+    subtitle: "CBT / hybrid delivery",
+    items: [
+      "Timer + auto-submit",
+      "Question palette (NTA-style UI)",
+      "Browser lock / anti-cheat",
+      "Offline fallback sync",
+      "Bilingual question toggle",
+    ],
+  },
+};
+
+function RoadmapNote({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)]">
+      {children}
+    </p>
+  );
+}
+
+function RoadmapModulePanel({
+  title,
+  subtitle,
+  items,
+}: {
+  title: string;
+  subtitle: string;
+  items: string[];
+}) {
+  return (
+    <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>
+      <ul className="mt-4 list-inside list-disc space-y-2 text-sm text-[var(--foreground)]">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <div className="mt-6">
+        <RoadmapNote>
+          This module is on the roadmap. Use <strong>Exam Scheduling</strong> in the sidebar for live exam windows,
+          publishing, and proctoring review today.
+        </RoadmapNote>
+      </div>
+    </section>
+  );
+}
+
+function ExamSchedulingPanel({
+  err,
+  msg,
+  setErr,
+  setMsg,
+}: {
+  err: string | null;
+  msg: string | null;
+  setErr: (v: string | null) => void;
+  setMsg: (v: string | null) => void;
+}) {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [paperId, setPaperId] = useState("");
@@ -36,8 +125,6 @@ export default function TeacherExamsPage() {
   const [isPublished, setIsPublished] = useState(true);
   const [reviewExamId, setReviewExamId] = useState("");
   const [reviews, setReviews] = useState<SessionReview[]>([]);
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [papersRes, examsRes] = await Promise.all([
@@ -117,15 +204,11 @@ export default function TeacherExamsPage() {
   }
 
   return (
-    <DashboardShell
-      badge="Teacher"
-      title="Examinations"
-      subtitle="Schedule exam windows and publish them for students."
-      navItems={teacherNavItems}
-    >
+    <>
       <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr]">
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
           <h2 className="text-lg font-semibold">Schedule Exam</h2>
+          <p className="mt-1 text-xs text-[var(--muted)]">Centre and slot management — assign papers, windows, and publish.</p>
           <form className="mt-4 space-y-3" onSubmit={createExam}>
             <select
               value={paperId}
@@ -184,11 +267,7 @@ export default function TeacherExamsPage() {
               />
             </label>
             <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={isPublished}
-                onChange={(e) => setIsPublished(e.target.checked)}
-              />
+              <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} />
               Publish immediately
             </label>
             {selectedPaper ? (
@@ -279,6 +358,66 @@ export default function TeacherExamsPage() {
           ))}
         </div>
       </div>
+    </>
+  );
+}
+
+function TeacherExamsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [section, setSection] = useState<DeliverySection>("scheduling");
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const param = searchParams.get("section");
+    if (param === "scheduling" || param === "omr" || param === "online") {
+      setSection(param);
+    } else {
+      router.replace("/dashboard/teacher/exams?section=scheduling");
+    }
+  }, [searchParams, router]);
+
+  return (
+    <DashboardShell
+      badge="Teacher"
+      title="OMR & Exam Delivery"
+      subtitle={SECTION_SUBTITLES[section]}
+      navItems={teacherNavItems}
+      fullWidthContent={section === "scheduling"}
+    >
+      <div
+        className={
+          section === "scheduling"
+            ? "flex min-h-0 flex-1 flex-col"
+            : "max-w-3xl"
+        }
+      >
+        <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-[var(--border)] pb-4">
+          <span className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</span>
+          <span className="text-xs text-[var(--muted)]">Use the sidebar to switch modules.</span>
+        </div>
+
+        {section === "scheduling" ? (
+          <ExamSchedulingPanel err={err} msg={msg} setErr={setErr} setMsg={setMsg} />
+        ) : null}
+        {section === "omr" ? <RoadmapModulePanel {...ROADMAP_MODULES.omr} /> : null}
+        {section === "online" ? <RoadmapModulePanel {...ROADMAP_MODULES.online} /> : null}
+      </div>
     </DashboardShell>
+  );
+}
+
+export default function TeacherExamsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center text-sm text-[var(--muted)]">
+          Loading…
+        </div>
+      }
+    >
+      <TeacherExamsPageContent />
+    </Suspense>
   );
 }

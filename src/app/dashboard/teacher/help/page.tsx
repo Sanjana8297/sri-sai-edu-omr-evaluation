@@ -140,7 +140,7 @@ const sections: HelpSection[] = [
         title: "Bulk Import & Export",
         subtitle: "Mass question operations",
         items: [
-          "Excel / CSV template import",
+          "CSV import",
           "PDF / Word OCR extraction",
           "Scanned paper digitization (AI)",
           "Export filtered bank as PDF/CSV",

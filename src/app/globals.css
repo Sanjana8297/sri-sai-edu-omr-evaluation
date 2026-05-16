@@ -10,6 +10,15 @@
   --accent: #4f46e5;
   --accent-soft: #eef2ff;
   --border: #e2e8f0;
+  /* Sidebar nav — inactive vs active (matches indigo accent theme) */
+  --nav-inactive-bg: transparent;
+  --nav-inactive-text: #64748b;
+  --nav-hover-bg: #e8ecf8;
+  --nav-hover-text: #0f172a;
+  --nav-active-bg: #eef2ff;
+  --nav-active-text: #4338ca;
+  --nav-active-ring: #c7d2fe;
+  --nav-parent-active-bg: #f5f7ff;
 }
 
 html[data-theme="dark"] {
@@ -20,6 +29,14 @@ html[data-theme="dark"] {
   --accent: #818cf8;
   --accent-soft: #312e81;
   --border: #334155;
+  --nav-inactive-bg: transparent;
+  --nav-inactive-text: #94a3b8;
+  --nav-hover-bg: #1e293b;
+  --nav-hover-text: #f1f5f9;
+  --nav-active-bg: #312e81;
+  --nav-active-text: #c7d2fe;
+  --nav-active-ring: #4f46e5;
+  --nav-parent-active-bg: #1e293b;
 }
 
 body {

@@ -4,18 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
-import { teacherNavItems } from "@/lib/dashboard-nav";
+import { SUBJECTS_BY_TRACK, teacherNavItems, type TeacherTrack } from "@/lib/dashboard-nav";
 import {
   buildFilteredQuestionBankExportCsv,
-  buildQuestionBankTemplateCsv,
   downloadTextFile,
   parseQuestionBankCsvToObjects,
   type QuestionBankExportRow,
 } from "@/lib/question-bank-csv";
 import { downloadQuestionBankFilteredPdf } from "@/lib/question-bank-pdf";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
-
-type Track = "JEE" | "NEET";
 
 type QuestionBankItem = {
   id: number;
@@ -35,16 +32,11 @@ type QuestionBankItem = {
   is_important: boolean;
 };
 
-const SUBJECTS_BY_TRACK: Record<Track, string[]> = {
-  JEE: ["Maths", "Physics", "Chemistry"],
-  NEET: ["Physics", "Chemistry", "Botany", "Zoology"],
-};
-
 export default function TeacherSubjectQuestionBankPage() {
   const params = useParams<{ subject: string }>();
   const subjectFromUrl = decodeURIComponent(params.subject ?? "");
 
-  const [track, setTrack] = useState<Track>("JEE");
+  const [track, setTrack] = useState<TeacherTrack>("JEE");
   const [trackLoaded, setTrackLoaded] = useState(false);
   const [questions, setQuestions] = useState<QuestionBankItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -123,16 +115,6 @@ export default function TeacherSubjectQuestionBankPage() {
       setLoading(false);
     }
   }, [chapter, difficulty, importantOnly, repeatedOnly, search, subjectFromUrl, track, year, jeeExamType]);
-
-  const downloadTemplate = useCallback(() => {
-    setImportErr(null);
-    const csv = buildQuestionBankTemplateCsv(subjectFromUrl || "Physics");
-    downloadTextFile(
-      `question-bank-import-template-${(subjectFromUrl || "subject").replace(/\s+/g, "-")}.csv`,
-      csv,
-      "text/csv;charset=utf-8"
-    );
-  }, [subjectFromUrl]);
 
   const exportFilteredCsv = useCallback(() => {
     setImportErr(null);
@@ -342,19 +324,12 @@ export default function TeacherSubjectQuestionBankPage() {
                 <div>
                   <h2 className="text-sm font-semibold">Bulk import & export (CSV / PDF)</h2>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    Download the CSV template, fill rows, then import. Export the current filter view as CSV or a
-                    printable PDF. Duplicates are skipped via content hash. Subject column can be left blank when
-                    importing from this page — it defaults to <strong>{subjectFromUrl}</strong>.
+                    Import a CSV file or export the current filter view as CSV or a printable PDF. Duplicates are
+                    skipped via content hash. Subject column can be left blank when importing from this page — it
+                    defaults to <strong>{subjectFromUrl}</strong>.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={downloadTemplate}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                  >
-                    Download CSV template
-                  </button>
                   <button
                     type="button"
                     onClick={exportFilteredCsv}

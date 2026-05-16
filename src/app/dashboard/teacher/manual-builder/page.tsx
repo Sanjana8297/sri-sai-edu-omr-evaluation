@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { teacherNavItems } from "@/lib/dashboard-nav";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
@@ -85,21 +86,6 @@ function countQuestionsInBody(body: string): number {
   return max;
 }
 
-/** Parse answer-key lines of the form `Q1: answer` (stops caring after solutions delimiter). */
-function parseAnswerKeyLines(keyText: string): Map<number, string> {
-  const map = new Map<number, string>();
-  const cut = keyText.split(/\n---\s*Solutions/i)[0] ?? keyText;
-  for (const line of cut.split("\n")) {
-    const trimmed = line.trim();
-    const m = trimmed.match(/^Q\s*(\d+)\s*:\s*(.*)$/i);
-    if (m) {
-      const n = parseInt(m[1], 10);
-      if (!Number.isNaN(n)) map.set(n, m[2].trim());
-    }
-  }
-  return map;
-}
-
 type PostSaveSnapshot = {
   title: string;
   questionBody: string;
@@ -108,15 +94,34 @@ type PostSaveSnapshot = {
   paperId?: string;
 };
 
-export default function TeacherManualBuilderPage() {
+function TeacherManualBuilderPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [workflowStep, setWorkflowStep] = useState<WorkflowStep>(0);
+
+  const goToWorkflowStep = useCallback(
+    (step: WorkflowStep) => {
+      setWorkflowStep(step);
+      const url =
+        step === 0 ? "/dashboard/teacher/manual-builder" : `/dashboard/teacher/manual-builder?step=${step}`;
+      router.push(url, { scroll: false });
+    },
+    [router]
+  );
+
+  useEffect(() => {
+    const stepParam = searchParams.get("step");
+    if (stepParam === "1") setWorkflowStep(1);
+    else if (stepParam === "2") setWorkflowStep(2);
+    else if (stepParam === "3") setWorkflowStep(3);
+    else router.replace("/dashboard/teacher/manual-builder?step=1");
+  }, [searchParams, router]);
   const [track, setTrack] = useState<"JEE" | "NEET">("JEE");
   const [title, setTitle] = useState("");
   const [questionContent, setQuestionContent] = useState("");
   const [keyContent, setKeyContent] = useState("");
   const [solutionNotes, setSolutionNotes] = useState("");
   const [questionFile, setQuestionFile] = useState<File | null>(null);
-  const [keyFile, setKeyFile] = useState<File | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -147,10 +152,10 @@ export default function TeacherManualBuilderPage() {
   const [customOptionsLines, setCustomOptionsLines] = useState("");
   const [customCorrectAnswer, setCustomCorrectAnswer] = useState("");
   const [section1Tab, setSection1Tab] = useState<"bank" | "typed">("bank");
+  const [paperPreviewReady, setPaperPreviewReady] = useState(false);
 
-  /** After a successful save, used to auto-fill section 3 and run Validate against what was saved. */
+  /** After a successful save, used to show what was stored in section 3. */
   const [postSaveSnapshot, setPostSaveSnapshot] = useState<PostSaveSnapshot | null>(null);
-  const [validateResult, setValidateResult] = useState<{ ok: boolean; lines: string[] } | null>(null);
 
   const [sectionLayout, setSectionLayout] = useState<"single" | "neet_abc" | "jee_adv_abc">("single");
   const [paperDurationMin, setPaperDurationMin] = useState("");
@@ -236,6 +241,15 @@ export default function TeacherManualBuilderPage() {
   }, [loadQuestionBank]);
 
   useEffect(() => {
+    if (workflowStep !== 3 || paperSlots.length === 0) return;
+    const missingBank = paperSlots.filter(
+      (s): s is { kind: "bank"; id: number } => s.kind === "bank" && !selectionDetails.has(s.id)
+    );
+    if (missingBank.length > 0) return;
+    setKeyContent(buildContentFromSelected().keyContent);
+  }, [workflowStep, paperSlots, selectionDetails]);
+
+  useEffect(() => {
     setBankOffset(0);
   }, [bankSubject, bankDifficulty, bankImportantOnly, bankRepeatedOnly, bankYear, bankChapter, bankSearch, bankExamType, bankQuestionType]);
 
@@ -249,11 +263,16 @@ export default function TeacherManualBuilderPage() {
   }, [track]);
 
   function toggleQuestionSelection(id: number) {
+    const item = bankItems.find((q) => q.id === id);
     setPaperSlots((prev) => {
       const exists = prev.some((s) => s.kind === "bank" && s.id === id);
       if (exists) return prev.filter((s) => !(s.kind === "bank" && s.id === id));
       return [...prev, { kind: "bank", id }];
     });
+    if (item) {
+      setSelectionDetails((prev) => new Map(prev).set(id, item));
+    }
+    setPaperPreviewReady(false);
   }
 
   function toggleSelectAllCurrentPage() {
@@ -270,14 +289,24 @@ export default function TeacherManualBuilderPage() {
       const additions = pageIds.filter((id) => !existing.has(id)).map((id) => ({ kind: "bank" as const, id }));
       return [...without, ...additions];
     });
+    setSelectionDetails((prev) => {
+      const m = new Map(prev);
+      for (const item of bankItems) {
+        if (pageIds.includes(item.id)) m.set(item.id, item);
+      }
+      return m;
+    });
+    setPaperPreviewReady(false);
   }
 
   function deselectAllQuestions() {
     setPaperSlots([]);
+    setPaperPreviewReady(false);
   }
 
   function removePaperSlot(index: number) {
     setPaperSlots((prev) => prev.filter((_, i) => i !== index));
+    setPaperPreviewReady(false);
   }
 
   function movePaperQuestion(from: number, to: number) {
@@ -288,6 +317,7 @@ export default function TeacherManualBuilderPage() {
       next.splice(to, 0, removed);
       return next;
     });
+    setPaperPreviewReady(false);
   }
 
   function addBankQuestionToPaper(item: QuestionBankItem) {
@@ -296,6 +326,7 @@ export default function TeacherManualBuilderPage() {
       if (prev.some((s) => s.kind === "bank" && s.id === item.id)) return prev;
       return [...prev, { kind: "bank", id: item.id }];
     });
+    setPaperPreviewReady(false);
     setMsg(`Added question #${item.id} from the bank to your paper.`);
   }
 
@@ -364,6 +395,7 @@ export default function TeacherManualBuilderPage() {
         if (prev.some((s) => s.kind === "bank" && s.id === id)) return prev;
         return [...prev, { kind: "bank", id }];
       });
+      setPaperPreviewReady(false);
       setMsg(
         j.alreadyExisted
           ? `That question was already in the bank (#${id}); it has been added to your paper.`
@@ -429,6 +461,31 @@ export default function TeacherManualBuilderPage() {
     };
   }
 
+  function generateQuestionPaperFromSlots(): boolean {
+    setErr(null);
+    setMsg(null);
+    if (paperSlots.length === 0) {
+      setErr("Add at least one question before generating the paper.");
+      return false;
+    }
+    const missingBank = paperSlots.filter(
+      (s): s is { kind: "bank"; id: number } => s.kind === "bank" && !selectionDetails.has(s.id)
+    );
+    if (missingBank.length > 0) {
+      setErr(
+        `Could not load details for bank question(s) #${missingBank.map((s) => s.id).join(", ")}. Re-select them from the bank list or refresh.`
+      );
+      return false;
+    }
+    const { questionContent: generatedQuestionContent, keyContent: generatedKeyContent } =
+      buildContentFromSelected();
+    setQuestionContent(generatedQuestionContent);
+    setKeyContent(generatedKeyContent);
+    setPaperPreviewReady(true);
+    setMsg(`Question paper generated with ${paperSlots.length} question(s). Review the preview below.`);
+    return true;
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -454,13 +511,13 @@ export default function TeacherManualBuilderPage() {
     const composerAppend =
       composerLines.length > 0 ? `\n\n--- Paper composer (workflow) ---\n${composerLines.join("\n")}` : "";
     const bodyCore = trimmed || generatedQuestionContent;
-    if (!bodyCore && !questionFile) {
-      setErr("Add question text and/or upload a question paper file.");
+    if (!bodyCore) {
+      setErr("Add questions in section 1, then generate the paper in section 2 before saving.");
       return;
     }
     const finalQuestionContent = bodyCore + composerAppend;
     const extraKey = solutionNotes.trim() ? `\n\n--- Solutions / notes ---\n${solutionNotes.trim()}` : "";
-    const finalKeyContent = (keyContent.trim() || generatedKeyContent) + extraKey;
+    const finalKeyContent = generatedKeyContent + extraKey;
 
     let res: Response;
     if (questionFile) {
@@ -504,104 +561,36 @@ export default function TeacherManualBuilderPage() {
       paperId,
     });
     setKeyContent(finalKeyContent);
-    setValidateResult(null);
-    setWorkflowStep(3);
+    goToWorkflowStep(3);
 
     setTitle(title.trim());
     setQuestionContent(bodyCore);
     setSolutionNotes("");
     setQuestionFile(null);
-    setKeyFile(null);
     setPaperSlots([]);
     setSelectionDetails(new Map());
     setMsg(
       inferredQuestionCount > 0
-        ? "Question paper saved. Section 3 shows the answer key that was stored—use Validate to check it against the question count."
-        : "Question paper saved. Section 3 shows the stored answer key. Validate could not infer a question count from the body (use Q1., Q2., … labels or bank picks for automatic checks)."
+        ? `Question paper saved with ${inferredQuestionCount} question(s) and an auto-generated answer key.`
+        : "Question paper saved with an auto-generated answer key."
     );
   }
 
-  function validatePostSaveAnswerKey() {
-    setValidateResult(null);
-    if (!postSaveSnapshot) {
-      setValidateResult({
-        ok: false,
-        lines: ["Validate compares your key to the last paper saved on this page. Save a paper first, then click Validate."],
-      });
-      return;
-    }
-    const expected = postSaveSnapshot.expectedQuestionCount;
-    if (expected <= 0) {
-      setValidateResult({
-        ok: false,
-        lines: [
-          "No question count was recorded for that save (e.g. only a file upload with no Q1., Q2., … markers in the text). Add labelled questions in the body next time, or rely on bank picks for automatic counting.",
-        ],
-      });
-      return;
-    }
-    const keyMap = parseAnswerKeyLines(keyContent);
-    const missing: number[] = [];
-    const weak: string[] = [];
-    for (let i = 1; i <= expected; i++) {
-      const ans = keyMap.get(i);
-      if (ans === undefined) missing.push(i);
-      else if (!ans || /^n\/?a$/i.test(ans)) weak.push(`Q${i} is empty or marked N/A`);
-    }
-    const extra = [...keyMap.keys()].filter((k) => k < 1 || k > expected);
-    const lines: string[] = [];
-    if (missing.length) lines.push(`Missing key lines for: ${missing.map((n) => `Q${n}`).join(", ")}`);
-    if (extra.length) lines.push(`Key entries beyond Q${expected}: ${extra.map((n) => `Q${n}`).join(", ")}`);
-    lines.push(...weak);
-    if (lines.length === 0) {
-      setValidateResult({
-        ok: true,
-        lines: [
-          `Looks good: ${expected} question(s) each have a corresponding Qn: line with a non-empty answer (before any solutions block).`,
-        ],
-      });
-    } else {
-      setValidateResult({ ok: false, lines });
-    }
-  }
-
-  const sectionCards: {
-    step: 1 | 2 | 3;
-    badge: string;
-    title: string;
-    description: string;
-    points: string[];
-  }[] = [
-    {
-      step: 1,
-      badge: "1",
-      title: "Select from question bank",
-      description: "Type a question to find duplicates, pick from the bank, or add custom items—then filter and order.",
-      points: ["Type a question to match the bank or add custom", "Filters, search, bulk select", "Drag to reorder in paper"],
-    },
-    {
-      step: 2,
-      badge: "2",
-      title: "Paper composer",
-      description: "Layout, timing, bilingual options, header, set code, then title and question body.",
-      points: ["Sections (NEET / JEE Advanced style)", "Duration & max marks", "EN · Telugu · Hindi", "PDF export (planned)"],
-    },
-    {
-      step: 3,
-      badge: "3",
-      title: "Answer key & solutions",
-      description: "After you save, the key is filled here automatically; validate, edit, then save again if needed.",
-      points: ["Auto-filled key after save", "Validate against question count", "Solutions / worked steps", "Key file (planned)"],
-    },
-  ];
-
-  const fullPageSection = workflowStep !== 0;
+  const fullPageSection = workflowStep >= 1;
 
   return (
     <DashboardShell
       badge="Teacher"
       title="Manual Question Paper Generator"
-      subtitle={fullPageSection ? undefined : "Choose a step below, or return here anytime from inside a section."}
+      subtitle={
+        workflowStep === 1
+          ? "Select from question bank"
+          : workflowStep === 2
+            ? "Paper composer"
+            : workflowStep === 3
+              ? "Answer key & solutions"
+              : undefined
+      }
       navItems={teacherNavItems}
       fullWidthContent={fullPageSection}
     >
@@ -612,50 +601,15 @@ export default function TeacherManualBuilderPage() {
             : "rounded-xl border border-[var(--border)] bg-[var(--card)] p-6"
         }
       >
-        {fullPageSection ? null : (
-        <div className="mb-6">
-          <p className="text-sm font-semibold">Manual Question Paper Generator</p>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            Start from the overview. Open one section at a time—each card opens its full workflow.
-          </p>
-        </div>
-        )}
 
         {workflowStep === 0 ? (
-          <div className="grid gap-4 md:grid-cols-3" role="navigation" aria-label="Manual paper workflow sections">
-            {sectionCards.map((card) => (
-              <button
-                key={card.step}
-                type="button"
-                onClick={() => setWorkflowStep(card.step)}
-                className="flex flex-col rounded-xl border-2 border-[var(--border)] bg-[var(--background)] p-5 text-left shadow-sm transition hover:border-[var(--accent)] hover:bg-[var(--card)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--card)]"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-bold text-white">
-                  {card.badge}
-                </span>
-                <span className="mt-3 text-base font-semibold leading-snug">{card.title}</span>
-                <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">{card.description}</p>
-                <ul className="mt-3 list-inside list-disc space-y-1 border-t border-[var(--border)] pt-3 text-xs text-[var(--muted)]">
-                  {card.points.map((pt) => (
-                    <li key={pt}>{pt}</li>
-                  ))}
-                </ul>
-                <span className="mt-4 text-sm font-medium text-[var(--accent)]">Open section →</span>
-              </button>
-            ))}
-          </div>
+          <p className="text-sm text-[var(--muted)]">Loading section…</p>
         ) : (
           <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-[var(--border)] pb-4">
-            <button
-              type="button"
-              onClick={() => setWorkflowStep(0)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium hover:bg-[var(--card)]"
-            >
-              ← All steps
-            </button>
             <span className="text-sm text-[var(--muted)]">
               {workflowStep === 1 ? "Section 1 · Questions" : workflowStep === 2 ? "Section 2 · Paper composer" : "Section 3 · Answer key & solutions"}
             </span>
+            <span className="text-xs text-[var(--muted)]">Use the sidebar to switch sections.</span>
           </div>
         )}
 
@@ -969,32 +923,19 @@ export default function TeacherManualBuilderPage() {
 
             <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
               <p className="text-sm font-medium">Preview — questions in paper order ({paperSlots.length})</p>
-              <p className="mt-1 text-xs text-[var(--muted)]">Drag a row by the handle, or use ↑ / ↓. Save uses this order when the composer body is empty.</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Drag a row by the handle, or use ↑ / ↓. Generate the full paper in section 2 (Paper composer).</p>
               {paperSlots.length === 0 ? (
                 <p className="mt-2 text-sm text-[var(--muted)]">No questions in the paper yet.</p>
               ) : (
-                <ul className="mt-2 space-y-2">
+                <ul className="mt-2 space-y-3">
                   {paperSlots.map((slot, paperIdx) => {
-                    let preview: string;
-                    let showEllipsis = false;
-                    let isCustom = false;
-                    if (slot.kind === "custom") {
-                      isCustom = true;
-                      const t = formatQuestionTextForDisplay(slot.question_text);
-                      preview = t.slice(0, 160);
-                      showEllipsis = t.length > 160;
-                    } else {
-                      const bankItem = selectionDetails.get(slot.id);
-                      if (!bankItem) {
-                        preview = `Bank #${slot.id} (open the bank list page that contains this id to load preview text)`;
-                        showEllipsis = false;
-                      } else {
-                        const t = formatQuestionTextForDisplay(bankItem.question_text);
-                        preview = t.slice(0, 160);
-                        showEllipsis = t.length > 160;
-                      }
-                    }
                     const listKey = slot.kind === "bank" ? `bank-${slot.id}` : `custom-${slot.key}`;
+                    const bankItem = slot.kind === "bank" ? selectionDetails.get(slot.id) : null;
+                    const questionText =
+                      slot.kind === "custom" ? slot.question_text : bankItem?.question_text ?? null;
+                    const options = slot.kind === "custom" ? slot.options : bankItem?.options ?? null;
+                    const subject = slot.kind === "bank" ? bankItem?.subject : null;
+
                     return (
                       <li
                         key={listKey}
@@ -1007,43 +948,68 @@ export default function TeacherManualBuilderPage() {
                           setDragPaperIndex(null);
                         }}
                         onDragEnd={() => setDragPaperIndex(null)}
-                        className="flex items-start gap-2 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-2 text-sm"
+                        className="rounded-md border border-[var(--border)] bg-[var(--background)] p-3"
                       >
-                        <span className="cursor-grab select-none text-[var(--muted)]" title="Drag to reorder">
-                          ::
-                        </span>
-                        <span className="shrink-0 font-mono text-xs text-[var(--muted)]">Q{paperIdx + 1}</span>
-                        <span className="min-w-0 flex-1 whitespace-pre-wrap text-xs">
-                          {isCustom ? (
-                            <span className="mr-1 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-800 dark:bg-violet-950 dark:text-violet-200">
-                              custom
-                            </span>
-                          ) : null}
-                          {preview}
-                          {showEllipsis ? "…" : ""}
-                        </span>
-                        <span className="flex shrink-0 flex-col gap-0.5">
-                          <button type="button" className="rounded border border-[var(--border)] px-1.5 text-xs" disabled={paperIdx === 0} onClick={() => movePaperQuestion(paperIdx, paperIdx - 1)} aria-label="Move up">
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-[var(--border)] px-1.5 text-xs"
-                            disabled={paperIdx >= paperSlots.length - 1}
-                            onClick={() => movePaperQuestion(paperIdx, paperIdx + 1)}
-                            aria-label="Move down"
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-red-200 px-1.5 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
-                            onClick={() => removePaperSlot(paperIdx)}
-                            aria-label="Remove from paper"
-                          >
-                            ×
-                          </button>
-                        </span>
+                        <div className="flex items-start gap-2">
+                          <span className="cursor-grab select-none pt-0.5 text-[var(--muted)]" title="Drag to reorder">
+                            ::
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-xs font-semibold text-[var(--muted)]">Q{paperIdx + 1}</span>
+                              {slot.kind === "custom" ? (
+                                <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-800 dark:bg-violet-950 dark:text-violet-200">
+                                  custom
+                                </span>
+                              ) : subject ? (
+                                <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px]">{subject}</span>
+                              ) : null}
+                              {slot.kind === "bank" && !bankItem ? (
+                                <span className="text-[10px] text-amber-700 dark:text-amber-300">Bank #{slot.id} — refresh list to load text</span>
+                              ) : null}
+                            </div>
+                            {questionText ? (
+                              <p className="mt-2 whitespace-pre-wrap text-sm">{formatQuestionTextForDisplay(questionText)}</p>
+                            ) : null}
+                            {options && options.length > 0 ? (
+                              <ul className="mt-2 list-none space-y-1 text-sm">
+                                {options.map((option, optionIdx) => (
+                                  <li key={optionIdx} className="whitespace-pre-wrap">
+                                    <span className="font-medium text-[var(--muted)]">({String.fromCharCode(65 + optionIdx)}) </span>
+                                    {formatQuestionTextForDisplay(option)}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            {bankItem?.correct_answer ? (
+                              <CorrectAnswerBlock correctAnswer={bankItem.correct_answer} options={bankItem.options} />
+                            ) : slot.kind === "custom" && slot.correct_answer ? (
+                              <CorrectAnswerBlock correctAnswer={slot.correct_answer} options={slot.options} />
+                            ) : null}
+                          </div>
+                          <span className="flex shrink-0 flex-col gap-0.5">
+                            <button type="button" className="rounded border border-[var(--border)] px-1.5 text-xs" disabled={paperIdx === 0} onClick={() => movePaperQuestion(paperIdx, paperIdx - 1)} aria-label="Move up">
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-[var(--border)] px-1.5 text-xs"
+                              disabled={paperIdx >= paperSlots.length - 1}
+                              onClick={() => movePaperQuestion(paperIdx, paperIdx + 1)}
+                              aria-label="Move down"
+                            >
+                              ↓
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-red-200 px-1.5 text-xs text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                              onClick={() => removePaperSlot(paperIdx)}
+                              aria-label="Remove from paper"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        </div>
                       </li>
                     );
                   })}
@@ -1052,10 +1018,12 @@ export default function TeacherManualBuilderPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(0)}>
-                Close section
-              </button>
-              <button type="button" className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" onClick={() => setWorkflowStep(2)}>
+              <button
+                type="button"
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                disabled={paperSlots.length === 0}
+                onClick={() => goToWorkflowStep(2)}
+              >
                 Next: Paper composer
               </button>
             </div>
@@ -1146,17 +1114,65 @@ export default function TeacherManualBuilderPage() {
             </label>
 
             <RoadmapNote>
-              Section layout, timing, languages, header blocks, set codes, and PDF export are captured in the UI for your workflow. They are not yet merged into print-ready PDF; use the question body and file upload for the paper you distribute today.
+              Section layout, timing, languages, header blocks, and set codes are saved with your paper metadata. Questions come from section 1—use Generate Question Paper below before continuing.
             </RoadmapNote>
 
+            {paperSlots.length > 0 ? (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
+                <p className="text-sm font-medium">Paper title</p>
+                <input
+                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                  placeholder="e.g. Physics Unit Test — March 2026"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+                <p className="mt-2 text-xs text-[var(--muted)]">
+                  {paperSlots.length} question(s) from section 1
+                  {paperPreviewReady ? " · paper generated" : " · click Generate Question Paper below"}
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-amber-800 dark:text-amber-200">
+                Add questions in section 1, then return here to set layout and generate the paper.
+              </p>
+            )}
+
+            {paperPreviewReady && questionContent.trim() ? (
+              <div className="rounded-lg border-2 border-[var(--accent)] bg-[var(--card)] p-4">
+                <p className="text-sm font-semibold">Generated question paper preview</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">{paperSlots.length} question(s) in exam order</p>
+                <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{questionContent}</pre>
+                </div>
+                {keyContent.trim() ? (
+                  <>
+                    <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Answer key preview</p>
+                    <div className="mt-2 max-h-40 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                      <pre className="whitespace-pre-wrap font-mono text-xs">{keyContent}</pre>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(0)}>
-                All steps
-              </button>
-              <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(1)}>
+              <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => goToWorkflowStep(1)}>
                 Back
               </button>
-              <button type="button" className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" onClick={() => setWorkflowStep(3)}>
+              <button
+                type="button"
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                disabled={paperSlots.length === 0}
+                onClick={() => generateQuestionPaperFromSlots()}
+              >
+                Generate Question Paper
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] disabled:opacity-50"
+                disabled={paperSlots.length === 0 || !paperPreviewReady}
+                onClick={() => goToWorkflowStep(3)}
+              >
                 Next: Answer key & solutions
               </button>
               <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm opacity-60" disabled title="Coming soon">
@@ -1170,35 +1186,14 @@ export default function TeacherManualBuilderPage() {
         <form className="space-y-4" onSubmit={submit}>
           {workflowStep === 2 || workflowStep === 3 ? (
             <>
-              {workflowStep === 2 ? (
-                <>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Paper body</p>
-                  <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-                  <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" value={track} disabled />
-                  <label className="block text-sm text-[var(--muted)]">
-                    Question paper file
-                    <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm file:mr-3" type="file" accept=".pdf,.docx,image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => setQuestionFile(e.target.files?.[0] ?? null)} />
-                  </label>
-                  <textarea
-                    className="min-h-[220px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
-                    placeholder="Paste/type the complete question paper here (optional if you upload a file or use bank picks from step 1)…"
-                    value={questionContent}
-                    onChange={(e) => setQuestionContent(e.target.value)}
-                    required={!questionFile && paperSlots.length === 0}
-                  />
-                </>
-              ) : null}
-
               {workflowStep === 3 ? (
                 <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4" aria-labelledby="step3-heading">
                   <h2 id="step3-heading" className="text-sm font-semibold">
                     3) Answer key & solutions
                   </h2>
                   <ul className="list-inside list-disc text-xs text-[var(--muted)]">
-                    <li>After you save the paper, the answer key text is generated and shown here</li>
-                    <li>Use Validate to check Q1: … Qn: lines against the saved question count</li>
-                    <li>Key file upload and bulk CSV (planned)</li>
-                    <li>Set-wise key mapping (A / B / C / D) (planned)</li>
+                    <li>Answer key is built automatically from your selected questions</li>
+                    <li>Add optional worked solutions before saving</li>
                   </ul>
 
                   {postSaveSnapshot ? (
@@ -1211,74 +1206,27 @@ export default function TeacherManualBuilderPage() {
                         ) : null}
                       </p>
                       <p className="mt-1 text-xs text-[var(--muted)]">
-                        Questions used for validation:{" "}
-                        {postSaveSnapshot.expectedQuestionCount > 0 ? postSaveSnapshot.expectedQuestionCount : "not detected — see Validate message"}
+                        Questions:{" "}
+                        {postSaveSnapshot.expectedQuestionCount > 0 ? postSaveSnapshot.expectedQuestionCount : "—"}
                       </p>
                     </div>
+                  ) : null}
+
+                  {paperPreviewReady && keyContent.trim() ? (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
+                      <p className="text-sm font-medium">Auto-generated answer key</p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        One line per question from bank answers ({paperSlots.length} question{paperSlots.length === 1 ? "" : "s"})
+                      </p>
+                      <div className="mt-2 max-h-48 overflow-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
+                        <pre className="whitespace-pre-wrap font-mono text-xs">{keyContent}</pre>
+                      </div>
+                    </div>
                   ) : (
-                    <p className="text-xs text-[var(--muted)]">
-                      When you save a paper, this section opens with the answer key that was stored. You can edit it and save again with the same title if you need to update the key.
+                    <p className="text-xs text-amber-800 dark:text-amber-200">
+                      Generate the question paper in section 2 first—the answer key will appear here automatically.
                     </p>
                   )}
-
-                  <label className="block text-sm text-[var(--muted)]">
-                    Answer key file (optional)
-                    <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm file:mr-3" type="file" accept=".pdf,.csv,text/csv,application/pdf" onChange={(e) => setKeyFile(e.target.files?.[0] ?? null)} />
-                  </label>
-                  {keyFile ? <p className="text-xs text-[var(--muted)]">Selected: {keyFile.name} (stored locally until upload API is wired)</p> : null}
-
-                  <div className="flex flex-wrap items-end justify-between gap-2">
-                    <label className="block flex-1 text-sm text-[var(--muted)]">
-                      Answer key (text)
-                      <textarea
-                        className="mt-1 min-h-[160px] w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 font-mono text-xs"
-                        placeholder="One line per question (Q1: …), or paste full key…"
-                        value={keyContent}
-                        onChange={(e) => {
-                          setKeyContent(e.target.value);
-                          setValidateResult(null);
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
-                      onClick={() => validatePostSaveAnswerKey()}
-                    >
-                      Validate
-                    </button>
-                    {postSaveSnapshot ? (
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
-                        onClick={() => {
-                          setKeyContent(postSaveSnapshot.savedAnswerKey);
-                          setValidateResult(null);
-                        }}
-                      >
-                        Restore key from last save
-                      </button>
-                    ) : null}
-                  </div>
-                  {validateResult ? (
-                    <div
-                      role="status"
-                      className={`rounded-lg border px-3 py-2 text-sm ${
-                        validateResult.ok
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
-                          : "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
-                      }`}
-                    >
-                      <p className="font-medium">{validateResult.ok ? "Validation passed" : "Validation issues"}</p>
-                      <ul className="mt-2 list-inside list-disc space-y-1 text-xs">
-                        {validateResult.lines.map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
 
                   <label className="block text-sm text-[var(--muted)]">
                     Solutions / worked steps (appended to saved key block)
@@ -1286,28 +1234,37 @@ export default function TeacherManualBuilderPage() {
                   </label>
 
                   <RoadmapNote>
-                    Saving fills the key from your inputs and bank picks (when the key box was empty). Validate checks Q1: … style lines against the question count from that save. Timed release and per-set key tables are still planned.
+                    The answer key is generated from correct answers stored with each bank question. Questions without an answer are marked N/A in the key.
                   </RoadmapNote>
 
                   <label className="block text-sm font-medium text-[var(--foreground)]">
                     Paper title (required to save)
                     <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2" placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
                   </label>
-                  <p className="text-xs text-[var(--muted)]">
-                    Question body and file are edited under Paper composer (step 2). Questions in paper order: {paperSlots.length} (bank + custom).
-                  </p>
-                  <button type="button" className="text-xs text-[var(--accent)] underline" onClick={() => setWorkflowStep(2)}>
+                  {paperPreviewReady && questionContent.trim() ? (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
+                      <p className="text-xs font-medium text-[var(--foreground)]">Question paper ({paperSlots.length} questions)</p>
+                      <div className="mt-2 max-h-48 overflow-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
+                        <pre className="whitespace-pre-wrap text-xs">{questionContent}</pre>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-800 dark:text-amber-200">
+                      Generate the paper in section 2 first ({paperSlots.length} question(s) selected).
+                      <button type="button" className="ml-1 text-[var(--accent)] underline" onClick={() => goToWorkflowStep(1)}>
+                        Go to section 1
+                      </button>
+                    </p>
+                  )}
+                  <button type="button" className="mt-1 text-xs text-[var(--accent)] underline" onClick={() => goToWorkflowStep(2)}>
                     Open paper composer
                   </button>
 
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(0)}>
-                      All steps
-                    </button>
-                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(2)}>
+                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => goToWorkflowStep(2)}>
                       Back: Paper composer
                     </button>
-                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(1)}>
+                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => goToWorkflowStep(1)}>
                       Bank
                     </button>
                   </div>
@@ -1316,13 +1273,15 @@ export default function TeacherManualBuilderPage() {
 
               {workflowStep === 2 ? (
                 <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
-                  <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(0)}>
-                    All steps
-                  </button>
-                  <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => setWorkflowStep(1)}>
+                  <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => goToWorkflowStep(1)}>
                     Back: Question bank
                   </button>
-                  <button type="button" className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" onClick={() => setWorkflowStep(3)}>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    disabled={paperSlots.length === 0 || !paperPreviewReady}
+                    onClick={() => goToWorkflowStep(3)}
+                  >
                     Continue to answer key
                   </button>
                 </div>
@@ -1338,7 +1297,7 @@ export default function TeacherManualBuilderPage() {
 
           {workflowStep === 1 ? (
             <p className="text-xs text-[var(--muted)]">
-              Use <strong>Next: Paper composer</strong> for title and body, then open <strong>Answer key & solutions</strong> from the overview or the next-step button to save.
+              Add questions in section 1, then use <strong>Generate Question Paper</strong> in <strong>Paper composer</strong> before saving in <strong>Answer key & solutions</strong>.
             </p>
           ) : null}
         </form>
@@ -1348,5 +1307,19 @@ export default function TeacherManualBuilderPage() {
         {msg ? <p className="mt-2 text-sm text-green-700">{msg}</p> : null}
       </div>
     </DashboardShell>
+  );
+}
+
+export default function TeacherManualBuilderPageWrapper() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center text-sm text-[var(--muted)]">
+          Loading…
+        </div>
+      }
+    >
+      <TeacherManualBuilderPage />
+    </Suspense>
   );
 }

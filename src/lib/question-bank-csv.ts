@@ -1,4 +1,4 @@
-/** Column order for template download and bulk CSV import (RFC 4180). */
+/** Column order for bulk CSV import and export (RFC 4180). */
 export const QUESTION_BANK_CSV_HEADERS = [
   "subject",
   "question_text",
@@ -171,26 +171,6 @@ export function parseQuestionBankCsvToObjects(text: string): ParsedBulkCsvRow[] 
     });
   }
   return out;
-}
-
-export function buildQuestionBankTemplateCsv(exampleSubject: string): string {
-  const header = [...QUESTION_BANK_CSV_HEADERS];
-  const example = [
-    exampleSubject,
-    "Sample: What is 2 + 2?",
-    "3",
-    "4",
-    "5",
-    "6",
-    "B",
-    "Arithmetic",
-    "easy",
-    "2026",
-    "mcq|csv-template",
-    "CSV template",
-    "question-bank-template",
-  ];
-  return stringifyCsv([header, example]);
 }
 
 export type QuestionBankExportRow = {
