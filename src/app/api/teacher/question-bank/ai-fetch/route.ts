@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRoles } from "@/lib/api-auth";
+import { callOpenAiChatCompletion, getAiConfigError } from "@/lib/openai-runtime";
 
 type InternetQuestion = {
   questionText: string;
@@ -10,10 +11,6 @@ type InternetQuestion = {
   sourceName: string;
   sourceUrl: string;
 };
-
-function getApiKey(): string | null {
-  return process.env.OPENAI_API_KEY?.trim() || null;
-}
 
 function stripTags(value: string): string {
   return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -48,9 +45,9 @@ export async function POST(request: Request) {
   const { response } = await requireRoles(["TEACHER"]);
   if (response) return response;
 
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    return NextResponse.json({ error: "AI fetch needs OPENAI_API_KEY in .env." }, { status: 503 });
+  const aiConfigError = await getAiConfigError();
+  if (aiConfigError) {
+    return NextResponse.json({ error: aiConfigError }, { status: 503 });
   }
 
   let body: {
@@ -118,31 +115,23 @@ export async function POST(request: Request) {
     },
   };
 
-  const responseAi = await fetch(`${process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1"}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+  const responseAi = await callOpenAiChatCompletion({
+    temperature: 0.4,
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "teacher_internet_fetch_questions", strict: true, schema },
     },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-      temperature: 0.4,
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: "teacher_internet_fetch_questions", strict: true, schema },
+    messages: [
+      {
+        role: "system",
+        content:
+          "Use only provided internet snippets to draft exam-style MCQ questions. Keep one correct option, four options total, and attach best sourceName/sourceUrl from snippets.",
       },
-      messages: [
-        {
-          role: "system",
-          content:
-            "Use only provided internet snippets to draft exam-style MCQ questions. Keep one correct option, four options total, and attach best sourceName/sourceUrl from snippets.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({ category, subject, year, topic, count, difficulty, snippets }),
-        },
-      ],
-    }),
+      {
+        role: "user",
+        content: JSON.stringify({ category, subject, year, topic, count, difficulty, snippets }),
+      },
+    ],
   });
 
   if (!responseAi.ok) {

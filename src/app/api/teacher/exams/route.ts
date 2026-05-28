@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
+import { getTeacherCbtDefaults, setExamCbtSettings } from "@/lib/cbt-settings-db";
 
 function parseDate(value: unknown): Date | null {
   if (typeof value !== "string") return null;
@@ -68,12 +69,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "durationMinutes must be between 1 and 480" }, { status: 400 });
   }
 
-  const [me, paper] = await Promise.all([
-    prisma.teacher.findUnique({ where: { id: session.sub }, select: { id: true, category: true } }),
+  const [me, paper, cbtSettings] = await Promise.all([
+    prisma.teacher.findUnique({
+      where: { id: session.sub },
+      select: { id: true, category: true },
+    }),
     prisma.questionPaper.findFirst({
       where: { id: questionPaperId, teacherId: session.sub },
       select: { id: true, category: true, title: true },
     }),
+    getTeacherCbtDefaults(session.sub),
   ]);
   if (!me) return NextResponse.json({ error: "Invalid teacher profile" }, { status: 400 });
   if (!paper) return NextResponse.json({ error: "Question paper not found" }, { status: 404 });
@@ -94,6 +99,8 @@ export async function POST(request: Request) {
     },
     include: { questionPaper: { select: { title: true } } },
   });
+
+  await setExamCbtSettings(exam.id, cbtSettings);
 
   return NextResponse.json({
     exam: {

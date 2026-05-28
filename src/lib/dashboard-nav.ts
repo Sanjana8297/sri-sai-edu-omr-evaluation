@@ -50,14 +50,41 @@ export function buildTeacherNavItems(track: TeacherTrack): NavItem[] {
         { href: "/dashboard/teacher/exams?section=scheduling", label: "Exam Scheduling" },
       ],
     },
-    { href: "/dashboard/teacher/uploaded-papers", label: "Uploaded Papers" },
-    { href: "/dashboard/teacher/students", label: "Students" },
+    { href: "/dashboard/teacher/uploaded-papers", label: "Completed Exam Papers" },
+    { href: "/dashboard/teacher/students", label: "User Management" },
     { href: "/dashboard/teacher/help", label: "Help" },
   ];
 }
 
 /** Default teacher nav (JEE) for static/server usage until track is loaded in the shell. */
 export const teacherNavItems = buildTeacherNavItems("JEE");
+
+export const adminNavItems: NavItem[] = [
+  {
+    href: "/dashboard/admin/user-management",
+    label: "Student & User Management",
+    children: [
+      {
+        href: "/dashboard/admin/user-management?section=profiles",
+        label: "Student Profiles",
+      },
+      {
+        href: "/dashboard/admin/user-management?section=roles",
+        label: "Teacher / Admin Roles",
+      },
+    ],
+  },
+  {
+    href: "/dashboard/admin/reports",
+    label: "Reports & Analytics",
+    children: [
+      { href: "/dashboard/admin/reports?section=results", label: "Result & Score Reports" },
+      { href: "/dashboard/admin/reports?section=analytics", label: "Performance Analytics" },
+      { href: "/dashboard/admin/reports?section=institution", label: "Institution Dashboard" },
+    ],
+  },
+  { href: "/dashboard/admin/llm-settings", label: "LLM Settings" },
+];
 
 export const studentNavItems: NavItem[] = [
   { href: "/dashboard/student/performance-summary", label: "Performance summary" },

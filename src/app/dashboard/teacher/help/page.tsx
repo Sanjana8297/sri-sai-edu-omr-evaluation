@@ -169,8 +169,7 @@ const sections: HelpSection[] = [
         items: [
           "OMR template designer (NEET/JEE)",
           "Print-ready OMR + paper bundle",
-          "Camera / scanner OMR capture",
-          "AI bubble-fill detection engine",
+          "Camera / scanner capture + AI bubble-fill detection",
           "Error and smudge alert flags",
         ],
       },
@@ -214,7 +213,7 @@ const sections: HelpSection[] = [
         title: "Teacher / Admin Roles",
         subtitle: "RBAC permissions",
         items: [
-          "Super admin -> Teacher -> Invigilator",
+          "Create staff account",
           "Paper access permission control",
           "Institute / batch segmentation",
           "Activity / audit trail per role",

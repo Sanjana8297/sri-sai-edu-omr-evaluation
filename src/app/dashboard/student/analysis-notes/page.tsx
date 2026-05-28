@@ -1,10 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { DashboardShell } from "@/components/DashboardShell";
 import { studentNavItems } from "@/lib/dashboard-nav";
 
-type Exam = { id: string; title: string; analysis: string; examDate: string };
+type Exam = {
+  id: string;
+  examId: string;
+  title: string;
+  category: string;
+  examDate: string;
+  marksObtained: number;
+  maxMarks: number;
+  percentage: number;
+  status: "SUBMITTED" | "AUTO_SUBMITTED";
+};
 
 export default function StudentAnalysisNotesPage() {
   const [exams, setExams] = useState<Exam[]>([]);
@@ -27,13 +38,25 @@ export default function StudentAnalysisNotesPage() {
       navItems={studentNavItems}
     >
       <div className="space-y-4">
-        {exams.map((exam) => (
-          <article key={exam.id} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-            <h2 className="font-semibold">{exam.title}</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">{new Date(exam.examDate).toLocaleDateString()}</p>
-            <p className="mt-3 whitespace-pre-wrap text-sm">{exam.analysis}</p>
-          </article>
-        ))}
+        {exams.map((exam) => {
+          return (
+            <article key={exam.id} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+              <Link
+                href={`/dashboard/student/analysis-notes/${encodeURIComponent(exam.id)}`}
+                className="block w-full text-left"
+              >
+                <h2 className="font-semibold">{exam.title}</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {new Date(exam.examDate).toLocaleDateString()} · {exam.category} · {exam.status}
+                </p>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Score: {exam.marksObtained}/{exam.maxMarks} ({exam.percentage}%)
+                </p>
+                <p className="mt-2 text-xs text-[var(--accent)]">Open full paper analysis</p>
+              </Link>
+            </article>
+          );
+        })}
       </div>
     </DashboardShell>
   );

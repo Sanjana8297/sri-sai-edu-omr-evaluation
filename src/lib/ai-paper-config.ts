@@ -1,4 +1,5 @@
 import type { Category } from "@/lib/types";
+import { callOpenAiChatCompletion, getAiConfigError as getLlmAiConfigError } from "@/lib/openai-runtime";
 
 export type DifficultyLevel = "easy" | "medium" | "hard";
 
@@ -16,6 +17,8 @@ export type ExamSection = {
   };
 };
 
+export type ExamProfile = "JEE_MAINS" | "JEE_ADVANCE" | "NEET";
+
 export type PaperBlueprint = {
   category: Category;
   subject: string;
@@ -24,6 +27,15 @@ export type PaperBlueprint = {
   totalMarks: number;
   instructions: string[];
   sections: ExamSection[];
+  examProfile?: ExamProfile;
+  advanceStructure?: {
+    examDurationHours: number;
+    questionsPerSubject: number;
+    subjects: Array<{
+      subject: string;
+      sectionCounts: { section1: number; section2: number; section3: number };
+    }>;
+  };
 };
 
 export type ComposeInput = {
@@ -41,49 +53,25 @@ type OpenAiResponse = {
   }>;
 };
 
-const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
-const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
-
-function getApiKey(): string | null {
-  const key = process.env.OPENAI_API_KEY?.trim();
-  return key ? key : null;
-}
-
-export function getAiConfigError(): string | null {
-  if (!getApiKey()) {
-    return "AI generation needs OPENAI_API_KEY in .env.";
-  }
-  return null;
+export async function getAiConfigError(): Promise<string | null> {
+  return getLlmAiConfigError();
 }
 
 async function callJsonModel<T>(schemaName: string, schema: object, system: string, user: string): Promise<T> {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error("Missing OPENAI_API_KEY");
-  }
-
-  const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      temperature: 0.3,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: schemaName,
-          strict: true,
-          schema,
-        },
+  const response = await callOpenAiChatCompletion({
+    temperature: 0.3,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: schemaName,
+        strict: true,
+        schema,
       },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
+    },
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
   });
 
   if (!response.ok) {
@@ -249,13 +237,28 @@ For category = JEE, enforce this structure exactly:
   return callJsonModel<PaperBlueprint>("paper_blueprint", BLUEPRINT_SCHEMA, system, user);
 }
 
+function composeSystemPrompt(blueprint: PaperBlueprint): string {
+  const base =
+    "You write high-quality exam papers from a blueprint. Match counts and marks exactly. For each section, distribute question difficulties according to section.difficultyMix (apply the same mix within that section). IMPORTANT: Do not abbreviate, summarize, truncate, or use placeholders like '... [N more questions]'. Output the FULL paper and FULL answer key with all questions explicitly listed. Format rules: questionContent must contain each section with exact heading '## <section name>' in blueprint order. Under each section, list questions as 'Q1.', 'Q2.' ... local to that section. keyContent must be section-wise with exact heading '## <section name>' for every section and answers in that section as '<section name> Q1: <answer>' ... '<section name> QN: <answer>'. Return only strict JSON.";
+
+  if (blueprint.examProfile === "JEE_ADVANCE") {
+    return `${base}
+For JEE Advance:
+- Section I (Single Correct): exactly 4 options (1)-(4), only one correct.
+- Section II (One or More Correct): 4+ options; one or more may be correct; mark partial scoring in solutions if needed.
+- Section III (Numerical Value): no options; answer is a numeric value (decimals allowed; nearest integer where stated).
+- Do not merge sections. Follow blueprint section names exactly.`;
+  }
+
+  return `${base} Every question, including numerical section questions, must have options with only one correct option.`;
+}
+
 export async function composeQuestionPaper(input: ComposeInput): Promise<{
   questionContent: string;
   keyContent: string;
   warnings: string[];
 }> {
-  const system =
-    "You write high-quality exam papers from a blueprint. Match counts and marks exactly. For each section, distribute question difficulties according to section.difficultyMix (apply the same mix within that section). Every question, including numerical section questions, must have options with only one correct option. IMPORTANT: Do not abbreviate, summarize, truncate, or use placeholders like '... [N more questions]'. Output the FULL paper and FULL answer key with all questions explicitly listed. Format rules: questionContent must contain each section with exact heading '## <section name>' in blueprint order. Under each section, list questions as 'Q1.', 'Q2.' ... local to that section. keyContent must be section-wise with exact heading '## <section name>' for every section and answers in that section as '<section name> Q1: <answer>' ... '<section name> QN: <answer>'. Return only strict JSON.";
+  const system = composeSystemPrompt(input.blueprint);
   const user = JSON.stringify(input);
   const first = await callJsonModel<{
     questionContent: string;

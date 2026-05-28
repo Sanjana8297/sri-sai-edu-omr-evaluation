@@ -3,58 +3,81 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/DashboardShell";
+import { QuestionBankFilters, type FilterState } from "@/components/question-bank/QuestionBankFilters";
+import { QuestionBankVirtualList } from "@/components/question-bank/QuestionBankVirtualList";
 import { SUBJECTS_BY_TRACK, teacherNavItems, type TeacherTrack } from "@/lib/dashboard-nav";
-import {
-  buildFilteredQuestionBankExportCsv,
-  downloadTextFile,
-  parseQuestionBankCsvToObjects,
-  type QuestionBankExportRow,
-} from "@/lib/question-bank-csv";
-import { downloadQuestionBankFilteredPdf } from "@/lib/question-bank-pdf";
-import { formatQuestionTextForDisplay } from "@/lib/question-text";
-
-type QuestionBankItem = {
-  id: number;
-  exam: string;
-  subject: string;
-  year: number | null;
-  chapter: string | null;
-  difficulty: "easy" | "medium" | "hard" | null;
-  question_text: string;
-  options: string[] | null;
-  correct_answer: string | null;
-  source_name: string;
-  source_url: string;
-  tags: unknown;
-  repetition_count: number;
-  is_repeated: boolean;
-  is_important: boolean;
-};
+import { parseQuestionBankCsvToObjects } from "@/lib/question-bank-csv";
+import { buildFullBankFilters, exportQuestionsFromServer } from "@/lib/questions/export-client";
+import type { QuestionBankFilters as QuestionBankQueryFilters } from "@/lib/questions/types";
+import { useDebouncedValue } from "@/hooks/questions/use-debounced-value";
+import { flattenQuestionPages, useQuestionBankInfinite } from "@/hooks/questions/use-question-bank-infinite";
+import { hasActiveQuestionFilters, questionKeys } from "@/hooks/questions/keys";
+import { useQuestionBankFilteredTotal } from "@/hooks/questions/use-question-bank-total";
 
 export default function TeacherSubjectQuestionBankPage() {
   const params = useParams<{ subject: string }>();
   const subjectFromUrl = decodeURIComponent(params.subject ?? "");
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [track, setTrack] = useState<TeacherTrack>("JEE");
   const [trackLoaded, setTrackLoaded] = useState(false);
-  const [questions, setQuestions] = useState<QuestionBankItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [difficulty, setDifficulty] = useState<"All" | "easy" | "medium" | "hard">("All");
-  const [year, setYear] = useState("");
-  const [chapter, setChapter] = useState("");
-  const [importantOnly, setImportantOnly] = useState(false);
-  const [repeatedOnly, setRepeatedOnly] = useState(false);
-  const [jeeExamType, setJeeExamType] = useState<"All" | "mains" | "advanced">("All");
+  const [filterState, setFilterState] = useState<FilterState>({
+    search: "",
+    difficulty: "All",
+    year: "",
+    chapter: "",
+    importantOnly: false,
+    repeatedOnly: false,
+    jeeExamType: "All",
+  });
+  const debouncedSearch = useDebouncedValue(filterState.search, 300);
+
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [importErr, setImportErr] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportingFullBank, setExportingFullBank] = useState(false);
 
   const allowedSubjects = useMemo(() => SUBJECTS_BY_TRACK[track], [track]);
   const subjectAllowed = allowedSubjects.includes(subjectFromUrl);
+
+  const queryFilters = useMemo(() => {
+    const f: QuestionBankQueryFilters = { exam: track, subject: subjectFromUrl };
+    if (debouncedSearch.trim()) f.search = debouncedSearch.trim();
+    if (filterState.difficulty !== "All") f.difficulty = filterState.difficulty;
+    const yearNum = Number(filterState.year);
+    if (filterState.year.trim() && !Number.isNaN(yearNum)) f.year = yearNum;
+    if (filterState.chapter.trim()) f.chapter = filterState.chapter.trim();
+    if (filterState.importantOnly) f.important = true;
+    if (filterState.repeatedOnly) f.repeated = true;
+    if (track === "JEE" && filterState.jeeExamType !== "All") f.jeeExamType = filterState.jeeExamType;
+    return f;
+  }, [track, subjectFromUrl, debouncedSearch, filterState]);
+
+  const listEnabled = trackLoaded && subjectAllowed;
+  const filtersActive = hasActiveQuestionFilters(queryFilters);
+
+  const {
+    data,
+    error,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useQuestionBankInfinite(queryFilters, listEnabled);
+
+  const { data: filteredTotal, isFetching: isTotalFetching } = useQuestionBankFilteredTotal(
+    queryFilters,
+    listEnabled
+  );
+
+  const items = useMemo(() => flattenQuestionPages(data), [data]);
+  const total = filteredTotal ?? null;
+  const totalPending = isTotalFetching && filteredTotal === undefined;
 
   const loadMe = useCallback(async () => {
     try {
@@ -68,139 +91,66 @@ export default function TeacherSubjectQuestionBankPage() {
     }
   }, []);
 
-  const loadQuestions = useCallback(async () => {
-    if (!subjectFromUrl) return;
-    setLoading(true);
-    setError(null);
-    setQuestions([]);
+  useEffect(() => {
+    void loadMe();
+  }, [loadMe]);
 
-    try {
-      const pageSize = 200;
-      let offset = 0;
-      let total = Number.POSITIVE_INFINITY;
-      const all: QuestionBankItem[] = [];
+  const invalidateList = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: questionKeys.lists() });
+  }, [queryClient]);
 
-      while (offset < total) {
-        const paramsObj = new URLSearchParams({
-          subject: subjectFromUrl,
-          limit: String(pageSize),
-          offset: String(offset),
-        });
-        if (search.trim()) paramsObj.set("search", search.trim());
-        if (difficulty !== "All") paramsObj.set("difficulty", difficulty);
-        if (year.trim()) paramsObj.set("year", year.trim());
-        if (chapter.trim()) paramsObj.set("chapter", chapter.trim());
-        if (importantOnly) paramsObj.set("important", "true");
-        if (repeatedOnly) paramsObj.set("repeated", "true");
-        if (track === "JEE" && jeeExamType !== "All") paramsObj.set("jeeExamType", jeeExamType);
-
-        const res = await fetch(`/api/teacher/question-bank?${paramsObj.toString()}`);
-        const json = await res.json();
-        if (!res.ok) {
-          throw new Error(json.error ?? "Could not load questions");
-        }
-
-        const batch = (json.questions ?? []) as QuestionBankItem[];
-        total = Number(json.total ?? batch.length);
-        all.push(...batch);
-        offset += batch.length;
-
-        if (batch.length === 0) break;
-      }
-
-      setQuestions(all);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load questions");
-    } finally {
-      setLoading(false);
-    }
-  }, [chapter, difficulty, importantOnly, repeatedOnly, search, subjectFromUrl, track, year, jeeExamType]);
-
-  const exportFilteredCsv = useCallback(() => {
+  const exportFilteredCsv = useCallback(async () => {
     setImportErr(null);
-    if (questions.length === 0) {
-      setImportErr("Nothing to export for the current filters.");
-      return;
-    }
-    const rows: QuestionBankExportRow[] = questions.map((q) => ({
-      id: q.id,
-      exam: q.exam ?? "",
-      subject: q.subject,
-      question_text: q.question_text,
-      options: q.options,
-      correct_answer: q.correct_answer,
-      chapter: q.chapter,
-      difficulty: q.difficulty,
-      year: q.year,
-      tags: q.tags ?? null,
-      source_name: q.source_name ?? "",
-      source_url: q.source_url ?? "",
-      is_important: q.is_important,
-      is_repeated: q.is_repeated,
-      repetition_count: q.repetition_count,
-    }));
-    const csv = buildFilteredQuestionBankExportCsv(rows);
-    downloadTextFile(
-      `question-bank-${(subjectFromUrl || "export").replace(/\s+/g, "-")}-filtered-export.csv`,
-      csv,
-      "text/csv;charset=utf-8"
-    );
-  }, [questions, subjectFromUrl]);
-
-  const exportFilteredPdf = useCallback(() => {
-    setImportErr(null);
-    if (questions.length === 0) {
-      setImportErr("Nothing to export for the current filters.");
-      return;
-    }
-    const rows: QuestionBankExportRow[] = questions.map((q) => ({
-      id: q.id,
-      exam: q.exam ?? "",
-      subject: q.subject,
-      question_text: q.question_text,
-      options: q.options,
-      correct_answer: q.correct_answer,
-      chapter: q.chapter,
-      difficulty: q.difficulty,
-      year: q.year,
-      tags: q.tags ?? null,
-      source_name: q.source_name ?? "",
-      source_url: q.source_url ?? "",
-      is_important: q.is_important,
-      is_repeated: q.is_repeated,
-      repetition_count: q.repetition_count,
-    }));
+    setExporting(true);
     try {
-      downloadQuestionBankFilteredPdf(
-        rows,
-        {
-          track,
-          subject: subjectFromUrl,
-          search,
-          difficulty,
-          year,
-          chapter,
-          importantOnly,
-          repeatedOnly,
-          jeeExamType,
-        },
-        `question-bank-${(subjectFromUrl || "export").replace(/\s+/g, "-")}-filtered-export.pdf`
-      );
+      await exportQuestionsFromServer(queryFilters, "csv", subjectFromUrl, "filtered");
     } catch (e) {
-      setImportErr(e instanceof Error ? e.message : "Could not build PDF.");
+      setImportErr(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
     }
-  }, [
-    chapter,
-    difficulty,
-    importantOnly,
-    jeeExamType,
-    questions,
-    repeatedOnly,
-    search,
-    subjectFromUrl,
-    track,
-    year,
-  ]);
+  }, [queryFilters, subjectFromUrl]);
+
+  const exportFilteredPdf = useCallback(async () => {
+    setImportErr(null);
+    setExporting(true);
+    try {
+      await exportQuestionsFromServer(queryFilters, "pdf", subjectFromUrl, "filtered");
+    } catch (e) {
+      setImportErr(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }, [queryFilters, subjectFromUrl]);
+
+  const fullBankFilters = useMemo(
+    () => buildFullBankFilters(track, subjectFromUrl),
+    [track, subjectFromUrl]
+  );
+
+  const exportFullBankCsv = useCallback(async () => {
+    setImportErr(null);
+    setExportingFullBank(true);
+    try {
+      await exportQuestionsFromServer(fullBankFilters, "csv", subjectFromUrl, "full-bank");
+    } catch (e) {
+      setImportErr(e instanceof Error ? e.message : "Full bank export failed");
+    } finally {
+      setExportingFullBank(false);
+    }
+  }, [fullBankFilters, subjectFromUrl]);
+
+  const exportFullBankPdf = useCallback(async () => {
+    setImportErr(null);
+    setExportingFullBank(true);
+    try {
+      await exportQuestionsFromServer(fullBankFilters, "pdf", subjectFromUrl, "full-bank");
+    } catch (e) {
+      setImportErr(e instanceof Error ? e.message : "Full bank export failed");
+    } finally {
+      setExportingFullBank(false);
+    }
+  }, [fullBankFilters, subjectFromUrl]);
 
   const runBulkImport = useCallback(
     async (file: File) => {
@@ -214,20 +164,12 @@ export default function TeacherSubjectQuestionBankPage() {
         setImportErr(e instanceof Error ? e.message : "Could not parse CSV.");
         return;
       }
-      if (parsed.length === 0) {
-        setImportErr("No data rows found after the header.");
-        return;
-      }
-
       setImporting(true);
       try {
         const res = await fetch("/api/teacher/question-bank/bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            defaultSubject: subjectFromUrl,
-            rows: parsed,
-          }),
+          body: JSON.stringify({ rows: parsed, defaultSubject: subjectFromUrl }),
         });
         const json = await res.json();
         if (!res.ok) {
@@ -244,14 +186,14 @@ export default function TeacherSubjectQuestionBankPage() {
         setImportMsg(
           `Done. Inserted ${json.inserted}, skipped duplicates ${json.skippedDuplicate}, failed ${json.failed}.${errTail}`
         );
-        await loadQuestions();
+        invalidateList();
       } catch {
         setImportErr("Network error while importing.");
       } finally {
         setImporting(false);
       }
     },
-    [loadQuestions, subjectFromUrl]
+    [invalidateList, subjectFromUrl]
   );
 
   const onCsvFileSelected = useCallback(
@@ -268,31 +210,11 @@ export default function TeacherSubjectQuestionBankPage() {
     [runBulkImport]
   );
 
-  useEffect(() => {
-    void loadMe();
-  }, [loadMe]);
-
-  useEffect(() => {
-    if (!trackLoaded || !subjectAllowed) return;
-    void loadQuestions();
-  }, [
-    trackLoaded,
-    subjectAllowed,
-    loadQuestions,
-    search,
-    difficulty,
-    year,
-    chapter,
-    importantOnly,
-    repeatedOnly,
-    jeeExamType,
-  ]);
-
   return (
     <DashboardShell
       badge="Teacher"
       title={`${subjectFromUrl || "Subject"} Question Bank`}
-      subtitle="Questions stored in the database for this subject."
+      subtitle="Paginated questions from the database — scroll to load more."
       navItems={teacherNavItems}
     >
       <div className="space-y-4">
@@ -324,43 +246,62 @@ export default function TeacherSubjectQuestionBankPage() {
                 <div>
                   <h2 className="text-sm font-semibold">Bulk import & export (CSV / PDF)</h2>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    Import a CSV file or export the current filter view as CSV or a printable PDF. Duplicates are
-                    skipped via content hash. Subject column can be left blank when importing from this page — it
-                    defaults to <strong>{subjectFromUrl}</strong>.
+                    Filtered export uses your current filters. Full bank export fetches every question for this
+                    subject on the server only when you click — the list below still loads 40 at a time.
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={exportFilteredCsv}
-                    disabled={loading || questions.length === 0}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Export filtered CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={exportFilteredPdf}
-                    disabled={loading || questions.length === 0}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Export filtered PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={importing}
-                    className="rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 text-sm font-medium text-[var(--accent)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {importing ? "Importing…" : "Import CSV"}
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".csv,text/csv"
-                    className="hidden"
-                    onChange={onCsvFileSelected}
-                  />
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void exportFilteredCsv()}
+                      disabled={exporting || exportingFullBank}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium disabled:opacity-50"
+                    >
+                      {exporting ? "Exporting…" : "Export filtered CSV"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void exportFilteredPdf()}
+                      disabled={exporting || exportingFullBank}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium disabled:opacity-50"
+                    >
+                      Export filtered PDF
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void exportFullBankCsv()}
+                      disabled={exporting || exportingFullBank}
+                      className="rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 text-sm font-medium text-[var(--accent)] disabled:opacity-50"
+                    >
+                      {exportingFullBank ? "Exporting full bank…" : "Export full bank CSV"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void exportFullBankPdf()}
+                      disabled={exporting || exportingFullBank}
+                      className="rounded-lg border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-2 text-sm font-medium text-[var(--accent)] disabled:opacity-50"
+                    >
+                      Export full bank PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={importing || exporting || exportingFullBank}
+                      className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium disabled:opacity-50"
+                    >
+                      {importing ? "Importing…" : "Import CSV"}
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv,text/csv"
+                      className="hidden"
+                      onChange={onCsvFileSelected}
+                    />
+                  </div>
                 </div>
               </div>
               {importMsg ? <p className="mt-3 text-sm text-emerald-700">{importMsg}</p> : null}
@@ -368,119 +309,36 @@ export default function TeacherSubjectQuestionBankPage() {
             </div>
 
             <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-              <div className="grid gap-2 md:grid-cols-5">
-              <input
-                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="Search keywords"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+              <QuestionBankFilters
+                track={track}
+                filters={filterState}
+                onChange={(patch) => setFilterState((prev) => ({ ...prev, ...patch }))}
               />
-              <select
-                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value as "All" | "easy" | "medium" | "hard")}
-              >
-                <option value="All">All difficulties</option>
-                <option value="easy">easy</option>
-                <option value="medium">medium</option>
-                <option value="hard">hard</option>
-              </select>
-              <input
-                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="Year (e.g. 2024)"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-              />
-              <input
-                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="Chapter"
-                value={chapter}
-                onChange={(e) => setChapter(e.target.value)}
-              />
-              {track === "JEE" ? (
-                <select
-                  className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                  value={jeeExamType}
-                  onChange={(e) => setJeeExamType(e.target.value as "All" | "mains" | "advanced")}
-                >
-                  <option value="All">All exam types</option>
-                  <option value="mains">JEE Mains</option>
-                  <option value="advanced">JEE Advanced</option>
-                </select>
+
+              {listEnabled && (total != null || totalPending) ? (
+                <p className="mt-3 text-sm text-[var(--muted)]">
+                  {totalPending ? (
+                    <>Updating count…</>
+                  ) : (
+                    <>
+                      Showing {items.length} of {total} question{total === 1 ? "" : "s"}
+                      {filtersActive ? " matching your filters" : ""}
+                      {hasNextPage ? " — scroll for more" : ""}
+                    </>
+                  )}
+                </p>
               ) : null}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={importantOnly}
-                  onChange={(e) => setImportantOnly(e.target.checked)}
-                />
-                Important only
-              </label>
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={repeatedOnly}
-                  onChange={(e) => setRepeatedOnly(e.target.checked)}
-                />
-                Repeated only
-              </label>
-            </div>
 
-            {loading ? <p className="mt-3 text-sm text-[var(--muted)]">Loading questions...</p> : null}
-            {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
-            {!loading && !error && questions.length === 0 ? (
-              <p className="mt-3 text-sm text-[var(--muted)]">No questions found for this subject with current filters.</p>
-            ) : null}
-
-            {!loading && questions.length > 0 ? (
-              <>
-                <p className="mt-3 text-sm text-[var(--muted)]">Total: {questions.length} questions</p>
-                <div className="mt-3 max-h-[65vh] space-y-2 overflow-auto pr-1">
-                  {questions.map((item, idx) => (
-                    <article key={item.id} className="rounded-lg border border-[var(--border)] p-3">
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">#{idx + 1}</span>
-                        {item.year ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.year}</span> : null}
-                        {item.chapter ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.chapter}</span> : null}
-                        {item.difficulty ? (
-                          <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5">{item.difficulty}</span>
-                        ) : null}
-                        {item.is_important ? (
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">important</span>
-                        ) : null}
-                        {item.is_repeated ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
-                            repeated x{item.repetition_count}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 whitespace-pre-wrap text-sm">
-                        {formatQuestionTextForDisplay(item.question_text)}
-                      </p>
-                      {item.options && item.options.length > 0 ? (
-                        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--muted)]">
-                          {item.options.map((opt, optIdx) => (
-                            <li key={`${item.id}-opt-${optIdx}`}>
-                              <span className="whitespace-pre-wrap">
-                                ({String.fromCharCode(65 + optIdx)}) {formatQuestionTextForDisplay(opt)}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                      {item.correct_answer ? (
-                        <p className="mt-2 text-xs">
-                          Correct answer: <strong>{item.correct_answer}</strong>
-                        </p>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </div>
+              <QuestionBankVirtualList
+                items={items}
+                isLoading={isLoading}
+                isFetchingNextPage={isFetchingNextPage}
+                hasNextPage={hasNextPage ?? false}
+                fetchNextPage={() => void fetchNextPage()}
+                error={error}
+                onRetry={() => void refetch()}
+              />
+            </div>
           </>
         ) : null}
       </div>

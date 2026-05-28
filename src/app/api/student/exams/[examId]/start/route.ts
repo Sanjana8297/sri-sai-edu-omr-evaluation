@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
 import { computeSessionDeadline, toIso } from "@/lib/proctoring";
+import { getExamCbtSettings, getExamSessionCbtState } from "@/lib/cbt-settings-db";
 
 export async function POST(request: Request, context: { params: Promise<{ examId: string }> }) {
   const { session, response } = await requireRoles(["STUDENT"]);
@@ -48,6 +49,10 @@ export async function POST(request: Request, context: { params: Promise<{ examId
   });
 
   const deadline = computeSessionDeadline(sessionRow.startedAt, exam.endTime, exam.durationMinutes);
+  const [cbtSettings, cbtState] = await Promise.all([
+    getExamCbtSettings(exam.id),
+    getExamSessionCbtState(sessionRow.id),
+  ]);
 
   return NextResponse.json({
     exam: {
@@ -63,6 +68,7 @@ export async function POST(request: Request, context: { params: Promise<{ examId
         questionContent: exam.questionPaper.questionContent,
         questionPaperUrl: exam.questionPaper.questionPaperUrl,
       },
+      cbtSettings,
     },
     session: {
       id: sessionRow.id,
@@ -74,6 +80,7 @@ export async function POST(request: Request, context: { params: Promise<{ examId
       cameraGranted: sessionRow.cameraGranted,
       micGranted: sessionRow.micGranted,
       submittedAnswers: sessionRow.submittedAnswers,
+      cbtState,
       deadline: deadline.toISOString(),
     },
   });

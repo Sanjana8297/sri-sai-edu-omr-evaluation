@@ -2,11 +2,21 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
 import { VIOLATION_LIMIT, computeSessionDeadline, toIso } from "@/lib/proctoring";
+import { getExamCbtSettings } from "@/lib/cbt-settings-db";
+import type { CbtSettings } from "@/lib/cbt-settings";
 import { Prisma } from "@prisma/client";
 import type { ProctoringEventType } from "@prisma/client";
 import { parseAnswerKeyByQuestion } from "@/lib/exam-paper-parser";
 
-const strikeEvents: ProctoringEventType[] = ["TAB_HIDDEN", "WINDOW_BLUR"];
+function isStrikeEvent(
+  eventType: ProctoringEventType,
+  settings: CbtSettings,
+): boolean {
+  if (eventType === "TAB_HIDDEN" || eventType === "WINDOW_BLUR") return settings.blockTabSwitch;
+  if (eventType === "FULLSCREEN_EXIT") return settings.requireFullscreen;
+  if (eventType === "CLIPBOARD_ATTEMPT") return settings.blockClipboard;
+  return false;
+}
 
 export async function POST(request: Request, context: { params: Promise<{ examId: string }> }) {
   const { session, response } = await requireRoles(["STUDENT"]);
@@ -39,7 +49,8 @@ export async function POST(request: Request, context: { params: Promise<{ examId
     return NextResponse.json({ error: "Exam session has ended" }, { status: 409 });
   }
 
-  const shouldStrike = strikeEvents.includes(body.eventType);
+  const cbtSettings = await getExamCbtSettings(sessionRow.examId);
+  const shouldStrike = isStrikeEvent(body.eventType, cbtSettings);
   let nextViolationCount = sessionRow.violationCount;
   if (shouldStrike) nextViolationCount += 1;
 

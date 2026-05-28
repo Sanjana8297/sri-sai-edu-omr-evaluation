@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { teacherNavItems } from "@/lib/dashboard-nav";
+import { OnlineExamModulePanel, OmrSheetManagementPanel } from "./omr-online-panels";
 
 type Paper = { id: string; title: string; category: string };
 type Exam = {
@@ -39,70 +40,6 @@ const SECTION_SUBTITLES: Record<DeliverySection, string> = {
   omr: "Design, print and scan",
   online: "CBT / hybrid delivery",
 };
-
-const ROADMAP_MODULES: Record<
-  "omr" | "online",
-  { title: string; subtitle: string; items: string[] }
-> = {
-  omr: {
-    title: "OMR Sheet Management",
-    subtitle: "Design, print and scan",
-    items: [
-      "OMR template designer (NEET/JEE)",
-      "Print-ready OMR + paper bundle",
-      "Camera / scanner OMR capture",
-      "AI bubble-fill detection engine",
-      "Error and smudge alert flags",
-    ],
-  },
-  online: {
-    title: "Online Exam Module",
-    subtitle: "CBT / hybrid delivery",
-    items: [
-      "Timer + auto-submit",
-      "Question palette (NTA-style UI)",
-      "Browser lock / anti-cheat",
-      "Offline fallback sync",
-      "Bilingual question toggle",
-    ],
-  },
-};
-
-function RoadmapNote({ children }: { children: ReactNode }) {
-  return (
-    <p className="rounded-md border border-dashed border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)]">
-      {children}
-    </p>
-  );
-}
-
-function RoadmapModulePanel({
-  title,
-  subtitle,
-  items,
-}: {
-  title: string;
-  subtitle: string;
-  items: string[];
-}) {
-  return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>
-      <ul className="mt-4 list-inside list-disc space-y-2 text-sm text-[var(--foreground)]">
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-      <div className="mt-6">
-        <RoadmapNote>
-          This module is on the roadmap. Use <strong>Exam Scheduling</strong> in the sidebar for live exam windows,
-          publishing, and proctoring review today.
-        </RoadmapNote>
-      </div>
-    </section>
-  );
-}
 
 function ExamSchedulingPanel({
   err,
@@ -384,25 +321,19 @@ function TeacherExamsPageContent() {
       title="OMR & Exam Delivery"
       subtitle={SECTION_SUBTITLES[section]}
       navItems={teacherNavItems}
-      fullWidthContent={section === "scheduling"}
+      fullWidthContent
     >
-      <div
-        className={
-          section === "scheduling"
-            ? "flex min-h-0 flex-1 flex-col"
-            : "max-w-3xl"
-        }
-      >
-        <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-[var(--border)] pb-4">
-          <span className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</span>
-          <span className="text-xs text-[var(--muted)]">Use the sidebar to switch modules.</span>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="mb-6 border-b border-[var(--border)] pb-4">
+          <h2 className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</h2>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">{SECTION_SUBTITLES[section]}</p>
         </div>
 
         {section === "scheduling" ? (
           <ExamSchedulingPanel err={err} msg={msg} setErr={setErr} setMsg={setMsg} />
         ) : null}
-        {section === "omr" ? <RoadmapModulePanel {...ROADMAP_MODULES.omr} /> : null}
-        {section === "online" ? <RoadmapModulePanel {...ROADMAP_MODULES.online} /> : null}
+        {section === "omr" ? <OmrSheetManagementPanel resetKey={section} /> : null}
+        {section === "online" ? <OnlineExamModulePanel resetKey={section} /> : null}
       </div>
     </DashboardShell>
   );

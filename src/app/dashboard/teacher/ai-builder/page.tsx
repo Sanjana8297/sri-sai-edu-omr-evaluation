@@ -1,8 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
+import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
 import { teacherNavItems } from "@/lib/dashboard-nav";
+import {
+  JEE_ADVANCE_EXAM_DURATION_HOURS,
+  buildDefaultAdvanceSubjects,
+  totalExamMarksFromSubjects,
+  validateSubjectSectionCounts,
+  type JeeAdvanceSubjectConfig,
+} from "@/lib/jee-advance-exam-structure";
+import { getJeeAdvanceTotalQuestions } from "@/lib/jee-advance-paper-builder";
 
 type DifficultyLevel = "easy" | "medium" | "hard";
 type ExamSection = {
@@ -26,6 +35,9 @@ type PaperBlueprint = {
 export default function TeacherAiBuilderPage() {
   const [track, setTrack] = useState<"JEE" | "NEET">("JEE");
   const [aiTrackProfile, setAiTrackProfile] = useState<"JEE" | "JEE ADV" | "NEET">("JEE");
+  const [advanceSubjects, setAdvanceSubjects] = useState<JeeAdvanceSubjectConfig[]>(
+    buildDefaultAdvanceSubjects
+  );
   const [title, setTitle] = useState("");
   const [questionContent, setQuestionContent] = useState("");
   const [keyContent, setKeyContent] = useState("");
@@ -58,22 +70,45 @@ export default function TeacherAiBuilderPage() {
     void loadMe();
   }, [loadMe]);
 
+  const advanceTotalMarks = useMemo(
+    () => totalExamMarksFromSubjects(advanceSubjects),
+    [advanceSubjects]
+  );
+  const advanceTotalQuestions = useMemo(
+    () => getJeeAdvanceTotalQuestions(advanceSubjects),
+    [advanceSubjects]
+  );
+
   useEffect(() => {
-    if (aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV") {
+    if (aiTrackProfile === "JEE") {
       setAiDurationMinutes(180);
       setAiTotalQuestions(75);
       setAiTotalMarks(300);
+    }
+    if (aiTrackProfile === "JEE ADV") {
+      setAiDurationMinutes(JEE_ADVANCE_EXAM_DURATION_HOURS * 60);
+      setAiTotalQuestions(advanceTotalQuestions);
+      setAiTotalMarks(advanceTotalMarks);
     }
     if (aiTrackProfile === "NEET") {
       setAiDurationMinutes(180);
       setAiTotalQuestions(180);
       setAiTotalMarks(720);
     }
-  }, [aiTrackProfile]);
+  }, [aiTrackProfile, advanceTotalQuestions, advanceTotalMarks]);
 
   async function generateBlueprint() {
     setErr(null);
     setMsg(null);
+    if (aiTrackProfile === "JEE ADV") {
+      for (const s of advanceSubjects) {
+        const validationErr = validateSubjectSectionCounts(s.sectionCounts);
+        if (validationErr) {
+          setErr(`${s.subject}: ${validationErr}`);
+          return;
+        }
+      }
+    }
     setLoadingBlueprint(true);
     try {
       const res = await fetch("/api/teacher/question-papers/ai/blueprint", {
@@ -83,6 +118,7 @@ export default function TeacherAiBuilderPage() {
           durationMinutes: aiDurationMinutes,
           difficultyDistribution: aiDifficultyDistribution.trim(),
           examProfile: aiTrackProfile,
+          advanceSubjects: aiTrackProfile === "JEE ADV" ? advanceSubjects : undefined,
           extraInstructions: [aiExtraInstructions.trim(), `Target exam profile: ${aiTrackProfile}`]
             .filter(Boolean)
             .join("\n"),
@@ -263,9 +299,14 @@ export default function TeacherAiBuilderPage() {
               />
             </label>
           </div>
-          {aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV" ? (
+          {aiTrackProfile === "JEE" ? (
             <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs text-[var(--muted)]">
-              JEE Main format is fixed: 180 minutes (3 hours), Mathematics/Physics/Chemistry (25 questions each; 20 MCQ + 5 Numerical-with-options per subject), marking +4 / 0 / -1.
+              JEE Main format is fixed: 180 minutes (3 hours), Mathematics/Physics/Chemistry (25 questions each; 20 MCQ + 5 Numerical-with-options per subject), marking +4 / 0 / −1.
+            </div>
+          ) : null}
+          {aiTrackProfile === "JEE ADV" ? (
+            <div className="mt-3">
+              <JeeAdvanceStructurePanel subjects={advanceSubjects} onChange={setAdvanceSubjects} />
             </div>
           ) : null}
           {aiTrackProfile === "NEET" ? (

@@ -29,7 +29,7 @@ export default function StudentPerformanceSummaryPage() {
       subtitle="Summary from your exam records."
       navItems={studentNavItems}
     >
-      <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Card label="Exams recorded" value={String(exams.length)} />
         <Card label="Average score" value={avg != null ? `${avg}%` : "-"} />
         <Card label="Latest exam" value={exams[0]?.title ?? "-"} />
@@ -40,9 +40,9 @@ export default function StudentPerformanceSummaryPage() {
 
 function Card({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-within:-translate-y-0.5 focus-within:shadow-md sm:p-5">
       <p className="text-sm text-[var(--muted)]">{label}</p>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
+      <p className="mt-2 break-words text-xl font-semibold sm:text-2xl">{value}</p>
     </div>
   );
 }

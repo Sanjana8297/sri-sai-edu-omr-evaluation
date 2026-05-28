@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireRoles } from "@/lib/api-auth";
-import { getAiConfigError, generateBlueprint } from "@/lib/ai-paper-config";
+import { getAiConfigError, generateBlueprint, type PaperBlueprint } from "@/lib/ai-paper-config";
+import {
+  buildDefaultAdvanceSubjects,
+  validateSubjectSectionCounts,
+} from "@/lib/jee-advance-exam-structure";
+import { buildJeeAdvanceBlueprintPayload } from "@/lib/jee-advance-paper-builder";
 
 type DifficultyLevel = "easy" | "medium" | "hard";
 
@@ -59,7 +64,7 @@ export async function POST(request: Request) {
   const { session, response } = await requireRoles(["TEACHER"]);
   if (response) return response;
 
-  const aiConfigError = getAiConfigError();
+  const aiConfigError = await getAiConfigError();
   if (aiConfigError) return NextResponse.json({ error: aiConfigError }, { status: 503 });
 
   let body: {
@@ -67,6 +72,10 @@ export async function POST(request: Request) {
     difficultyDistribution?: string;
     extraInstructions?: string;
     examProfile?: "JEE" | "JEE ADV" | "NEET";
+    advanceSubjects?: Array<{
+      subject: string;
+      sectionCounts: { section1: number; section2: number; section3: number };
+    }>;
   };
   try {
     body = await request.json();
@@ -84,7 +93,28 @@ export async function POST(request: Request) {
     const targetCategory =
       requestedProfile === "NEET" ? "NEET" : "JEE";
     const isJee = targetCategory === "JEE";
+    const isJeeAdvance = requestedProfile === "JEE ADV";
     const isNeet = targetCategory === "NEET";
+
+    if (isJeeAdvance) {
+      const subjects =
+        Array.isArray(body.advanceSubjects) && body.advanceSubjects.length > 0
+          ? body.advanceSubjects
+          : buildDefaultAdvanceSubjects();
+      for (const s of subjects) {
+        const err = validateSubjectSectionCounts(s.sectionCounts);
+        if (err) {
+          return NextResponse.json({ error: `${s.subject}: ${err}` }, { status: 400 });
+        }
+      }
+      const difficultyMix = buildDifficultyMix(body.difficultyDistribution?.trim(), undefined);
+      const blueprint = buildJeeAdvanceBlueprintPayload(subjects, difficultyMix) as PaperBlueprint;
+      if (body.extraInstructions?.trim()) {
+        blueprint.instructions.push(body.extraInstructions.trim());
+      }
+      return NextResponse.json({ blueprint });
+    }
+
     const blueprint = await generateBlueprint({
       category: targetCategory,
       durationMinutes,
@@ -92,6 +122,7 @@ export async function POST(request: Request) {
       extraInstructions: body.extraInstructions?.trim(),
     });
     blueprint.category = targetCategory;
+    blueprint.examProfile = isJee ? "JEE_MAINS" : "NEET";
 
     if (isJee) {
       const difficultyMix = buildDifficultyMix(
@@ -121,6 +152,7 @@ export async function POST(request: Request) {
     }
 
     if (isNeet) {
+      blueprint.examProfile = "NEET";
       const difficultyMix = buildDifficultyMix(
         body.difficultyDistribution?.trim(),
         blueprint.sections

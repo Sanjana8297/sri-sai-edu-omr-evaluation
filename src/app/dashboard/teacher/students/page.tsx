@@ -31,15 +31,15 @@ export default function TeacherStudentsPage() {
   return (
     <DashboardShell
       badge="Teacher"
-      title="Students"
-      subtitle="Students assigned to your profile."
+      title="User Management"
+      subtitle="Manage students assigned to your profile."
       navItems={teacherNavItems}
     >
       <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
         <div className="border-b border-[var(--border)] p-3">
           <input
             className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            placeholder="Search students by name, email, track..."
+            placeholder="Search users by name, email, track..."
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);

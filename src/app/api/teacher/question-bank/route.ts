@@ -5,79 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { normalizeQuestionBankRowForApi } from "@/lib/question-bank-display";
 import { contentHashLookupKeys, hashText, sqlContentHashInClause } from "@/lib/question-bank-content-hash";
 import { insertFlexibleTeacherQuestionRow } from "@/lib/teacher-question-bank-flexible-insert";
+import { listQuestions } from "@/lib/questions/list-questions";
+import { parseFiltersFromSearchParams } from "@/lib/questions/parse-filters";
 
-function parseBool(value: string | null): boolean | null {
-  if (value === null) return null;
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return null;
-}
-
-type JeeExamType = "mains" | "advanced";
-
-function parseJeeExamType(value: string | null): JeeExamType | null {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "mains") return "mains";
-  if (normalized === "advanced") return "advanced";
-  return null;
-}
-
-/** Filter bank rows: MCQ (four options / tag) vs Numericals (tag or fill-in style). */
-function parseQuestionTypeFilter(value: string | null): "mcq" | "numerical" | null {
-  if (!value) return null;
-  const n = value.trim().toLowerCase();
-  if (n === "mcq") return "mcq";
-  if (n === "numerical" || n === "numericals") return "numerical";
-  return null;
-}
-
-/** SQL: option array length when options is a JSON array, else 0. */
-const optionsArrayLenSql = Prisma.sql`
-  CASE
-    WHEN jsonb_typeof(COALESCE(options, '[]'::jsonb)) = 'array'
-      THEN jsonb_array_length(COALESCE(options, '[]'::jsonb))
-    ELSE 0
-  END
-`;
-
-function sqlQuestionTypeMcq(): Prisma.Sql {
-  return Prisma.sql`(
-    EXISTS (
-      SELECT 1 FROM jsonb_array_elements_text(COALESCE(tags, '[]'::jsonb)) AS elem
-      WHERE lower(elem) IN ('mcq', 'multiple choice', 'multiple_choice', 'objective')
-    )
-    OR (
-      (${optionsArrayLenSql}) >= 4
-      AND NOT EXISTS (
-        SELECT 1 FROM jsonb_array_elements_text(COALESCE(tags, '[]'::jsonb)) AS elem2
-        WHERE lower(elem2) IN (
-          'numerical', 'numeric', 'integer', 'integer type', 'numerical answer',
-          'numerical value', 'numericals'
-        )
-      )
-    )
-  )`;
-}
-
-function sqlQuestionTypeNumerical(): Prisma.Sql {
-  return Prisma.sql`(
-    EXISTS (
-      SELECT 1 FROM jsonb_array_elements_text(COALESCE(tags, '[]'::jsonb)) AS elem
-      WHERE lower(elem) IN (
-        'numerical', 'numeric', 'integer', 'integer type', 'numerical answer',
-        'numerical value', 'numericals'
-      )
-    )
-    OR (
-      (${optionsArrayLenSql}) < 4
-      AND (
-        question_text ILIKE '%____%'
-        OR question_text ~* '(integer type|numerical value|fill in the blank|fill in blank)'
-      )
-    )
-  )`;
-}
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const { session, response } = await requireRoles(["TEACHER"]);
@@ -107,8 +38,11 @@ export async function GET(request: Request) {
     if (!allowedSubjects.has(matchSubject)) {
       return NextResponse.json({ error: "Invalid matchSubject for your track" }, { status: 400 });
     }
-    const exam = me.category === "JEE" ? "JEE" : "NEET";
-    const hashKeys = contentHashLookupKeys(exam, matchSubject, matchText);
+    const hashKeys = contentHashLookupKeys(
+      me.category as "JEE" | "NEET",
+      matchSubject,
+      matchText
+    );
     const matchRows = await prisma.$queryRaw<
       Array<{
         id: number;
@@ -142,91 +76,26 @@ export async function GET(request: Request) {
     return NextResponse.json({ match, matchSubject, matchMode: true as const });
   }
 
-  const subject = (searchParams.get("subject") ?? "").trim();
-  const search = (searchParams.get("search") ?? "").trim();
-  const chapter = (searchParams.get("chapter") ?? "").trim();
-  const difficulty = (searchParams.get("difficulty") ?? "").trim().toLowerCase();
-  const yearText = (searchParams.get("year") ?? "").trim();
-  const limit = Math.min(Math.max(Number(searchParams.get("limit") ?? "50"), 1), 200);
-  const offset = Math.max(Number(searchParams.get("offset") ?? "0"), 0);
-  const important = parseBool(searchParams.get("important"));
-  const repeated = parseBool(searchParams.get("repeated"));
-  const jeeExamType = parseJeeExamType(searchParams.get("jeeExamType"));
-  const questionTypeFilter = parseQuestionTypeFilter(searchParams.get("questionType"));
+  const filters = parseFiltersFromSearchParams(searchParams, me.category);
+  const limit = Number(searchParams.get("limit") ?? "50");
+  const offset = Number(searchParams.get("offset") ?? "0");
+  const useLightweight = searchParams.get("lightweight") === "true";
 
-  const conditions: Prisma.Sql[] = [Prisma.sql`exam = ${me.category}`];
-  if (subject) conditions.push(Prisma.sql`subject = ${subject}`);
-  if (chapter) conditions.push(Prisma.sql`chapter ILIKE ${`%${chapter}%`}`);
-  if (difficulty && (difficulty === "easy" || difficulty === "medium" || difficulty === "hard")) {
-    conditions.push(Prisma.sql`difficulty = ${difficulty}`);
-  }
-  if (search) conditions.push(Prisma.sql`question_text ILIKE ${`%${search}%`}`);
-  if (yearText) {
-    const year = Number(yearText);
-    if (!Number.isNaN(year)) conditions.push(Prisma.sql`year = ${year}`);
-  }
-  if (important !== null) conditions.push(Prisma.sql`is_important = ${important}`);
-  if (repeated !== null) conditions.push(Prisma.sql`is_repeated = ${repeated}`);
-  if (jeeExamType === "mains") {
-    conditions.push(Prisma.sql`exam_type = 'mains'`);
-  }
-  if (jeeExamType === "advanced") {
-    conditions.push(Prisma.sql`exam_type = 'advanced'`);
-  }
-  if (questionTypeFilter === "mcq") {
-    conditions.push(sqlQuestionTypeMcq());
-  }
-  if (questionTypeFilter === "numerical") {
-    conditions.push(sqlQuestionTypeNumerical());
-  }
+  const result = await listQuestions({
+    ...filters,
+    limit,
+    offset,
+    includeTotal: true,
+    fullRows: !useLightweight,
+  });
 
-  const whereClause =
-    conditions.length > 0
-      ? Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`
-      : Prisma.empty;
-
-  const rows = await prisma.$queryRaw<
-    Array<{
-      id: number;
-      exam: string;
-      subject: string;
-      year: number | null;
-      chapter: string | null;
-      question_text: string;
-      options: unknown;
-      correct_answer: string | null;
-      source_name: string;
-      source_url: string;
-      difficulty: string | null;
-      tags: unknown;
-      repetition_count: number;
-      is_repeated: boolean;
-      is_important: boolean;
-    }>
-  >(
-    Prisma.sql`
-      SELECT
-        id::int AS id, exam, subject, year, chapter, question_text, options, correct_answer, source_name, source_url, difficulty,
-        tags, repetition_count, is_repeated, is_important
-      FROM question_bank
-      ${whereClause}
-      ORDER BY is_important DESC, repetition_count DESC, id DESC
-      LIMIT ${limit}
-      OFFSET ${offset}
-    `
-  );
-
-  const [{ count }] = await prisma.$queryRaw<Array<{ count: bigint }>>(
-    Prisma.sql`
-      SELECT COUNT(*)::bigint AS count
-      FROM question_bank
-      ${whereClause}
-    `
-  );
-
-  const questions = rows.map((row) => normalizeQuestionBankRowForApi(row));
-
-  return NextResponse.json({ questions, total: Number(count), limit, offset });
+  return NextResponse.json({
+    questions: result.questions,
+    total: result.total ?? 0,
+    limit: result.limit,
+    offset: result.offset,
+    hasMore: result.hasMore,
+  });
 }
 
 export async function POST(request: Request) {
@@ -265,7 +134,6 @@ export async function POST(request: Request) {
       ? new Set(["Maths", "Physics", "Chemistry"])
       : new Set(["Physics", "Chemistry", "Botany", "Zoology"]);
 
-  /** Stem + optional options/answer (e.g. Manual builder when no bank match). */
   if (body.flexible) {
     const subject = body.subject?.trim();
     const questionText = body.questionText?.trim();

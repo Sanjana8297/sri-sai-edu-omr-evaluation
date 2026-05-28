@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireRoles } from "@/lib/api-auth";
 import { composeQuestionPaper, getAiConfigError, type PaperBlueprint } from "@/lib/ai-paper-config";
+import { getLlmRuntimeConfig } from "@/lib/openai-runtime";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(request: Request) {
   const { session, response } = await requireRoles(["TEACHER"]);
   if (response) return response;
 
-  const aiConfigError = getAiConfigError();
+  const aiConfigError = await getAiConfigError();
   if (aiConfigError) return NextResponse.json({ error: aiConfigError }, { status: 503 });
 
   let body: {
@@ -49,6 +50,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ generated });
     }
 
+    const llm = await getLlmRuntimeConfig();
+
     const paper = await prisma.questionPaper.create({
       data: {
         teacherId: session.sub,
@@ -61,7 +64,7 @@ export async function POST(request: Request) {
         aiConfig: blueprint,
         generationMeta: {
           warnings: generated.warnings,
-          model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+          model: llm.model,
           generatedAt: new Date().toISOString(),
         },
       },

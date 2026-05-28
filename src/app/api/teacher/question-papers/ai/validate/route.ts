@@ -6,7 +6,7 @@ export async function POST(request: Request) {
   const { response } = await requireRoles(["TEACHER"]);
   if (response) return response;
 
-  const aiConfigError = getAiConfigError();
+  const aiConfigError = await getAiConfigError();
   if (aiConfigError) return NextResponse.json({ error: aiConfigError }, { status: 503 });
 
   let body: {

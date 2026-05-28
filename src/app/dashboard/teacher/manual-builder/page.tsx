@@ -3,7 +3,19 @@
 import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
+import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
 import { teacherNavItems } from "@/lib/dashboard-nav";
+import {
+  JEE_ADVANCE_EXAM_DURATION_HOURS,
+  buildDefaultAdvanceSubjects,
+  totalExamMarksFromSubjects,
+  type JeeAdvanceSubjectConfig,
+} from "@/lib/jee-advance-exam-structure";
+import {
+  buildJeeAdvancePaperContent,
+  getJeeAdvanceTotalQuestions,
+  type AdvancePaperSlotItem,
+} from "@/lib/jee-advance-paper-builder";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 
 type QuestionBankItem = {
@@ -158,6 +170,9 @@ function TeacherManualBuilderPage() {
   const [postSaveSnapshot, setPostSaveSnapshot] = useState<PostSaveSnapshot | null>(null);
 
   const [sectionLayout, setSectionLayout] = useState<"single" | "neet_abc" | "jee_adv_abc">("single");
+  const [advanceSubjects, setAdvanceSubjects] = useState<JeeAdvanceSubjectConfig[]>(
+    buildDefaultAdvanceSubjects
+  );
   const [paperDurationMin, setPaperDurationMin] = useState("");
   const [paperMaxMarks, setPaperMaxMarks] = useState("");
   const [langEn, setLangEn] = useState(true);
@@ -195,6 +210,13 @@ function TeacherManualBuilderPage() {
     void loadMe();
   }, [loadMe]);
 
+  useEffect(() => {
+    if (track === "JEE" && sectionLayout === "jee_adv_abc") {
+      setPaperDurationMin(String(JEE_ADVANCE_EXAM_DURATION_HOURS * 60));
+      setPaperMaxMarks(String(totalExamMarksFromSubjects(advanceSubjects)));
+    }
+  }, [track, sectionLayout, advanceSubjects]);
+
   const loadQuestionBank = useCallback(async () => {
     setBankLoading(true);
     try {
@@ -211,7 +233,8 @@ function TeacherManualBuilderPage() {
       if (bankQuestionType === "Numerical") params.set("questionType", "numerical");
       params.set("limit", String(pageSize));
       params.set("offset", String(bankOffset));
-      const res = await fetch(`/api/teacher/question-bank?${params.toString()}`);
+      params.set("fullRows", "true");
+      const res = await fetch(`/api/questions?${params.toString()}`);
       const j = await res.json();
       if (!res.ok) {
         setErr(j.error ?? "Could not load question bank");
@@ -438,7 +461,36 @@ function TeacherManualBuilderPage() {
     }
   }
 
-  function buildContentFromSelected(): { questionContent: string; keyContent: string } {
+  function collectSlotItems(): AdvancePaperSlotItem[] {
+    const items: AdvancePaperSlotItem[] = [];
+    for (const slot of paperSlots) {
+      if (slot.kind === "bank") {
+        const item = selectionDetails.get(slot.id);
+        if (!item) continue;
+        items.push({
+          question_text: item.question_text,
+          options: item.options,
+          correct_answer: item.correct_answer,
+        });
+      } else {
+        items.push({
+          question_text: slot.question_text,
+          options: slot.options,
+          correct_answer: slot.correct_answer,
+        });
+      }
+    }
+    return items;
+  }
+
+  const isJeeAdvanceLayout = track === "JEE" && sectionLayout === "jee_adv_abc";
+  const jeeAdvanceExpectedCount = getJeeAdvanceTotalQuestions(advanceSubjects);
+  const jeeAdvanceTotalMarks = totalExamMarksFromSubjects(advanceSubjects);
+
+  function buildContentFromSelected(): { questionContent: string; keyContent: string; error?: string } {
+    if (isJeeAdvanceLayout) {
+      return buildJeeAdvancePaperContent(collectSlotItems(), advanceSubjects, formatOptionsBlock);
+    }
     const questionBlocks: string[] = [];
     const keyBlocks: string[] = [];
     let idx = 0;
@@ -477,12 +529,19 @@ function TeacherManualBuilderPage() {
       );
       return false;
     }
-    const { questionContent: generatedQuestionContent, keyContent: generatedKeyContent } =
-      buildContentFromSelected();
-    setQuestionContent(generatedQuestionContent);
-    setKeyContent(generatedKeyContent);
+    const built = buildContentFromSelected();
+    if (built.error) {
+      setErr(built.error);
+      return false;
+    }
+    setQuestionContent(built.questionContent);
+    setKeyContent(built.keyContent);
     setPaperPreviewReady(true);
-    setMsg(`Question paper generated with ${paperSlots.length} question(s). Review the preview below.`);
+    setMsg(
+      isJeeAdvanceLayout
+        ? `JEE Advance paper generated (${jeeAdvanceExpectedCount} questions, ${jeeAdvanceTotalMarks} marks). Review the preview below.`
+        : `Question paper generated with ${paperSlots.length} question(s). Review the preview below.`
+    );
     return true;
   }
 
@@ -502,6 +561,9 @@ function TeacherManualBuilderPage() {
       .join(", ");
     const composerLines = [
       sectionLayout !== "single" ? `Section layout: ${sectionLayout}` : null,
+      isJeeAdvanceLayout
+        ? `JEE Advance structure: ${JSON.stringify(advanceSubjects.map((s) => ({ subject: s.subject, sections: s.sectionCounts })))}`
+        : null,
       paperDurationMin.trim() ? `Duration (min): ${paperDurationMin.trim()}` : null,
       paperMaxMarks.trim() ? `Max marks: ${paperMaxMarks.trim()}` : null,
       langs ? `Languages: ${langs}` : null,
@@ -1048,23 +1110,54 @@ function TeacherManualBuilderPage() {
             <div className="grid gap-3 md:grid-cols-2">
               <label className="block text-xs font-medium text-[var(--muted)]">
                 Section layout
-                <select className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" value={sectionLayout} onChange={(e) => setSectionLayout(e.target.value as typeof sectionLayout)}>
+                <select
+                  className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
+                  value={sectionLayout}
+                  onChange={(e) => setSectionLayout(e.target.value as typeof sectionLayout)}
+                >
                   <option value="single">Single section (default)</option>
-                  <option value="neet_abc">NEET-style A / B / C</option>
-                  <option value="jee_adv_abc">JEE Advanced-style A / B / C</option>
+                  {track === "NEET" ? <option value="neet_abc">NEET-style A / B / C</option> : null}
+                  {track === "JEE" ? (
+                    <option value="jee_adv_abc">JEE Advance (Section I / II / III per subject)</option>
+                  ) : null}
                 </select>
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block text-xs font-medium text-[var(--muted)]">
                   Duration (min)
-                  <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" inputMode="numeric" placeholder="e.g. 180" value={paperDurationMin} onChange={(e) => setPaperDurationMin(e.target.value)} />
+                  <input
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm disabled:opacity-60"
+                    inputMode="numeric"
+                    placeholder="e.g. 180"
+                    value={paperDurationMin}
+                    onChange={(e) => setPaperDurationMin(e.target.value)}
+                    disabled={isJeeAdvanceLayout}
+                  />
                 </label>
                 <label className="block text-xs font-medium text-[var(--muted)]">
                   Max marks
-                  <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" inputMode="numeric" placeholder="e.g. 300" value={paperMaxMarks} onChange={(e) => setPaperMaxMarks(e.target.value)} />
+                  <input
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm disabled:opacity-60"
+                    inputMode="numeric"
+                    placeholder="e.g. 300"
+                    value={paperMaxMarks}
+                    onChange={(e) => setPaperMaxMarks(e.target.value)}
+                    disabled={isJeeAdvanceLayout}
+                  />
                 </label>
               </div>
             </div>
+
+            {isJeeAdvanceLayout ? (
+              <div className="space-y-3">
+                <JeeAdvanceStructurePanel subjects={advanceSubjects} onChange={setAdvanceSubjects} />
+                <p className="text-xs text-[var(--muted)]">
+                  Add exactly <strong>{jeeAdvanceExpectedCount}</strong> questions in section 1, in exam order:
+                  Mathematics (Section I → II → III), then Physics, then Chemistry. Current selection:{" "}
+                  <strong>{paperSlots.length}</strong>.
+                </p>
+              </div>
+            ) : null}
 
             <div>
               <p className="text-xs font-medium text-[var(--muted)]">Bilingual paper</p>

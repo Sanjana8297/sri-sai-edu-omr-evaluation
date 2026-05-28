@@ -8,7 +8,9 @@ export type ProctorEventType =
   | "PERMISSION_REVOKED"
   | "CAMERA_MISSING"
   | "MIC_MISSING"
-  | "HEARTBEAT";
+  | "HEARTBEAT"
+  | "FULLSCREEN_EXIT"
+  | "CLIPBOARD_ATTEMPT";
 
 export function toIso(date: Date | null): string | null {
   return date ? date.toISOString() : null;

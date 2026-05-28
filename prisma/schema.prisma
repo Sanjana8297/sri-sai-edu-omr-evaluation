@@ -18,12 +18,25 @@ model Admin {
   updatedAt    DateTime @updatedAt
 }
 
+/// Singleton LLM credentials (id = "default"). API key stored encrypted at rest.
+model LlmSettings {
+  id               String   @id @default("default")
+  apiKeyEncrypted  String?
+  model            String   @default("gpt-4.1-mini")
+  baseUrl          String   @default("https://api.openai.com/v1")
+  updatedByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
 model Teacher {
   id             String          @id @default(cuid())
   email          String          @unique
   passwordHash   String
   name           String
   category       String
+  cbtDefaults    Json?
+  omrDefaults    Json?
   students       Student[]
   questionPapers QuestionPaper[]
   exams          Exam[]
@@ -77,6 +90,7 @@ model Exam {
   endTime         DateTime
   durationMinutes Int
   isPublished     Boolean       @default(false)
+  cbtSettings     Json?
   examSessions    ExamSession[]
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -99,6 +113,7 @@ model ExamSession {
   micGranted         Boolean?
   autoSubmittedReason String?
   submittedAnswers   Json?
+  cbtState           Json?
   scoreObtained      Float?
   scoreMax           Float?
   proctoringEvents   ProctoringEvent[]
@@ -148,4 +163,6 @@ enum ProctoringEventType {
   CAMERA_MISSING
   MIC_MISSING
   HEARTBEAT
+  FULLSCREEN_EXIT
+  CLIPBOARD_ATTEMPT
 }

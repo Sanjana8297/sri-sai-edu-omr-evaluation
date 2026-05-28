@@ -6,7 +6,7 @@ export async function GET() {
   const { response } = await requireRoles(["ADMIN"]);
   if (response) return response;
 
-  const [studentCount, teacherCount, students, attempts] = await Promise.all([
+  const [studentCount, teacherCount, students, attempts, exams, teachers] = await Promise.all([
     prisma.student.count(),
     prisma.teacher.count(),
     prisma.student.findMany({
@@ -15,7 +15,7 @@ export async function GET() {
         name: true,
         email: true,
         category: true,
-        teacher: { select: { name: true, email: true } },
+        teacher: { select: { id: true, name: true, email: true } },
       },
       orderBy: { name: "asc" },
     }),
@@ -25,12 +25,27 @@ export async function GET() {
       },
       orderBy: { examDate: "desc" },
     }),
+    prisma.exam.findMany({
+      select: { id: true, title: true, category: true, startTime: true, isPublished: true },
+      orderBy: { startTime: "desc" },
+    }),
+    prisma.teacher.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        category: true,
+        _count: { select: { students: true } },
+      },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   const percentages = attempts.map((a) => ({
     id: a.id,
     studentId: a.studentId,
     studentName: a.student.name,
+    studentEmail: a.student.email,
     category: a.category,
     title: a.title,
     examDate: a.examDate.toISOString(),
@@ -47,9 +62,23 @@ export async function GET() {
       : null;
 
   return NextResponse.json({
-    counts: { students: studentCount, teachers: teacherCount },
+    counts: { students: studentCount, teachers: teacherCount, exams: exams.length },
     avgPercentageAcrossAttempts: avgPct,
     students,
+    teachers: teachers.map((t) => ({
+      id: t.id,
+      name: t.name,
+      email: t.email,
+      category: t.category,
+      studentCount: t._count.students,
+    })),
+    exams: exams.map((e) => ({
+      id: e.id,
+      title: e.title,
+      category: e.category,
+      startTime: e.startTime.toISOString(),
+      isPublished: e.isPublished,
+    })),
     performance: percentages,
   });
 }
