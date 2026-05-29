@@ -261,6 +261,85 @@ export function extractOptionsListFromHtml(html: string): { stemHtml: string; op
   return { stemHtml, options };
 }
 
+export function ensureFourOptionsForQuestion(input: {
+  questionText: string;
+  options: string[] | null | undefined;
+  correctAnswer: string | null | undefined;
+  seedId?: number;
+}): { options: string[]; correctAnswer: string | null } {
+  const rowId = input.seedId ?? 1;
+  let qt = input.questionText;
+  let opt = input.options;
+
+  const normalizedOpts =
+    opt && opt.length > 0
+      ? opt.map((o) => {
+          const stripped = o.replace(/^[A-H][\.\)]\s*/i, "").trim();
+          return stripped || o.trim();
+        })
+      : null;
+
+  if (!normalizedOpts || normalizedOpts.length < 4) {
+    const fromList = extractOptionsListFromHtml(qt);
+    if (fromList) {
+      opt = fromList.options;
+      qt = fromList.stemHtml;
+    }
+  } else {
+    opt = normalizedOpts;
+  }
+
+  let syntheticLetter: "A" | "B" | "C" | "D" | null = null;
+  const existing = (opt ?? []).map((o) => String(o).trim()).filter(Boolean);
+  const onlyPlaceholders = existing.length > 0 && existing.every(isPlaceholderOptionText);
+
+  if (!opt || opt.length < 4 || onlyPlaceholders) {
+    const letter = parseLetterAnswer(input.correctAnswer);
+    if (letter) {
+      const preview = stripHtmlToPlainText(qt);
+      const numericKey = parseNumericalAnswerValue(input.correctAnswer);
+      if (numericKey !== null) {
+        const built = buildSyntheticNumericalOptions(numericKey, rowId);
+        opt = built.options;
+        syntheticLetter = letter;
+      } else {
+        const heuristic = buildHeuristicNumericalOptions(preview, rowId, letter);
+        opt = heuristic.options;
+        syntheticLetter = letter;
+      }
+    } else {
+      const num = parseNumericalAnswerValue(input.correctAnswer);
+      if (num !== null) {
+        const built = buildSyntheticNumericalOptions(num, rowId);
+        opt = built.options;
+        syntheticLetter = built.letter;
+      } else if (input.correctAnswer?.trim()) {
+        const text = input.correctAnswer.trim();
+        const maybeNum = parseNumericalAnswerValue(text);
+        if (maybeNum !== null) {
+          const built = buildSyntheticNumericalOptions(maybeNum, rowId);
+          opt = built.options;
+          syntheticLetter = built.letter;
+        } else {
+          const built = buildSyntheticTextKeyedOptions(text, rowId);
+          opt = built.options;
+          syntheticLetter = built.letter;
+        }
+      } else {
+        const preview = stripHtmlToPlainText(qt);
+        const built = buildHeuristicNumericalOptions(preview, rowId);
+        opt = built.options;
+        syntheticLetter = built.letter;
+      }
+    }
+  }
+
+  return {
+    options: (opt ?? []).slice(0, 4),
+    correctAnswer: syntheticLetter ?? input.correctAnswer ?? null,
+  };
+}
+
 export function normalizeQuestionBankRowForApi(row: {
   id: number;
   exam: string;
@@ -305,49 +384,14 @@ export function normalizeQuestionBankRowForApi(row: {
     }
   }
 
-  let syntheticLetter: "A" | "B" | "C" | "D" | null = null;
-  const existing = (opt ?? []).map((o) => String(o).trim()).filter(Boolean);
-  const onlyPlaceholders = existing.length > 0 && existing.every(isPlaceholderOptionText);
-  if (!opt || opt.length < 4 || onlyPlaceholders) {
-    const letter = parseLetterAnswer(row.correct_answer);
-    if (letter) {
-      const preview = stripHtmlToPlainText(qt);
-      const numericKey = parseNumericalAnswerValue(row.correct_answer);
-      if (numericKey !== null) {
-        const built = buildSyntheticNumericalOptions(numericKey, row.id);
-        opt = built.options;
-      } else {
-        const heuristic = buildHeuristicNumericalOptions(preview, row.id, letter);
-        opt = heuristic.options;
-      }
-      syntheticLetter = letter;
-    } else {
-      const num = parseNumericalAnswerValue(row.correct_answer);
-      if (num !== null) {
-        const built = buildSyntheticNumericalOptions(num, row.id);
-        opt = built.options;
-        syntheticLetter = built.letter;
-      } else if (row.correct_answer?.trim()) {
-        const text = row.correct_answer.trim();
-        const maybeNum = parseNumericalAnswerValue(text);
-        if (maybeNum !== null) {
-          const built = buildSyntheticNumericalOptions(maybeNum, row.id);
-          opt = built.options;
-          syntheticLetter = built.letter;
-        } else {
-          const built = buildSyntheticTextKeyedOptions(text, row.id);
-          opt = built.options;
-          syntheticLetter = built.letter;
-        }
-      } else {
-        // Final fallback: generate numeric-looking values from stem; no fake key override.
-        const preview = stripHtmlToPlainText(qt);
-        const built = buildHeuristicNumericalOptions(preview, row.id);
-        opt = built.options;
-        syntheticLetter = built.letter;
-      }
-    }
-  }
+  const ensured = ensureFourOptionsForQuestion({
+    questionText: qt,
+    options: opt,
+    correctAnswer: row.correct_answer,
+    seedId: row.id,
+  });
+  opt = ensured.options;
+  const syntheticLetter = parseLetterAnswer(ensured.correctAnswer);
 
   const optionsOut =
     opt && opt.length > 0 ? opt.map((o) => formatQuestionTextForDisplay(o)) : null;
@@ -356,6 +400,6 @@ export function normalizeQuestionBankRowForApi(row: {
     ...row,
     question_text: formatQuestionTextForDisplay(qt),
     options: optionsOut,
-    correct_answer: syntheticLetter ?? row.correct_answer,
+    correct_answer: syntheticLetter ?? ensured.correctAnswer ?? row.correct_answer,
   };
 }

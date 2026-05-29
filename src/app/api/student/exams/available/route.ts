@@ -21,6 +21,7 @@ export async function GET() {
       },
       examSessions: {
         where: { studentId: me.id },
+        orderBy: { startedAt: "desc" },
         select: { id: true, status: true, violationCount: true, startedAt: true, submittedAt: true },
       },
     },

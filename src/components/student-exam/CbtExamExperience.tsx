@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { parseQuestionPaperContent, type ParsedQuestion } from "@/lib/exam-paper-parser";
+import { parseQuestionPaperContentWithOptions, type ParsedQuestion } from "@/lib/exam-paper-parser";
 import { type CbtSettings, type BilingualMode } from "@/lib/cbt-settings";
 import { displayPrompt, splitBilingualPrompt } from "@/lib/bilingual-prompt";
+import { formatQuestionTextForDisplay } from "@/lib/question-text";
 import {
   clearCachedProgress,
+  markExamSubmittedLocally,
   readCachedProgress,
   writeCachedProgress,
 } from "@/lib/exam-progress-cache";
-import { VIOLATION_LIMIT } from "@/lib/proctoring";
+import { VIOLATION_LIMIT, isSessionSubmitted } from "@/lib/proctoring";
 
 type StartResponse = {
   exam: {
@@ -19,7 +21,7 @@ type StartResponse = {
     category: string;
     durationMinutes: number;
     cbtSettings: CbtSettings;
-    questionPaper: { questionContent: string };
+    questionPaper: { questionContent: string; keyContent?: string | null };
   };
   session: {
     id: string;
@@ -75,10 +77,12 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   const [questionLang, setQuestionLang] = useState<"en" | "hi">("en");
   const [syncStatus, setSyncStatus] = useState<"synced" | "syncing" | "offline" | "error">("synced");
   const [fullscreenOk, setFullscreenOk] = useState(false);
+  const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const finalizedRef = useRef(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fullscreenRetryRef = useRef<number | null>(null);
   const answersRef = useRef(answers);
   const markedRef = useRef(markedForReview);
   const visitedRef = useRef(visited);
@@ -90,8 +94,9 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   const settings = data?.exam.cbtSettings;
   const parsedPaper = useMemo(() => {
     const content = data?.exam.questionPaper.questionContent ?? "";
-    return parseQuestionPaperContent(content);
-  }, [data?.exam.questionPaper.questionContent]);
+    const keyContent = data?.exam.questionPaper.keyContent ?? "";
+    return parseQuestionPaperContentWithOptions(content, keyContent);
+  }, [data?.exam.questionPaper.questionContent, data?.exam.questionPaper.keyContent]);
 
   const flatQuestions: ParsedQuestion[] = parsedPaper.flatQuestions;
   const activeQuestion = flatQuestions[activeGlobalIndex] ?? null;
@@ -107,6 +112,52 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }, []);
+
+  const stopFullscreenRetry = useCallback(() => {
+    if (fullscreenRetryRef.current) {
+      clearInterval(fullscreenRetryRef.current);
+      fullscreenRetryRef.current = null;
+    }
+  }, []);
+
+  const exitFullscreenSafe = useCallback(async () => {
+    stopFullscreenRetry();
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+    } catch {
+      /* ignore */
+    }
+    setFullscreenOk(false);
+    setNeedsFullscreenGesture(false);
+  }, [stopFullscreenRetry]);
+
+  const enterFullscreen = useCallback(async (): Promise<boolean> => {
+    if (finalizedRef.current) return false;
+    try {
+      await document.documentElement.requestFullscreen();
+      setFullscreenOk(true);
+      setNeedsFullscreenGesture(false);
+      return true;
+    } catch {
+      setFullscreenOk(false);
+      setNeedsFullscreenGesture(true);
+      return false;
+    }
+  }, []);
+
+  const ensureFullscreen = useCallback(async () => {
+    if (finalizedRef.current || document.fullscreenElement) return;
+    await enterFullscreen();
+  }, [enterFullscreen]);
+
+  const finalizeExamSession = useCallback(async () => {
+    finalizedRef.current = true;
+    stopFullscreenRetry();
+    await exitFullscreenSafe();
+    stopMediaAccess();
+  }, [exitFullscreenSafe, stopFullscreenRetry, stopMediaAccess]);
 
   const syncProgress = useCallback(
     async (force = false) => {
@@ -176,14 +227,15 @@ export function CbtExamExperience({ examId }: { examId: string }) {
           };
         });
         if (json.autoSubmitted) {
-          finalizedRef.current = true;
-          stopMediaAccess();
+          await finalizeExamSession();
           clearCachedProgress(examId);
+          markExamSubmittedLocally(examId);
           setError("Exam auto-submitted due to a proctoring violation.");
+          router.replace("/dashboard/student/exams");
         }
       }
     },
-    [examId, stopMediaAccess],
+    [examId, finalizeExamSession, router],
   );
 
   const submitExam = useCallback(
@@ -202,22 +254,26 @@ export function CbtExamExperience({ examId }: { examId: string }) {
         setError(json.error ?? "Could not submit exam");
         return;
       }
-      finalizedRef.current = true;
-      stopMediaAccess();
+      await finalizeExamSession();
       clearCachedProgress(examId);
-      router.push("/dashboard/student/exams");
+      markExamSubmittedLocally(examId);
+      router.replace("/dashboard/student/exams");
     },
-    [examId, router, stopMediaAccess, syncProgress],
+    [examId, finalizeExamSession, router, syncProgress],
   );
 
-  const enterFullscreen = useCallback(async () => {
-    try {
-      await document.documentElement.requestFullscreen();
-      setFullscreenOk(true);
-    } catch {
-      setFullscreenOk(false);
-    }
-  }, []);
+  const startFullscreenWatchdog = useCallback(() => {
+    stopFullscreenRetry();
+    fullscreenRetryRef.current = window.setInterval(() => {
+      if (finalizedRef.current) {
+        stopFullscreenRetry();
+        return;
+      }
+      if (!document.fullscreenElement) {
+        void ensureFullscreen();
+      }
+    }, 400);
+  }, [ensureFullscreen, stopFullscreenRetry]);
 
   const startSession = useCallback(async () => {
     setLoading(true);
@@ -261,12 +317,16 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     setVisited(mergedVisited);
     if (json.exam.cbtSettings.bilingualMode === "hi") setQuestionLang("hi");
 
-    if (json.session.status !== "IN_PROGRESS") {
+    if (isSessionSubmitted(json.session.status)) {
       finalizedRef.current = true;
       stopMediaAccess();
+      clearCachedProgress(examId);
       if (json.session.autoSubmittedReason === "VIOLATION_LIMIT_REACHED") {
         setError("Exam was auto-submitted due to a proctoring violation.");
+        setLoading(false);
+        return;
       }
+      router.replace("/dashboard/student/exams");
       return;
     }
 
@@ -274,10 +334,9 @@ export function CbtExamExperience({ examId }: { examId: string }) {
       await sendEvent("PERMISSION_DENIED", { cameraGranted, micGranted });
     }
 
-    if (json.exam.cbtSettings.requireFullscreen) {
-      await enterFullscreen();
-    }
-  }, [enterFullscreen, examId, sendEvent, stopMediaAccess]);
+    await enterFullscreen();
+    startFullscreenWatchdog();
+  }, [enterFullscreen, examId, router, sendEvent, startFullscreenWatchdog, stopMediaAccess]);
 
   function getPaletteStatus(questionId: string): PaletteStatus {
     if (markedForReview.has(questionId)) return "marked";
@@ -327,8 +386,11 @@ export function CbtExamExperience({ examId }: { examId: string }) {
 
   useEffect(() => {
     void startSession();
-    return () => stopMediaAccess();
-  }, [startSession, stopMediaAccess]);
+    return () => {
+      stopFullscreenRetry();
+      stopMediaAccess();
+    };
+  }, [startSession, stopFullscreenRetry, stopMediaAccess]);
 
   useEffect(() => {
     if (!data || finalizedRef.current) return;
@@ -354,11 +416,19 @@ export function CbtExamExperience({ examId }: { examId: string }) {
       if (settings.blockTabSwitch) void sendEvent("WINDOW_BLUR", { blurAt: new Date().toISOString() });
     };
     const onFullscreen = () => {
-      if (settings.requireFullscreen && !document.fullscreenElement) {
+      if (finalizedRef.current) {
+        setFullscreenOk(Boolean(document.fullscreenElement));
+        return;
+      }
+      if (!document.fullscreenElement) {
         setFullscreenOk(false);
-        void sendEvent("FULLSCREEN_EXIT", { at: new Date().toISOString() });
-      } else if (document.fullscreenElement) {
+        if (settings.requireFullscreen) {
+          void sendEvent("FULLSCREEN_EXIT", { at: new Date().toISOString() });
+        }
+        void ensureFullscreen();
+      } else {
         setFullscreenOk(true);
+        setNeedsFullscreenGesture(false);
       }
     };
     const onClipboard = (e: ClipboardEvent) => {
@@ -391,7 +461,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [data, sendEvent, settings, syncProgress]);
+  }, [data, ensureFullscreen, sendEvent, settings, syncProgress]);
 
   useEffect(() => {
     if (activeQuestion) {
@@ -427,7 +497,9 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   const displayMode = bilingualMode === "both" ? questionLang : bilingualMode;
   const promptText =
     promptParts && activeQuestion
-      ? displayPrompt(promptParts, bilingualMode, displayMode as "en" | "hi")
+      ? formatQuestionTextForDisplay(
+          displayPrompt(promptParts, bilingualMode, displayMode as "en" | "hi")
+        )
       : "";
 
   const answeredCount = flatQuestions.filter((q) => Boolean(answers[q.id])).length;
@@ -478,16 +550,22 @@ export function CbtExamExperience({ examId }: { examId: string }) {
         <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
       ) : null}
 
-      {!fullscreenOk && settings?.requireFullscreen ? (
+      {!fullscreenOk ? (
         <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          <span>Fullscreen is required during this exam.</span>
-          <button
-            type="button"
-            className="rounded border border-amber-400 px-3 py-1 text-xs font-medium"
-            onClick={() => void enterFullscreen()}
-          >
-            Enter fullscreen
-          </button>
+          <span>
+            {needsFullscreenGesture
+              ? "This exam must run in fullscreen. Click below to continue."
+              : "Returning to fullscreen…"}
+          </span>
+          {needsFullscreenGesture ? (
+            <button
+              type="button"
+              className="rounded border border-amber-400 px-3 py-1 text-xs font-medium"
+              onClick={() => void enterFullscreen()}
+            >
+              Enter fullscreen
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -569,8 +647,12 @@ export function CbtExamExperience({ examId }: { examId: string }) {
                 </p>
                 <div className="mt-5 space-y-2">
                   {activeQuestion.options.map((option) => {
-                    const label = option.split(".")[0].trim();
+                    const labelMatch = option.match(/^([A-H])\./i);
+                    const label = labelMatch?.[1]?.toUpperCase() ?? option.split(".")[0].trim();
                     const isChecked = (answers[activeQuestion.id] ?? "") === label;
+                    const optionText = labelMatch
+                      ? option.replace(/^[A-H]\.\s*/i, "").trim()
+                      : option;
                     return (
                       <button
                         key={option}
@@ -589,7 +671,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
                         >
                           {label}
                         </span>
-                        <span>{option}</span>
+                        <span>{formatQuestionTextForDisplay(optionText)}</span>
                       </button>
                     );
                   })}

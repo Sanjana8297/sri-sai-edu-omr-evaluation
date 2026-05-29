@@ -1,6 +1,10 @@
 export const VIOLATION_LIMIT = 1;
 
 export type SessionStatus = "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
+
+export function isSessionSubmitted(status: SessionStatus | string): boolean {
+  return status === "SUBMITTED" || status === "AUTO_SUBMITTED";
+}
 export type ProctorEventType =
   | "TAB_HIDDEN"
   | "WINDOW_BLUR"

@@ -149,7 +149,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
         setBundleErr(json.error ?? "Could not load question paper");
         return;
       }
-      const paper = json.paper as { title: string; questionContent: string; questionPaperUrl?: string | null };
+      const paper = json.paper as { title: string; questionContent: string; keyContent?: string | null; questionPaperUrl?: string | null };
       if (!paper.questionContent?.trim() && paper.questionPaperUrl) {
         setBundleErr(
           "This paper is stored as an uploaded file only. Add question text in the paper editor to include it in the bundle, or download the file from Completed Exam Papers."
@@ -163,6 +163,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       await downloadOmrBundlePdf({
         ...buildOmrOpts(paper.title),
         questionContent: paper.questionContent,
+        keyContent: paper.keyContent ?? null,
       });
       setBundleMsg("Full bundle PDF downloaded (question paper + OMR sheet).");
     } catch (e) {
@@ -524,9 +525,11 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
   return <FeatureActivityHub features={OMR_ACTIVITIES} renderFeature={renderFeature} resetKey={resetKey} />;
 }
 
-export function OnlineExamModulePanel({ resetKey }: { resetKey?: string }) {
+export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: string }) {
   const [settings, setSettings] = useState<CbtSettings | null>(null);
+  const [savedSettings, setSavedSettings] = useState<CbtSettings | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -535,20 +538,32 @@ export function OnlineExamModulePanel({ resetKey }: { resetKey?: string }) {
         const res = await fetch("/api/teacher/cbt-settings");
         const text = await res.text();
         if (!text) {
-          setSettings({ ...DEFAULT_CBT_SETTINGS });
+          const defaults = { ...DEFAULT_CBT_SETTINGS };
+          setSettings(defaults);
+          setSavedSettings(defaults);
           return;
         }
         const json = JSON.parse(text) as { settings?: CbtSettings };
-        setSettings(json.settings ?? { ...DEFAULT_CBT_SETTINGS });
+        const loaded = json.settings ?? { ...DEFAULT_CBT_SETTINGS };
+        setSettings(loaded);
+        setSavedSettings(loaded);
       } catch {
-        setSettings({ ...DEFAULT_CBT_SETTINGS });
+        const defaults = { ...DEFAULT_CBT_SETTINGS };
+        setSettings(defaults);
+        setSavedSettings(defaults);
       }
     })();
   }, []);
 
+  const hasUnsavedChanges =
+    settings !== null &&
+    savedSettings !== null &&
+    JSON.stringify(settings) !== JSON.stringify(savedSettings);
+
   const persist = useCallback(async (next: CbtSettings) => {
     setSaving(true);
     setSaveMsg(null);
+    setSaveErr(null);
     try {
       const res = await fetch("/api/teacher/cbt-settings", {
         method: "PATCH",
@@ -559,24 +574,29 @@ export function OnlineExamModulePanel({ resetKey }: { resetKey?: string }) {
       const json = text ? (JSON.parse(text) as { settings?: CbtSettings; error?: string }) : {};
       if (res.ok && json.settings) {
         setSettings(json.settings);
-        setSaveMsg("Settings saved — applied to newly scheduled exams.");
-      } else {
-        setSaveMsg(json.error ?? "Could not save settings.");
+        setSavedSettings(json.settings);
+        setSaveMsg("All changes saved — applied to newly scheduled exams.");
+        return true;
       }
+      setSaveErr(json.error ?? "Could not save settings.");
+      return false;
     } catch {
-      setSaveMsg("Could not save settings.");
+      setSaveErr("Could not save settings.");
+      return false;
     } finally {
       setSaving(false);
     }
   }, []);
 
   function update(patch: Partial<CbtSettings>) {
-    setSettings((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, ...patch };
-      void persist(next);
-      return next;
-    });
+    setSaveMsg(null);
+    setSaveErr(null);
+    setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
+  async function saveAllChanges() {
+    if (!settings || saving) return;
+    await persist(settings);
   }
 
   if (!settings) {
@@ -671,9 +691,42 @@ export function OnlineExamModulePanel({ resetKey }: { resetKey?: string }) {
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted)]">
         These options apply during live student attempts. Exam duration is set under{" "}
         <strong className="text-[var(--foreground)]">Exam Scheduling</strong>.
-        {saveMsg ? <span className="ml-2 text-xs">{saving ? "Saving…" : saveMsg}</span> : null}
+        {hasUnsavedChanges ? (
+          <span className="ml-2 text-xs text-amber-700">You have unsaved changes.</span>
+        ) : null}
       </div>
-      <FeatureActivityHub features={ONLINE_ACTIVITIES} renderFeature={renderFeature} resetKey={resetKey} />
+      <div className="flex flex-col gap-4">
+        {ONLINE_ACTIVITIES.map((feature) => (
+          <section
+            key={feature.id}
+            className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6"
+          >
+            <h3 className="text-base font-semibold text-[var(--foreground)]">{feature.title}</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">{feature.description}</p>
+            <div className="mt-5 border-t border-[var(--border)] pt-5">{renderFeature(feature.id)}</div>
+          </section>
+        ))}
+      </div>
+
+      <div className="sticky bottom-0 z-10 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-[var(--muted)]">
+            {hasUnsavedChanges
+              ? "Review your changes above, then save to apply them to new exams."
+              : "All settings are saved."}
+          </p>
+          <button
+            type="button"
+            className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={saving || !hasUnsavedChanges}
+            onClick={() => void saveAllChanges()}
+          >
+            {saving ? "Saving…" : "Save all Changes"}
+          </button>
+        </div>
+        {saveMsg ? <p className="mt-2 text-xs text-emerald-700">{saveMsg}</p> : null}
+        {saveErr ? <p className="mt-2 text-xs text-red-600">{saveErr}</p> : null}
+      </div>
     </div>
   );
 }

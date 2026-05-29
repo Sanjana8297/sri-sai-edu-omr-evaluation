@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { studentNavItems } from "@/lib/dashboard-nav";
+import { isSessionSubmitted } from "@/lib/proctoring";
+import {
+  clearExamSubmittedLocally,
+  wasExamSubmittedLocally,
+} from "@/lib/exam-progress-cache";
 
 type StudentExam = {
   id: string;
@@ -34,12 +39,33 @@ export default function StudentExamsPage() {
       return;
     }
     setError(null);
-    setExams(json.exams ?? []);
+    const list = (json.exams ?? []) as StudentExam[];
+    for (const exam of list) {
+      const session = exam.examSessions[0];
+      if (session && isSessionSubmitted(session.status)) {
+        clearExamSubmittedLocally(exam.id);
+      }
+    }
+    setExams(list);
   }, []);
 
   useEffect(() => {
     void load();
+    const refresh = () => void load();
+    window.addEventListener("pageshow", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("pageshow", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, [load]);
+
+  function canTakeExam(exam: StudentExam): boolean {
+    if (wasExamSubmittedLocally(exam.id)) return false;
+    if (exam.status !== "LIVE") return false;
+    const session = exam.examSessions[0];
+    return !session || !isSessionSubmitted(session.status);
+  }
 
   return (
     <DashboardShell
@@ -82,7 +108,7 @@ export default function StudentExamsPage() {
                     {latestSession ? ` · Last attempt: ${latestSession.status}` : ""}
                   </p>
                 </div>
-                {exam.status === "LIVE" ? (
+                {canTakeExam(exam) ? (
                   <a
                     href={`/dashboard/student/exams/${exam.id}/take`}
                     className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white"

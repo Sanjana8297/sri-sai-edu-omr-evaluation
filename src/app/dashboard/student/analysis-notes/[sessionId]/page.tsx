@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { studentNavItems } from "@/lib/dashboard-nav";
-import { parseAnswerKeyByQuestion, parseQuestionPaperContent } from "@/lib/exam-paper-parser";
+import { parseQuestionPaperContentWithOptions, normalizeOptionAnswerToLetter } from "@/lib/exam-paper-parser";
+import { formatQuestionTextForDisplay } from "@/lib/question-text";
 
 type ExamDetail = {
   id: string;
@@ -22,8 +23,9 @@ type ExamDetail = {
   };
 };
 
-function normalizeAnswer(value: string | undefined): string {
-  return (value ?? "").trim().toUpperCase();
+function normalizeAnswer(value: string | undefined, asMcqLetter: boolean): string {
+  if (!value?.trim()) return "";
+  return asMcqLetter ? normalizeOptionAnswerToLetter(value) : value.trim();
 }
 
 function optionLabel(optionText: string): string {
@@ -67,12 +69,11 @@ export default function StudentAnalysisNoteDetailPage() {
     void loadDetail();
   }, [loadDetail]);
 
-  const parsedSections = useMemo(
-    () => (detail ? parseQuestionPaperContent(detail.exam.questionContent).sections : []),
-    [detail]
-  );
-  const answerKey = useMemo(
-    () => (detail ? parseAnswerKeyByQuestion(detail.exam.keyContent) : {}),
+  const { sections: parsedSections, answerKey } = useMemo(
+    () =>
+      detail
+        ? parseQuestionPaperContentWithOptions(detail.exam.questionContent, detail.exam.keyContent)
+        : { sections: [], answerKey: {} as Record<string, string> },
     [detail]
   );
 
@@ -127,14 +128,15 @@ export default function StudentAnalysisNoteDetailPage() {
                   <div className="mt-3 space-y-3">
                     {section.questions.map((q) => {
                       const qKey = `${section.name}::${q.indexInSection}`;
-                      const selected = normalizeAnswer(detail.submittedAnswers[qKey]);
-                      const expected = normalizeAnswer(answerKey[qKey]);
+                      const isMcq = q.options.length > 0;
+                      const selected = normalizeAnswer(detail.submittedAnswers[qKey], isMcq);
+                      const expected = normalizeAnswer(answerKey[qKey], isMcq);
                       const correct = selected && expected && selected === expected;
 
                       return (
                         <article key={q.id} className="rounded-md border border-[var(--border)] bg-[var(--card)] p-3">
-                          <p className="text-sm font-medium">
-                            Q{q.indexInSection}. {q.prompt}
+                          <p className="whitespace-pre-wrap text-sm font-medium">
+                            Q{q.indexInSection}. {formatQuestionTextForDisplay(q.prompt)}
                           </p>
 
                           {q.options.length > 0 ? (
@@ -143,17 +145,18 @@ export default function StudentAnalysisNoteDetailPage() {
                                 const label = optionLabel(opt);
                                 const isChosen = selected === label;
                                 const isCorrect = expected === label;
+                                const displayOpt = formatQuestionTextForDisplay(opt);
                                 return (
                                   <li
                                     key={`${q.id}-${opt}`}
                                     className={[
-                                      "rounded px-2 py-1",
+                                      "rounded px-2 py-1 whitespace-pre-wrap",
                                       isCorrect ? "bg-emerald-100 text-emerald-800" : "",
                                       isChosen && !isCorrect ? "bg-red-100 text-red-700" : "",
                                       !isChosen && !isCorrect ? "text-[var(--foreground)]" : "",
                                     ].join(" ")}
                                   >
-                                    {opt}
+                                    {displayOpt}
                                   </li>
                                 );
                               })}

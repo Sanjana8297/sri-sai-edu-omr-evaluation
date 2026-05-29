@@ -70,27 +70,36 @@ const LATEX_SYMBOL_MAP: Array<[RegExp, string]> = [
   [/\\theta\b/g, "theta"],
   [/\\lambda\b/g, "lambda"],
   [/\\mu\b/g, "mu"],
-  [/\\pi\b/g, "pi"],
+  [/\\pi\b/g, "π"],
   [/\\sigma\b/g, "sigma"],
   [/\\omega\b/g, "omega"],
 ];
 
 function unwrapLatexDelimiters(text: string): string {
-  return text
-    .replace(/\\\(/g, "(")
-    .replace(/\\\)/g, ")")
-    .replace(/\\\[/g, "[")
-    .replace(/\\\]/g, "]")
-    .replace(/\$/g, "");
+  let value = text;
+  for (let pass = 0; pass < 6; pass++) {
+    const next = value
+      .replace(/\\+\(/g, "(")
+      .replace(/\\+\)/g, ")")
+      .replace(/\\+\[/g, "[")
+      .replace(/\\+\]/g, "]");
+    if (next === value) break;
+    value = next;
+  }
+  return value.replace(/\$/g, "");
 }
 
 function simplifyLatexCommands(text: string): string {
   let value = text;
 
   value = value.replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, "($1)/($2)");
-  value = value.replace(/\\sqrt\s*\{([^{}]+)\}/g, "sqrt($1)");
+  value = value.replace(/\\sqrt\s*\{([^{}]+)\}/g, "√($1)");
+  value = value.replace(/\\sqrt\b\s*([^\s,;.]+)/g, "√$1");
   value = value.replace(/\\text\s*\{([^{}]*)\}/g, "$1");
   value = value.replace(/\\left\b/g, "").replace(/\\right\b/g, "");
+  value = value.replace(/\\int\b/g, "∫");
+  value = value.replace(/\\ln\b/g, "ln");
+  value = value.replace(/\\log\b/g, "log");
 
   for (const [pattern, replacement] of LATEX_SYMBOL_MAP) {
     value = value.replace(pattern, replacement);

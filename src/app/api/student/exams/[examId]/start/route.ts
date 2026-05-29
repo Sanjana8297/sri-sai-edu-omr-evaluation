@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
-import { computeSessionDeadline, toIso } from "@/lib/proctoring";
+import { computeSessionDeadline, isSessionSubmitted, toIso } from "@/lib/proctoring";
 import { getExamCbtSettings, getExamSessionCbtState } from "@/lib/cbt-settings-db";
 
 export async function POST(request: Request, context: { params: Promise<{ examId: string }> }) {
@@ -48,6 +48,10 @@ export async function POST(request: Request, context: { params: Promise<{ examId
     include: { exam: true },
   });
 
+  if (isSessionSubmitted(sessionRow.status)) {
+    return NextResponse.json({ error: "Exam already submitted" }, { status: 403 });
+  }
+
   const deadline = computeSessionDeadline(sessionRow.startedAt, exam.endTime, exam.durationMinutes);
   const [cbtSettings, cbtState] = await Promise.all([
     getExamCbtSettings(exam.id),
@@ -66,6 +70,7 @@ export async function POST(request: Request, context: { params: Promise<{ examId
         id: exam.questionPaper.id,
         title: exam.questionPaper.title,
         questionContent: exam.questionPaper.questionContent,
+        keyContent: exam.questionPaper.keyContent,
         questionPaperUrl: exam.questionPaper.questionPaperUrl,
       },
       cbtSettings,

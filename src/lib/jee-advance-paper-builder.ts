@@ -7,6 +7,7 @@ import {
   type JeeAdvanceSectionKey,
   type JeeAdvanceSubjectConfig,
 } from "@/lib/jee-advance-exam-structure";
+import { prepareQuestionForPaperBlock } from "@/lib/exam-paper-parser";
 
 export type AdvanceDifficultyMix = {
   easy: number;
@@ -135,8 +136,15 @@ export function buildJeeAdvancePaperContent(
       keyBlocks.push(`## ${sectionName}`);
       for (let q = 1; q <= count; q++) {
         const item = items[cursor++];
-        questionBlocks.push(`Q${q}. ${item.question_text}${formatOptionsBlock(item.options ?? null)}`);
-        keyBlocks.push(`${sectionName} Q${q}: ${item.correct_answer ?? "N/A"}`);
+        const { questionBlock, correctAnswer } = prepareQuestionForPaperBlock({
+          questionText: item.question_text,
+          options: item.options ?? null,
+          correctAnswer: item.correct_answer,
+          seedId: cursor,
+          formatOptionsBlock,
+        });
+        questionBlocks.push(`Q${q}. ${questionBlock}`);
+        keyBlocks.push(`${sectionName} Q${q}: ${correctAnswer ?? "N/A"}`);
       }
     }
   }

@@ -17,6 +17,8 @@ import {
   type AdvancePaperSlotItem,
 } from "@/lib/jee-advance-paper-builder";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
+import { ensureFourOptionsForQuestion, parseLetterAnswer } from "@/lib/question-bank-display";
+import { prepareQuestionForPaperBlock } from "@/lib/exam-paper-parser";
 
 type QuestionBankItem = {
   id: number;
@@ -45,6 +47,25 @@ type PaperSlot =
 function formatOptionsBlock(options: string[] | null): string {
   if (!options || options.length === 0) return "";
   return `\n${options.map((option, optionIdx) => `(${String.fromCharCode(65 + optionIdx)}) ${option}`).join("\n")}`;
+}
+
+function resolveSlotOptions(
+  questionText: string,
+  options: string[] | null,
+  correctAnswer: string | null,
+  seedId: number
+): { options: string[]; correctAnswer: string | null } {
+  const ensured = ensureFourOptionsForQuestion({
+    questionText,
+    options,
+    correctAnswer,
+    seedId,
+  });
+  const letter = parseLetterAnswer(ensured.correctAnswer);
+  return {
+    options: ensured.options,
+    correctAnswer: letter ?? ensured.correctAnswer ?? correctAnswer,
+  };
 }
 
 type WorkflowStep = 0 | 1 | 2 | 3;
@@ -499,12 +520,26 @@ function TeacherManualBuilderPage() {
         const item = selectionDetails.get(slot.id);
         if (!item) continue;
         idx += 1;
-        questionBlocks.push(`Q${idx}. ${item.question_text}${formatOptionsBlock(item.options)}`);
-        keyBlocks.push(`Q${idx}: ${item.correct_answer ?? "N/A"}`);
+        const { questionBlock, correctAnswer } = prepareQuestionForPaperBlock({
+          questionText: item.question_text,
+          options: item.options,
+          correctAnswer: item.correct_answer,
+          seedId: item.id,
+          formatOptionsBlock,
+        });
+        questionBlocks.push(`Q${idx}. ${questionBlock}`);
+        keyBlocks.push(`Q${idx}: ${correctAnswer ?? "N/A"}`);
       } else {
         idx += 1;
-        questionBlocks.push(`Q${idx}. ${slot.question_text}${formatOptionsBlock(slot.options)}`);
-        keyBlocks.push(`Q${idx}: ${slot.correct_answer ?? "N/A"}`);
+        const { questionBlock, correctAnswer } = prepareQuestionForPaperBlock({
+          questionText: slot.question_text,
+          options: slot.options,
+          correctAnswer: slot.correct_answer,
+          seedId: idx,
+          formatOptionsBlock,
+        });
+        questionBlocks.push(`Q${idx}. ${questionBlock}`);
+        keyBlocks.push(`Q${idx}: ${correctAnswer ?? "N/A"}`);
       }
     }
     return {
@@ -829,17 +864,31 @@ function TeacherManualBuilderPage() {
                     {item.is_repeated ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">repeated x{item.repetition_count}</span> : null}
                   </div>
                   <p className="mt-2 whitespace-pre-wrap text-sm">{formatQuestionTextForDisplay(item.question_text)}</p>
-                  {item.options && item.options.length > 0 ? (
-                    <ul className="mt-2 list-none space-y-1 text-sm">
-                      {item.options.map((option, optionIdx) => (
-                        <li key={optionIdx} className="whitespace-pre-wrap">
-                          <span className="font-medium text-[var(--muted)]">({String.fromCharCode(65 + optionIdx)}) </span>
-                          {formatQuestionTextForDisplay(option)}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  {item.correct_answer ? <CorrectAnswerBlock correctAnswer={item.correct_answer} options={item.options} /> : null}
+                  {(() => {
+                    const resolved = resolveSlotOptions(
+                      item.question_text,
+                      item.options,
+                      item.correct_answer,
+                      item.id
+                    );
+                    return (
+                      <>
+                        {resolved.options.length > 0 ? (
+                          <ul className="mt-2 list-none space-y-1 text-sm">
+                            {resolved.options.map((option, optionIdx) => (
+                              <li key={optionIdx} className="whitespace-pre-wrap">
+                                <span className="font-medium text-[var(--muted)]">({String.fromCharCode(65 + optionIdx)}) </span>
+                                {formatQuestionTextForDisplay(option)}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {resolved.correctAnswer ? (
+                          <CorrectAnswerBlock correctAnswer={resolved.correctAnswer} options={resolved.options} />
+                        ) : null}
+                      </>
+                    );
+                  })()}
                 </div>
               );
               })}
@@ -923,19 +972,31 @@ function TeacherManualBuilderPage() {
                       ) : null}
                     </div>
                     <p className="mt-2 whitespace-pre-wrap text-sm">{formatQuestionTextForDisplay(typedLookupFound.question_text)}</p>
-                    {typedLookupFound.options && typedLookupFound.options.length > 0 ? (
-                      <ul className="mt-2 list-none space-y-1 text-sm">
-                        {typedLookupFound.options.map((option, optionIdx) => (
-                          <li key={optionIdx} className="whitespace-pre-wrap">
-                            <span className="font-medium text-[var(--muted)]">({String.fromCharCode(65 + optionIdx)}) </span>
-                            {formatQuestionTextForDisplay(option)}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    {typedLookupFound.correct_answer ? (
-                      <CorrectAnswerBlock correctAnswer={typedLookupFound.correct_answer} options={typedLookupFound.options} />
-                    ) : null}
+                    {(() => {
+                      const resolved = resolveSlotOptions(
+                        typedLookupFound.question_text,
+                        typedLookupFound.options,
+                        typedLookupFound.correct_answer,
+                        typedLookupFound.id
+                      );
+                      return (
+                        <>
+                          {resolved.options.length > 0 ? (
+                            <ul className="mt-2 list-none space-y-1 text-sm">
+                              {resolved.options.map((option, optionIdx) => (
+                                <li key={optionIdx} className="whitespace-pre-wrap">
+                                  <span className="font-medium text-[var(--muted)]">({String.fromCharCode(65 + optionIdx)}) </span>
+                                  {formatQuestionTextForDisplay(option)}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          {resolved.correctAnswer ? (
+                            <CorrectAnswerBlock correctAnswer={resolved.correctAnswer} options={resolved.options} />
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </div>
                   <button
                     type="button"
@@ -995,7 +1056,16 @@ function TeacherManualBuilderPage() {
                     const bankItem = slot.kind === "bank" ? selectionDetails.get(slot.id) : null;
                     const questionText =
                       slot.kind === "custom" ? slot.question_text : bankItem?.question_text ?? null;
-                    const options = slot.kind === "custom" ? slot.options : bankItem?.options ?? null;
+                    const rawOptions = slot.kind === "custom" ? slot.options : bankItem?.options ?? null;
+                    const rawCorrect =
+                      slot.kind === "custom" ? slot.correct_answer : bankItem?.correct_answer ?? null;
+                    const seedId = slot.kind === "bank" ? slot.id : paperIdx + 1;
+                    const resolved =
+                      questionText != null
+                        ? resolveSlotOptions(questionText, rawOptions, rawCorrect, seedId)
+                        : null;
+                    const options = resolved?.options ?? rawOptions;
+                    const displayCorrect = resolved?.correctAnswer ?? rawCorrect;
                     const subject = slot.kind === "bank" ? bankItem?.subject : null;
 
                     return (
@@ -1043,10 +1113,8 @@ function TeacherManualBuilderPage() {
                                 ))}
                               </ul>
                             ) : null}
-                            {bankItem?.correct_answer ? (
-                              <CorrectAnswerBlock correctAnswer={bankItem.correct_answer} options={bankItem.options} />
-                            ) : slot.kind === "custom" && slot.correct_answer ? (
-                              <CorrectAnswerBlock correctAnswer={slot.correct_answer} options={slot.options} />
+                            {displayCorrect ? (
+                              <CorrectAnswerBlock correctAnswer={displayCorrect} options={options} />
                             ) : null}
                           </div>
                           <span className="flex shrink-0 flex-col gap-0.5">
@@ -1235,7 +1303,9 @@ function TeacherManualBuilderPage() {
                 <p className="text-sm font-semibold">Generated question paper preview</p>
                 <p className="mt-1 text-xs text-[var(--muted)]">{paperSlots.length} question(s) in exam order</p>
                 <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{questionContent}</pre>
+                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                    {formatQuestionTextForDisplay(questionContent)}
+                  </pre>
                 </div>
                 {keyContent.trim() ? (
                   <>
@@ -1338,7 +1408,9 @@ function TeacherManualBuilderPage() {
                     <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
                       <p className="text-xs font-medium text-[var(--foreground)]">Question paper ({paperSlots.length} questions)</p>
                       <div className="mt-2 max-h-48 overflow-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
-                        <pre className="whitespace-pre-wrap text-xs">{questionContent}</pre>
+                        <pre className="whitespace-pre-wrap text-xs">
+                          {formatQuestionTextForDisplay(questionContent)}
+                        </pre>
                       </div>
                     </div>
                   ) : (

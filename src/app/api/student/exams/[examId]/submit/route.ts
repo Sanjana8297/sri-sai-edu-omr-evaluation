@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
 import { computeSessionDeadline, toIso } from "@/lib/proctoring";
-import { parseAnswerKeyByQuestion } from "@/lib/exam-paper-parser";
+import { parseQuestionPaperContentWithOptions, compareExamAnswers } from "@/lib/exam-paper-parser";
 import { Prisma } from "@prisma/client";
 
 export async function POST(request: Request, context: { params: Promise<{ examId: string }> }) {
@@ -43,15 +43,16 @@ export async function POST(request: Request, context: { params: Promise<{ examId
   const autoSubmittedReason = timedOut ? "TIME_WINDOW_EXPIRED" : (body.reason ?? null);
   const submittedAnswers = body.answers ?? {};
 
-  const answerKey = parseAnswerKeyByQuestion(sessionRow.exam.questionPaper.keyContent ?? "");
+  const { answerKey } = parseQuestionPaperContentWithOptions(
+    sessionRow.exam.questionPaper.questionContent ?? "",
+    sessionRow.exam.questionPaper.keyContent ?? ""
+  );
   const keyEntries = Object.entries(answerKey);
   let obtained = 0;
-  for (const [questionId, expected] of keyEntries) {
+  for (const [questionId, expectedRaw] of keyEntries) {
     const selectedRaw = submittedAnswers[questionId];
     if (!selectedRaw) continue;
-    const selected = selectedRaw.trim().toUpperCase();
-    const normalizedExpected = expected.trim().toUpperCase();
-    if (selected === normalizedExpected) {
+    if (compareExamAnswers(selectedRaw, expectedRaw)) {
       obtained += 4;
     } else {
       obtained -= 1;

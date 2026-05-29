@@ -12,6 +12,8 @@ import {
   type JeeAdvanceSubjectConfig,
 } from "@/lib/jee-advance-exam-structure";
 import { getJeeAdvanceTotalQuestions } from "@/lib/jee-advance-paper-builder";
+import { formatQuestionTextForDisplay } from "@/lib/question-text";
+import { parseQuestionPaperContentWithOptions } from "@/lib/exam-paper-parser";
 
 type DifficultyLevel = "easy" | "medium" | "hard";
 type ExamSection = {
@@ -77,6 +79,13 @@ export default function TeacherAiBuilderPage() {
   const advanceTotalQuestions = useMemo(
     () => getJeeAdvanceTotalQuestions(advanceSubjects),
     [advanceSubjects]
+  );
+  const composedPreview = useMemo(
+    () =>
+      questionContent.trim()
+        ? parseQuestionPaperContentWithOptions(questionContent, keyContent)
+        : { sections: [], flatQuestions: [], answerKey: {} as Record<string, string> },
+    [questionContent, keyContent]
   );
 
   useEffect(() => {
@@ -348,12 +357,46 @@ export default function TeacherAiBuilderPage() {
           {showPreview && aiComposed ? (
             <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
               <p className="text-sm font-semibold">Preview: Composed Question Paper</p>
-              <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
-                {questionContent || "No question content composed yet."}
-              </pre>
+              {composedPreview.sections.length > 0 ? (
+                <div className="mt-2 max-h-80 space-y-4 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
+                  {composedPreview.sections.map((section) => (
+                    <section key={section.name}>
+                      <p className="font-semibold">{section.name}</p>
+                      <div className="mt-2 space-y-3">
+                        {section.questions.map((q) => (
+                          <article key={q.id} className="rounded border border-[var(--border)] p-2">
+                            <p className="whitespace-pre-wrap">
+                              Q{q.indexInSection}. {formatQuestionTextForDisplay(q.prompt)}
+                            </p>
+                            {q.options.length > 0 ? (
+                              <ul className="mt-1 list-none space-y-0.5">
+                                {q.options.map((opt) => (
+                                  <li key={opt} className="whitespace-pre-wrap">
+                                    {formatQuestionTextForDisplay(opt)}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
+                  {questionContent
+                    ? formatQuestionTextForDisplay(questionContent)
+                    : "No question content composed yet."}
+                </pre>
+              )}
               <p className="mt-3 text-sm font-semibold">Preview: Composed Answer Key</p>
               <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
-                {keyContent || "No answer key composed yet."}
+                {Object.keys(composedPreview.answerKey).length > 0
+                  ? Object.entries(composedPreview.answerKey)
+                      .map(([id, answer]) => `${id}: ${answer}`)
+                      .join("\n")
+                  : keyContent || "No answer key composed yet."}
               </pre>
             </div>
           ) : null}

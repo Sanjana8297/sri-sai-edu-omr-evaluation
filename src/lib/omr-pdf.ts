@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { parseQuestionPaperContent } from "@/lib/exam-paper-parser";
+import { parseQuestionPaperContentWithOptions } from "@/lib/exam-paper-parser";
 import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
@@ -418,7 +418,8 @@ export async function downloadOmrSheetPdf(opts: OmrPdfOptions): Promise<void> {
 async function addQuestionPaperPages(
   doc: jsPDF,
   opts: OmrPdfOptions,
-  questionContent: string
+  questionContent: string,
+  keyContent?: string | null
 ): Promise<void> {
   const margin = 44;
   const pageW = doc.internal.pageSize.getWidth();
@@ -446,7 +447,7 @@ async function addQuestionPaperPages(
     }
   };
 
-  const parsed = parseQuestionPaperContent(questionContent);
+  const parsed = parseQuestionPaperContentWithOptions(questionContent, keyContent);
   if (parsed.flatQuestions.length === 0) {
     if (isJeeAdvanceTrack(opts.track)) {
       y = await addJeeAdvanceTemplateTopBlock(doc, opts, margin, pageW);
@@ -591,9 +592,11 @@ async function addQuestionPaperPages(
   }
 }
 
-export async function downloadOmrBundlePdf(opts: OmrPdfOptions & { questionContent: string }): Promise<void> {
+export async function downloadOmrBundlePdf(
+  opts: OmrPdfOptions & { questionContent: string; keyContent?: string | null }
+): Promise<void> {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  await addQuestionPaperPages(doc, opts, opts.questionContent);
+  await addQuestionPaperPages(doc, opts, opts.questionContent, opts.keyContent);
   await addOmrPages(doc, opts, { prependNewPage: true });
   const name = slugify(opts.paperTitle || "exam-bundle");
   doc.save(`${name}-bundle.pdf`);

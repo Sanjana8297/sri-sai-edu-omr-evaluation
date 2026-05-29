@@ -29,3 +29,32 @@ export function clearCachedProgress(examId: string) {
   if (typeof window === "undefined") return;
   localStorage.removeItem(cacheKey(examId));
 }
+
+const SUBMITTED_EXAM_STORAGE_PREFIX = "exam-submitted-";
+
+export function markExamSubmittedLocally(examId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(`${SUBMITTED_EXAM_STORAGE_PREFIX}${examId}`, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function wasExamSubmittedLocally(examId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return sessionStorage.getItem(`${SUBMITTED_EXAM_STORAGE_PREFIX}${examId}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function clearExamSubmittedLocally(examId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(`${SUBMITTED_EXAM_STORAGE_PREFIX}${examId}`);
+  } catch {
+    /* ignore */
+  }
+}

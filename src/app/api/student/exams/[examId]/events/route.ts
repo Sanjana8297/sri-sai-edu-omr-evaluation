@@ -6,7 +6,7 @@ import { getExamCbtSettings } from "@/lib/cbt-settings-db";
 import type { CbtSettings } from "@/lib/cbt-settings";
 import { Prisma } from "@prisma/client";
 import type { ProctoringEventType } from "@prisma/client";
-import { parseAnswerKeyByQuestion } from "@/lib/exam-paper-parser";
+import { parseQuestionPaperContentWithOptions, compareExamAnswers } from "@/lib/exam-paper-parser";
 
 function isStrikeEvent(
   eventType: ProctoringEventType,
@@ -66,15 +66,16 @@ export async function POST(request: Request, context: { params: Promise<{ examId
     if (nextViolationCount >= VIOLATION_LIMIT) {
       const existingAnswers =
         (sessionRow.submittedAnswers as Record<string, string> | null) ?? {};
-      const answerKey = parseAnswerKeyByQuestion(sessionRow.exam.questionPaper.keyContent ?? "");
+      const { answerKey } = parseQuestionPaperContentWithOptions(
+        sessionRow.exam.questionPaper.questionContent ?? "",
+        sessionRow.exam.questionPaper.keyContent ?? ""
+      );
       const keyEntries = Object.entries(answerKey);
       let obtained = 0;
-      for (const [questionId, expected] of keyEntries) {
+      for (const [questionId, expectedRaw] of keyEntries) {
         const selectedRaw = existingAnswers[questionId];
         if (!selectedRaw) continue;
-        const selected = selectedRaw.trim().toUpperCase();
-        const normalizedExpected = expected.trim().toUpperCase();
-        if (selected === normalizedExpected) {
+        if (compareExamAnswers(selectedRaw, expectedRaw)) {
           obtained += 4;
         } else {
           obtained -= 1;
