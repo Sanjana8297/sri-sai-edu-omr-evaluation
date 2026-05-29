@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Image from "next/image";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
 import { DEFAULT_CBT_SETTINGS, type BilingualMode, type CbtSettings } from "@/lib/cbt-settings";
 import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
+import { OmrTemplatePreview } from "@/components/omr/OmrTemplatePreview";
 import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
@@ -15,7 +15,6 @@ import type { JeeAdvanceSubjectConfig, OmrExamPreset } from "@/lib/omr-template"
 import {
   downloadOmrBundlePdf,
   downloadOmrSheetPdf,
-  JEE_MAINS_SECTION_COPY,
   OMR_LAYOUT,
   type OmrTrack,
 } from "@/lib/omr-pdf";
@@ -317,55 +316,14 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
             </label>
             {examPreset === "JEE_ADVANCE" ? (
               <JeeAdvanceStructurePanel subjects={advanceSubjects} onChange={setAdvanceSubjects} />
-            ) : examPreset === "JEE_MAINS" ? (
-              <div className="rounded-lg border-2 border-black bg-white p-4 text-[11px] text-black shadow-sm">
-                <p className="mb-2 font-medium">Template preview</p>
-                <div className="flex items-start justify-between gap-4 border-2 border-black p-3">
-                  <div className="w-[240px] max-w-full">
-                    <Image
-                      src="/images/Sri-Sai-logo.png"
-                      alt="Sri Sai Educational Institutions"
-                      width={240}
-                      height={85}
-                      className="h-auto w-full object-contain"
-                    />
-                  </div>
-                  <div className="flex-1 text-right font-semibold">
-                    <p>JEE MAINS MODEL</p>
-                    <p>Max. Marks: 300</p>
-                    <p>Roll grid: {rollDigits} columns</p>
-                  </div>
-                </div>
-                <div className="mt-3 space-y-3 border border-black p-3">
-                  <div className="border-y border-black py-2 text-center">
-                    <p className="font-bold">{JEE_MAINS_SECTION_COPY.section1.title}</p>
-                    <p className="font-bold">{JEE_MAINS_SECTION_COPY.section1.subtitle}</p>
-                  </div>
-                  {JEE_MAINS_SECTION_COPY.section1.lines.map((line) => (
-                    <p key={line} className="leading-5">
-                      {line}
-                    </p>
-                  ))}
-                  <div className="border-y border-black py-2 text-center">
-                    <p className="font-bold">{JEE_MAINS_SECTION_COPY.section2.title}</p>
-                    <p className="font-bold">{JEE_MAINS_SECTION_COPY.section2.subtitle}</p>
-                  </div>
-                  {JEE_MAINS_SECTION_COPY.section2.lines.map((line) => (
-                    <p key={line} className="leading-5">
-                      {line}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] p-4 text-xs text-[var(--muted)]">
-                <p className="font-medium text-[var(--foreground)]">Template preview</p>
-                <p className="mt-2">
-                  {layout.questions} bubbles - {layout.sections}
-                </p>
-                <p className="mt-1">Roll grid: {rollDigits} columns - OMR blocks A-D</p>
-              </div>
-            )}
+            ) : null}
+            <OmrTemplatePreview
+              examPreset={examPreset}
+              rollDigits={rollDigits}
+              questionCount={layout.questions}
+              sectionsLabel={layout.sections}
+              advanceSubjects={examPreset === "JEE_ADVANCE" ? advanceSubjects : undefined}
+            />
             <button
               type="button"
               className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
@@ -374,22 +332,8 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
             >
               {templateSaving ? "Saving…" : "Save template"}
             </button>
-            <button
-              type="button"
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-[var(--background)] disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={() => {
-                if (!templateSavedForNextStep) {
-                  setTemplateErr("Save the Template first");
-                  return;
-                }
-                actions.openFeature("bundle");
-              }}
-              disabled={!templateSavedForNextStep}
-            >
-              Print-ready OMR + paper bundle
-            </button>
             {!templateSavedForNextStep ? (
-              <p className="text-xs text-red-600">Save the Template first</p>
+              <p className="text-xs text-[var(--muted)]">Save the template, then use Next to open the paper bundle activity.</p>
             ) : null}
             {templateLoading ? (
               <p className="text-xs text-[var(--muted)]">Loading saved template…</p>
@@ -522,7 +466,16 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     }
   }
 
-  return <FeatureActivityHub features={OMR_ACTIVITIES} renderFeature={renderFeature} resetKey={resetKey} />;
+  return (
+    <FeatureActivityHub
+      features={OMR_ACTIVITIES}
+      renderFeature={renderFeature}
+      resetKey={resetKey}
+      validateNext={(activeId) =>
+        activeId === "template" && !templateSavedForNextStep ? "Save the Template first" : null
+      }
+    />
+  );
 }
 
 export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: string }) {
@@ -696,16 +649,33 @@ export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: stri
         ) : null}
       </div>
       <div className="flex flex-col gap-4">
-        {ONLINE_ACTIVITIES.map((feature) => (
-          <section
-            key={feature.id}
-            className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6"
-          >
-            <h3 className="text-base font-semibold text-[var(--foreground)]">{feature.title}</h3>
-            <p className="mt-1 text-sm text-[var(--muted)]">{feature.description}</p>
-            <div className="mt-5 border-t border-[var(--border)] pt-5">{renderFeature(feature.id)}</div>
-          </section>
-        ))}
+        {ONLINE_ACTIVITIES.map((feature, index) => {
+          const next = ONLINE_ACTIVITIES[index + 1];
+          return (
+            <section
+              key={feature.id}
+              id={`online-activity-${feature.id}`}
+              className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6 scroll-mt-6"
+            >
+              <h3 className="text-base font-semibold text-[var(--foreground)]">{feature.title}</h3>
+              <p className="mt-1 text-sm text-[var(--muted)]">{feature.description}</p>
+              <div className="mt-5 border-t border-[var(--border)] pt-5">{renderFeature(feature.id)}</div>
+              {next ? (
+                <div className="mt-6 flex justify-end border-t border-[var(--border)] pt-5">
+                  <button
+                    type="button"
+                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+                    onClick={() =>
+                      document.getElementById(`online-activity-${next.id}`)?.scrollIntoView({ behavior: "smooth" })
+                    }
+                  >
+                    Next: {next.title} →
+                  </button>
+                </div>
+              ) : null}
+            </section>
+          );
+        })}
       </div>
 
       <div className="sticky bottom-0 z-10 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm">

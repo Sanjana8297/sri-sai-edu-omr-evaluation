@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireRoles } from "@/lib/api-auth";
 import { getAiConfigError, generateBlueprint, type PaperBlueprint } from "@/lib/ai-paper-config";
+import { neetBlueprintInstructionLines } from "@/lib/neet-exam-structure";
+import { jeeMainsBlueprintInstructionLines } from "@/lib/jee-mains-exam-structure";
 import {
   buildDefaultAdvanceSubjects,
   validateSubjectSectionCounts,
@@ -133,13 +135,8 @@ export async function POST(request: Request) {
       blueprint.totalQuestions = 75;
       blueprint.totalMarks = 300;
       blueprint.instructions = [
-        "This paper has 3 parts: Mathematics, Physics, and Chemistry.",
-        "Each subject has 25 questions split into two sections.",
-        "Section 1 has 20 MCQs with one correct option.",
-        "Section 2 has 5 numerical questions, each with options and only one correct option.",
-        "Marking scheme: +4 for correct, 0 for unattempted, -1 for incorrect.",
+        ...jeeMainsBlueprintInstructionLines(),
         `Within each section, keep difficulty mix as Easy ${difficultyMix.easy}%, Medium ${difficultyMix.medium}%, Hard ${difficultyMix.hard}%.`,
-        "For decimal numerical answers, use the nearest integer.",
       ];
       blueprint.sections = [
         { name: "Mathematics - Section 1 (MCQ)", questionCount: 20, marksPerQuestion: 4, negativeMarks: 1, topicFocus: ["Mathematics"], difficulty: "medium", difficultyMix },
@@ -162,10 +159,7 @@ export async function POST(request: Request) {
       blueprint.totalQuestions = 180;
       blueprint.totalMarks = 720;
       blueprint.instructions = [
-        "This paper has 4 parts: Botany, Zoology, Physics, and Chemistry.",
-        "Each subject has 45 questions.",
-        "All questions are single-correct-option MCQs.",
-        "Marking scheme: +4 for correct, 0 for unattempted, -1 for incorrect.",
+        ...neetBlueprintInstructionLines(),
         `Within each section, keep difficulty mix as Easy ${difficultyMix.easy}%, Medium ${difficultyMix.medium}%, Hard ${difficultyMix.hard}%.`,
       ];
       blueprint.sections = [

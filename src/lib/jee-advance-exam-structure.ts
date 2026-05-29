@@ -103,3 +103,35 @@ export function normalizeSubjectCounts(
 export function buildDefaultAdvanceSubjects(): JeeAdvanceSubjectConfig[] {
   return JEE_ADVANCE_DEFAULT_SUBJECTS.map((s) => ({ ...s }));
 }
+
+export const JEE_ADVANCE_INSTRUCTIONS_TITLE = "IMPORTANT INSTRUCTIONS";
+
+export const JEE_ADVANCE_OVERALL_INSTRUCTION_LINES = [
+  "JEE Advance format: 3 hours — Mathematics, Physics, and Chemistry.",
+  `Each subject has exactly ${JEE_ADVANCE_QUESTIONS_PER_SUBJECT} questions in three sections (Section I, Section II, Section III).`,
+  "Section I: Single correct option (+3 / −1).",
+  "Section II: One or more correct options (+4 / −2; partial +1 per correct option).",
+  "Section III: Numerical value answers (+4 / 0).",
+  "Marks per question are fixed; total exam marks depend on section question counts.",
+] as const;
+
+/** Per-subject section breakdown shown after overall instructions. */
+export function advanceSubjectInstructionLines(subject: JeeAdvanceSubjectConfig): string[] {
+  const marks = sectionMarksFromCounts(subject.sectionCounts);
+  const c = subject.sectionCounts;
+  const m = JEE_ADVANCE_SECTION_MARKS;
+  return [
+    `${subject.subject.toUpperCase()} — ${JEE_ADVANCE_QUESTIONS_PER_SUBJECT} questions, ${marks.total} marks`,
+    `${m.section1.label}: ${c.section1} Qs (+${m.section1.correct}/−${Math.abs(m.section1.wrong)} each, ${marks.section1} marks)`,
+    `${m.section2.label}: ${c.section2} Qs (+${m.section2.correct}/−${Math.abs(m.section2.wrong)} each, ${marks.section2} marks; partial +1 per correct option)`,
+    `${m.section3.label}: ${c.section3} Qs (+${m.section3.correct}/0 each, ${marks.section3} marks)`,
+  ];
+}
+
+export function jeeAdvanceBlueprintInstructionLines(subjects: JeeAdvanceSubjectConfig[]): string[] {
+  return [
+    JEE_ADVANCE_INSTRUCTIONS_TITLE,
+    ...JEE_ADVANCE_OVERALL_INSTRUCTION_LINES,
+    ...subjects.flatMap((subject) => advanceSubjectInstructionLines(subject)),
+  ];
+}

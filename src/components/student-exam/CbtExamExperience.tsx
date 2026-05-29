@@ -13,6 +13,9 @@ import {
   writeCachedProgress,
 } from "@/lib/exam-progress-cache";
 import { VIOLATION_LIMIT, isSessionSubmitted } from "@/lib/proctoring";
+import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
+import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
+import { isJeeAdvancePaperContent } from "@/lib/jee-mains-exam-structure";
 
 type StartResponse = {
   exam: {
@@ -78,6 +81,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   const [syncStatus, setSyncStatus] = useState<"synced" | "syncing" | "offline" | "error">("synced");
   const [fullscreenOk, setFullscreenOk] = useState(false);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
+  const [instructionsAcknowledged, setInstructionsAcknowledged] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const finalizedRef = useRef(false);
@@ -92,6 +96,16 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   visitedRef.current = visited;
 
   const settings = data?.exam.cbtSettings;
+  const isNeetExam = data?.exam.category === "NEET";
+  const questionContent = data?.exam.questionPaper.questionContent ?? "";
+  const isJeeMainsExam =
+    data?.exam.category === "JEE" && !isJeeAdvancePaperContent(questionContent);
+  const examInstructionsKind: "NEET" | "JEE_MAINS" | null = isNeetExam
+    ? "NEET"
+    : isJeeMainsExam
+      ? "JEE_MAINS"
+      : null;
+  const showExamInstructions = examInstructionsKind !== null && !instructionsAcknowledged;
   const parsedPaper = useMemo(() => {
     const content = data?.exam.questionPaper.questionContent ?? "";
     const keyContent = data?.exam.questionPaper.keyContent ?? "";
@@ -504,6 +518,49 @@ export function CbtExamExperience({ examId }: { examId: string }) {
 
   const answeredCount = flatQuestions.filter((q) => Boolean(answers[q.id])).length;
   const markedCount = markedForReview.size;
+
+  if (showExamInstructions && examInstructionsKind) {
+    const examLabel = examInstructionsKind === "NEET" ? "NEET (UG)" : "JEE Main";
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-[var(--background)]">
+        <header className="border-b border-[var(--border)] bg-[var(--card)] px-5 py-4">
+          <h1 className="text-lg font-semibold">{data.exam.title}</h1>
+          <p className="mt-1 text-sm text-[var(--muted)]">{examLabel} · Read all instructions before starting</p>
+          {remainingMs != null ? (
+            <p className="mt-2 text-sm">
+              Time remaining:{" "}
+              <strong className={timerUrgent ? "text-red-600 tabular-nums" : "tabular-nums"}>
+                {formatTimer(remainingMs)}
+              </strong>
+            </p>
+          ) : null}
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+          <div className="mx-auto max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+            {examInstructionsKind === "NEET" ? (
+              <NeetInstructionsPanel showSummary />
+            ) : (
+              <JeeMainsInstructionsPanel showSummary />
+            )}
+          </div>
+        </div>
+        <footer className="border-t border-[var(--border)] bg-[var(--card)] px-5 py-4">
+          <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-[var(--muted)]">
+              By continuing, you confirm that you have read and understood the instructions above.
+            </p>
+            <button
+              type="button"
+              className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-white"
+              onClick={() => setInstructionsAcknowledged(true)}
+            >
+              I have read the instructions — Begin exam
+            </button>
+          </div>
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[var(--background)]">

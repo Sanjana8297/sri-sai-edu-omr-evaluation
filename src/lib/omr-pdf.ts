@@ -3,13 +3,23 @@ import { parseQuestionPaperContentWithOptions } from "@/lib/exam-paper-parser";
 import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
-  JEE_ADVANCE_SECTION_MARKS,
-  sectionMarksFromCounts,
+  advanceSubjectInstructionLines,
   totalExamMarksFromSubjects,
   type JeeAdvanceSubjectConfig,
 } from "@/lib/jee-advance-exam-structure";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 import type { OmrTemplateSettings } from "@/lib/omr-template";
+import {
+  NEET_INSTRUCTION_LINES,
+  NEET_INSTRUCTIONS_TITLE,
+  NEET_MAX_MARKS,
+} from "@/lib/neet-exam-structure";
+import {
+  JEE_MAINS_INSTRUCTION_LINES,
+  JEE_MAINS_INSTRUCTIONS_TITLE,
+  JEE_MAINS_MAX_MARKS,
+  JEE_MAINS_SECTION_INSTRUCTIONS,
+} from "@/lib/jee-mains-exam-structure";
 
 export type OmrTrack = "NEET" | "JEE" | "JEE_MAINS" | "JEE_ADVANCE";
 
@@ -40,6 +50,10 @@ function isJeeMainsTrack(track: OmrTrack): boolean {
 
 function isJeeAdvanceTrack(track: OmrTrack): boolean {
   return track === "JEE_ADVANCE";
+}
+
+function isNeetTrack(track: OmrTrack): boolean {
+  return track === "NEET";
 }
 
 function isAnyJeeTrack(track: OmrTrack): boolean {
@@ -202,15 +216,7 @@ function getJeeSubjectOrder(sectionName: string): number {
 }
 
 function advanceInstructionLines(subject: JeeAdvanceSubjectConfig): string[] {
-  const marks = sectionMarksFromCounts(subject.sectionCounts);
-  const c = subject.sectionCounts;
-  const m = JEE_ADVANCE_SECTION_MARKS;
-  return [
-    `${subject.subject.toUpperCase()} — ${JEE_ADVANCE_QUESTIONS_PER_SUBJECT} questions, ${marks.total} marks`,
-    `${m.section1.label}: ${c.section1} Qs (+${m.section1.correct}/−${Math.abs(m.section1.wrong)} each, ${marks.section1} marks)`,
-    `${m.section2.label}: ${c.section2} Qs (+${m.section2.correct}/−${Math.abs(m.section2.wrong)} each, ${marks.section2} marks; partial +1 per correct option)`,
-    `${m.section3.label}: ${c.section3} Qs (+${m.section3.correct}/0 each, ${marks.section3} marks)`,
-  ];
+  return advanceSubjectInstructionLines(subject);
 }
 
 async function addJeeAdvanceTemplateTopBlock(
@@ -285,26 +291,138 @@ async function addJeeTemplateTopBlock(
 
   doc.setFont("times", "bold");
   doc.setFontSize(12);
-  doc.text("JR IIT CBSE SC-A", margin, textTop + 62);
-  doc.text("Time: 3.00 Hrs", margin, textTop + 82);
+  doc.text("Time: 3.00 Hrs", margin, textTop + 62);
 
-  doc.text("WTM-", pageWidth / 2, textTop + 62, { align: "center" });
   doc.setFontSize(14);
-  doc.text("JEE MAINS MODEL", pageWidth / 2, textTop + 82, { align: "center" });
+  doc.text("JEE MAIN MODEL", pageWidth / 2, textTop + 72, { align: "center" });
 
   doc.setFontSize(12);
   doc.text("Sri Sai Educational Institutions", pageWidth - margin, textTop + 62, { align: "right" });
-  doc.text("Max. Marks: 300", pageWidth - margin, textTop + 82, { align: "right" });
+  doc.text(`Max. Marks: ${JEE_MAINS_MAX_MARKS}`, pageWidth - margin, textTop + 82, { align: "right" });
 
   y += Math.max(logoHeight, 92);
   drawRule(doc, margin, y, pageWidth - margin);
-  y += 18;
+  y += 16;
+
+  doc.setFont("times", "bold");
+  doc.setFontSize(11);
+  y = writeWrappedText(doc, JEE_MAINS_INSTRUCTIONS_TITLE, margin, y, pageWidth - margin * 2, 11, "bold", 13);
+  y += 8;
+
+  doc.setFont("times", "normal");
+  doc.setFontSize(9);
+
+  const pageBottom = () => doc.internal.pageSize.getHeight() - margin - 40;
+  const ensureSpace = (needed: number) => {
+    if (y + needed > pageBottom()) {
+      doc.addPage();
+      y = margin;
+    }
+  };
+
+  for (let i = 0; i < 4; i++) {
+    ensureSpace(20);
+    y = writeWrappedText(
+      doc,
+      `${i + 1}. ${JEE_MAINS_INSTRUCTION_LINES[i]}`,
+      margin,
+      y,
+      pageWidth - margin * 2,
+      9,
+      "normal",
+      11
+    );
+    y += 3;
+  }
+
+  ensureSpace(24);
+  y = writeWrappedText(
+    doc,
+    `5. ${JEE_MAINS_INSTRUCTION_LINES[4]}`,
+    margin,
+    y,
+    pageWidth - margin * 2,
+    9,
+    "normal",
+    11
+  );
+  y += 4;
+
+  for (const section of JEE_MAINS_SECTION_INSTRUCTIONS) {
+    ensureSpace(20);
+    y = writeWrappedText(doc, section.label, margin + 12, y, pageWidth - margin * 2 - 12, 9, "bold", 11);
+    y += 2;
+    for (const line of section.lines) {
+      ensureSpace(16);
+      y = writeWrappedText(doc, line, margin + 20, y, pageWidth - margin * 2 - 20, 9, "normal", 11);
+      y += 2;
+    }
+    y += 2;
+  }
+
+  y += 6;
+  drawRule(doc, margin, y, pageWidth - margin);
+  return y + 12;
+}
+
+async function addNeetTemplateTopBlock(
+  doc: jsPDF,
+  opts: OmrPdfOptions,
+  margin: number,
+  pageWidth: number
+): Promise<number> {
+  let y = margin;
+  const boxX = margin - 8;
+  const boxWidth = pageWidth - margin * 2 + 16;
+  doc.setLineWidth(1.2);
+  doc.rect(boxX, margin - 8, boxWidth, 112);
+
+  const logoHeight = await addInstituteLogo(doc, margin, y, 230, 78);
+  const textTop = y + 8;
 
   doc.setFont("times", "bold");
   doc.setFontSize(12);
-  doc.text("JEE MAIN EXAM TEMPLATE", margin, y);
-  doc.text("MAX. MARKS: 300", pageWidth - margin, y, { align: "right" });
-  return y + 16;
+  doc.text("Time: 3.00 Hrs", margin, textTop + 62);
+
+  doc.setFontSize(14);
+  doc.text("NEET (UG) MODEL", pageWidth / 2, textTop + 72, { align: "center" });
+
+  doc.setFontSize(12);
+  doc.text("Sri Sai Educational Institutions", pageWidth - margin, textTop + 62, { align: "right" });
+  doc.text(`Max. Marks: ${NEET_MAX_MARKS}`, pageWidth - margin, textTop + 82, { align: "right" });
+
+  y += Math.max(logoHeight, 92);
+  drawRule(doc, margin, y, pageWidth - margin);
+  y += 16;
+
+  doc.setFont("times", "bold");
+  doc.setFontSize(11);
+  y = writeWrappedText(doc, NEET_INSTRUCTIONS_TITLE, margin, y, pageWidth - margin * 2, 11, "bold", 13);
+  y += 8;
+
+  doc.setFont("times", "normal");
+  doc.setFontSize(9);
+  for (let i = 0; i < NEET_INSTRUCTION_LINES.length; i++) {
+    y = writeWrappedText(
+      doc,
+      `${i + 1}. ${NEET_INSTRUCTION_LINES[i]}`,
+      margin,
+      y,
+      pageWidth - margin * 2,
+      9,
+      "normal",
+      11
+    );
+    y += 3;
+    if (y > doc.internal.pageSize.getHeight() - margin - 40 && i < NEET_INSTRUCTION_LINES.length - 1) {
+      doc.addPage();
+      y = margin;
+    }
+  }
+
+  y += 6;
+  drawRule(doc, margin, y, pageWidth - margin);
+  return y + 12;
 }
 
 async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependNewPage?: boolean }): Promise<void> {
@@ -327,6 +445,8 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
       y = await addJeeAdvanceTemplateTopBlock(doc, opts, margin, pageW);
     } else if (isJeeMainsTrack(opts.track)) {
       y = await addJeeTemplateTopBlock(doc, opts, margin, pageW);
+    } else if (isNeetTrack(opts.track)) {
+      y = await addNeetTemplateTopBlock(doc, opts, margin, pageW);
     } else {
       const heading =
         copies > 1 ? `${opts.paperTitle} - OMR (${copy + 1}/${copies})` : `${opts.paperTitle} - OMR Sheet`;
@@ -453,6 +573,8 @@ async function addQuestionPaperPages(
       y = await addJeeAdvanceTemplateTopBlock(doc, opts, margin, pageW);
     } else if (isJeeMainsTrack(opts.track)) {
       y = await addJeeTemplateTopBlock(doc, opts, margin, pageW);
+    } else if (isNeetTrack(opts.track)) {
+      y = await addNeetTemplateTopBlock(doc, opts, margin, pageW);
     } else {
       writeBlock(opts.paperTitle, 14, "bold");
       y += 8;
@@ -472,6 +594,8 @@ async function addQuestionPaperPages(
     y = await addJeeAdvanceTemplateTopBlock(doc, opts, margin, pageW);
   } else if (isJeeMainsTrack(opts.track)) {
     y = await addJeeTemplateTopBlock(doc, opts, margin, pageW);
+  } else if (isNeetTrack(opts.track)) {
+    y = await addNeetTemplateTopBlock(doc, opts, margin, pageW);
   } else {
     writeBlock(opts.paperTitle, 14, "bold");
     y += 8;

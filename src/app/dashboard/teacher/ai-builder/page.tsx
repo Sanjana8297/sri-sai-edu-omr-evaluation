@@ -14,6 +14,8 @@ import {
 import { getJeeAdvanceTotalQuestions } from "@/lib/jee-advance-paper-builder";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 import { parseQuestionPaperContentWithOptions } from "@/lib/exam-paper-parser";
+import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
+import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
 
 type DifficultyLevel = "easy" | "medium" | "hard";
 type ExamSection = {
@@ -357,6 +359,16 @@ export default function TeacherAiBuilderPage() {
           {showPreview && aiComposed ? (
             <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
               <p className="text-sm font-semibold">Preview: Composed Question Paper</p>
+              {aiTrackProfile === "NEET" ? (
+                <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                  <NeetInstructionsPanel showSummary />
+                </div>
+              ) : null}
+              {aiTrackProfile === "JEE" ? (
+                <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                  <JeeMainsInstructionsPanel showSummary />
+                </div>
+              ) : null}
               {composedPreview.sections.length > 0 ? (
                 <div className="mt-2 max-h-80 space-y-4 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
                   {composedPreview.sections.map((section) => (

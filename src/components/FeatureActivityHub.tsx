@@ -11,32 +11,63 @@ export type ActivityFeature = {
 export type ActivityFeatureActions = {
   openFeature: (id: string) => void;
   backToGrid: () => void;
+  nextFeature: ActivityFeature | null;
+  openNextFeature: () => void;
 };
 
 export function FeatureActivityHub({
   features,
   renderFeature,
   resetKey,
+  validateNext,
 }: {
   features: ActivityFeature[];
   renderFeature: (id: string, actions: ActivityFeatureActions) => ReactNode;
   /** Change when parent submodule changes to return to the card grid. */
   resetKey?: string;
+  /** Return an error message to block moving to the next activity. */
+  validateNext?: (activeId: string) => string | null;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [nextError, setNextError] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveId(null);
+    setNextError(null);
   }, [resetKey]);
 
-  const active = features.find((f) => f.id === activeId);
+  const activeIndex = activeId == null ? -1 : features.findIndex((f) => f.id === activeId);
+  const active = activeIndex >= 0 ? features[activeIndex] : undefined;
+  const nextFeature = activeIndex >= 0 && activeIndex < features.length - 1 ? features[activeIndex + 1] : null;
+
+  const actions: ActivityFeatureActions = {
+    openFeature: (id) => {
+      setNextError(null);
+      setActiveId(id);
+    },
+    backToGrid: () => {
+      setNextError(null);
+      setActiveId(null);
+    },
+    nextFeature,
+    openNextFeature: () => {
+      if (!nextFeature) return;
+      const err = validateNext?.(activeId ?? "");
+      if (err) {
+        setNextError(err);
+        return;
+      }
+      setNextError(null);
+      setActiveId(nextFeature.id);
+    },
+  };
 
   if (activeId && active) {
     return (
       <div className="space-y-4">
         <button
           type="button"
-          onClick={() => setActiveId(null)}
+          onClick={actions.backToGrid}
           className="text-sm font-medium text-[var(--accent)] hover:underline"
         >
           ← Back to activities
@@ -44,12 +75,19 @@ export function FeatureActivityHub({
         <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
           <h3 className="text-base font-semibold text-[var(--foreground)]">{active.title}</h3>
           <p className="mt-1 text-sm text-[var(--muted)]">{active.description}</p>
-          <div className="mt-5 border-t border-[var(--border)] pt-5">
-            {renderFeature(activeId, {
-              openFeature: (id) => setActiveId(id),
-              backToGrid: () => setActiveId(null),
-            })}
-          </div>
+          <div className="mt-5 border-t border-[var(--border)] pt-5">{renderFeature(activeId, actions)}</div>
+          {nextFeature ? (
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-[var(--border)] pt-5">
+              {nextError ? <p className="mr-auto text-xs text-red-600">{nextError}</p> : null}
+              <button
+                type="button"
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+                onClick={actions.openNextFeature}
+              >
+                Next: {nextFeature.title} →
+              </button>
+            </div>
+          ) : null}
         </section>
       </div>
     );

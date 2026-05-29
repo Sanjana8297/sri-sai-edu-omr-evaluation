@@ -19,6 +19,10 @@ import {
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 import { ensureFourOptionsForQuestion, parseLetterAnswer } from "@/lib/question-bank-display";
 import { prepareQuestionForPaperBlock } from "@/lib/exam-paper-parser";
+import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
+import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
+import { NEET_EXAM_DURATION_MINUTES, NEET_MAX_MARKS } from "@/lib/neet-exam-structure";
+import { JEE_MAINS_EXAM_DURATION_MINUTES, JEE_MAINS_MAX_MARKS } from "@/lib/jee-mains-exam-structure";
 
 type QuestionBankItem = {
   id: number;
@@ -235,6 +239,14 @@ function TeacherManualBuilderPage() {
     if (track === "JEE" && sectionLayout === "jee_adv_abc") {
       setPaperDurationMin(String(JEE_ADVANCE_EXAM_DURATION_HOURS * 60));
       setPaperMaxMarks(String(totalExamMarksFromSubjects(advanceSubjects)));
+    }
+    if (track === "NEET") {
+      setPaperDurationMin(String(NEET_EXAM_DURATION_MINUTES));
+      setPaperMaxMarks(String(NEET_MAX_MARKS));
+    }
+    if (track === "JEE" && sectionLayout !== "jee_adv_abc") {
+      setPaperDurationMin(String(JEE_MAINS_EXAM_DURATION_MINUTES));
+      setPaperMaxMarks(String(JEE_MAINS_MAX_MARKS));
     }
   }, [track, sectionLayout, advanceSubjects]);
 
@@ -1216,6 +1228,30 @@ function TeacherManualBuilderPage() {
               </div>
             </div>
 
+            {track === "NEET" ? (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
+                <p className="text-sm font-semibold">NEET (UG) exam instructions</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Official template — shown before questions in the live exam and in exported PDFs.
+                </p>
+                <div className="mt-3 max-h-72 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+                  <NeetInstructionsPanel showSummary />
+                </div>
+              </div>
+            ) : null}
+
+            {track === "JEE" && !isJeeAdvanceLayout ? (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
+                <p className="text-sm font-semibold">JEE Main exam instructions</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Official template — shown before questions in the live exam and in exported PDFs.
+                </p>
+                <div className="mt-3 max-h-72 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+                  <JeeMainsInstructionsPanel showSummary />
+                </div>
+              </div>
+            ) : null}
+
             {isJeeAdvanceLayout ? (
               <div className="space-y-3">
                 <JeeAdvanceStructurePanel subjects={advanceSubjects} onChange={setAdvanceSubjects} />
@@ -1302,6 +1338,16 @@ function TeacherManualBuilderPage() {
               <div className="rounded-lg border-2 border-[var(--accent)] bg-[var(--card)] p-4">
                 <p className="text-sm font-semibold">Generated question paper preview</p>
                 <p className="mt-1 text-xs text-[var(--muted)]">{paperSlots.length} question(s) in exam order</p>
+                {track === "NEET" ? (
+                  <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+                    <NeetInstructionsPanel />
+                  </div>
+                ) : null}
+                {track === "JEE" && !isJeeAdvanceLayout ? (
+                  <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+                    <JeeMainsInstructionsPanel />
+                  </div>
+                ) : null}
                 <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
                     {formatQuestionTextForDisplay(questionContent)}
