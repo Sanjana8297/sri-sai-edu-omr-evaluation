@@ -6,12 +6,17 @@ import { getSupabaseStorageConfigError } from "@/lib/supabase-admin";
 import type { Category } from "@/lib/types";
 import { Prisma } from "@prisma/client";
 
-export async function GET() {
+export async function GET(request: Request) {
   const { session, response } = await requireRoles(["TEACHER"]);
   if (response) return response;
 
+  const scheduledOnly = new URL(request.url).searchParams.get("scheduledOnly") === "true";
+
   const papers = await prisma.questionPaper.findMany({
-    where: { teacherId: session.sub },
+    where: {
+      teacherId: session.sub,
+      ...(scheduledOnly ? { exams: { some: {} } } : {}),
+    },
     orderBy: { createdAt: "desc" },
   });
   return NextResponse.json({ papers });

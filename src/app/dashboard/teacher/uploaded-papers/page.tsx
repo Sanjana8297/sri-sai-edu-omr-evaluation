@@ -23,7 +23,7 @@ export default function TeacherUploadedPapersPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/teacher/question-papers");
+    const res = await fetch("/api/teacher/question-papers?scheduledOnly=true");
     const j = await res.json();
     if (j.papers) setPapers(j.papers);
   }, []);
@@ -63,10 +63,15 @@ export default function TeacherUploadedPapersPage() {
     <DashboardShell
       badge="Teacher"
       title="Completed Exam Papers"
-      subtitle="Question papers and answer keys stored in your database (text and file URLs)."
+      subtitle="Question papers and answer keys for exams you have already scheduled."
       navItems={teacherNavItems}
     >
       {err ? <p className="mb-3 text-sm text-red-600">{err}</p> : null}
+      {papers.length === 0 ? (
+        <p className="text-sm text-[var(--muted)]">
+          No papers yet. Schedule an exam under OMR & Exam Delivery → Exam Scheduling to see its question paper here.
+        </p>
+      ) : null}
       <ul className="space-y-3">
         {papers.map((p) => (
           <li key={p.id} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
