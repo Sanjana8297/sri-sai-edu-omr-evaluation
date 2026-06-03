@@ -21,6 +21,11 @@ type SettingsResponse = {
   usingEnvApiKey: boolean;
   updatedAt: string | null;
   tableReady?: boolean;
+  aiReady?: boolean;
+  dbHasEncryptedKey?: boolean;
+  decryptOk?: boolean;
+  envKeyPresent?: boolean;
+  statusMessage?: string | null;
 };
 
 export default function AdminLlmSettingsPage() {
@@ -36,6 +41,10 @@ export default function AdminLlmSettingsPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [tableReady, setTableReady] = useState(true);
+  const [aiReady, setAiReady] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -53,12 +62,17 @@ export default function AdminLlmSettingsPage() {
       setUsingEnv(json.usingEnvApiKey);
       setUpdatedAt(json.updatedAt);
       setTableReady(json.tableReady !== false);
+      setAiReady(json.aiReady === true);
+      setStatusMessage(json.statusMessage ?? null);
+      setTestResult(null);
       setApiKey("");
       setClearApiKey(false);
       if (json.tableReady === false) {
         setErr(
-          "Database table not created yet. Run: npx prisma migrate deploy — then restart npm run dev."
+          "Database table not created yet. Run: npx prisma migrate deploy — then redeploy Vercel."
         );
+      } else if (json.aiReady !== true && json.statusMessage) {
+        setErr(json.statusMessage);
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Network error while loading settings.");
@@ -97,13 +111,34 @@ export default function AdminLlmSettingsPage() {
       setMasked(json.apiKeyMasked);
       setUsingEnv(json.usingEnvApiKey);
       setUpdatedAt(json.updatedAt);
+      setAiReady(json.aiReady === true);
+      setStatusMessage(json.statusMessage ?? null);
       setApiKey("");
       setClearApiKey(false);
-      setMsg("LLM settings saved. AI features will use the new configuration.");
+      setErr(json.aiReady === true ? null : (json.statusMessage ?? null));
+      setMsg(
+        json.aiReady === true
+          ? "LLM settings saved. AI features are ready for teachers."
+          : "Settings saved, but AI is still not ready — see the status message above."
+      );
     } catch {
       setErr("Network error while saving.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleTestConnection() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/admin/llm-settings/test", { method: "POST" });
+      const json = (await res.json()) as { ok?: boolean; message?: string };
+      setTestResult(json.message ?? (res.ok ? "OK" : "Test failed"));
+    } catch {
+      setTestResult("Network error while testing connection.");
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -114,7 +149,25 @@ export default function AdminLlmSettingsPage() {
       subtitle="API key and model for AI question generation across the app"
       navItems={adminNavItems}
     >
-      <div className="mx-auto max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
+      <div className="mx-auto max-w-2xl space-y-4">
+        {!loading && statusMessage ? (
+          <div
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              aiReady
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-amber-200 bg-amber-50 text-amber-950"
+            }`}
+          >
+            <p className="font-medium">{aiReady ? "Status: Ready" : "Status: Not ready for teachers"}</p>
+            <p className="mt-1">{statusMessage}</p>
+            <p className="mt-2 text-xs opacity-80">
+              Configure this page on your live Vercel URL (not localhost). Saving only model/URL without
+              pasting an API key does not enable AI.
+            </p>
+          </div>
+        ) : null}
+
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
         {loading ? (
           <p className="text-sm text-[var(--muted)]">Loading settings…</p>
         ) : (
@@ -214,9 +267,23 @@ export default function AdminLlmSettingsPage() {
               >
                 Reset form
               </button>
+              <button
+                type="button"
+                onClick={() => void handleTestConnection()}
+                disabled={saving || loading || testing}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                {testing ? "Testing…" : "Test AI connection"}
+              </button>
             </div>
+            {testResult ? (
+              <p className={`text-sm ${testResult.includes("successful") ? "text-emerald-700" : "text-red-600"}`}>
+                {testResult}
+              </p>
+            ) : null}
           </form>
         )}
+      </div>
       </div>
     </DashboardShell>
   );

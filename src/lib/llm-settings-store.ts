@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export const LLM_SETTINGS_ID = "default";
@@ -12,38 +13,50 @@ export type LlmSettingsRow = {
 };
 
 function isMissingLlmTableError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2021") return true;
+  }
   const msg = error instanceof Error ? error.message : String(error);
   return (
     msg.includes('relation "LlmSettings" does not exist') ||
     msg.includes('table "public.LlmSettings" does not exist') ||
-    msg.includes("LlmSettings") && msg.includes("does not exist")
+    (msg.includes("LlmSettings") && msg.includes("does not exist"))
   );
 }
 
 export class LlmSettingsTableMissingError extends Error {
   constructor() {
     super(
-      'LLM settings table is missing. Run: npx prisma migrate deploy — then restart the dev server.'
+      "LLM settings table is missing. Run: npx prisma migrate deploy against the production database, then redeploy."
     );
     this.name = "LlmSettingsTableMissingError";
   }
 }
 
+function toRow(row: {
+  id: string;
+  apiKeyEncrypted: string | null;
+  model: string;
+  baseUrl: string;
+  updatedAt: Date;
+  updatedByAdminId: string | null;
+}): LlmSettingsRow {
+  return {
+    id: row.id,
+    apiKeyEncrypted: row.apiKeyEncrypted,
+    model: row.model,
+    baseUrl: row.baseUrl,
+    updatedAt: row.updatedAt,
+    updatedByAdminId: row.updatedByAdminId,
+  };
+}
+
 export async function readLlmSettingsRow(): Promise<LlmSettingsRow | null> {
   try {
-    const rows = await prisma.$queryRaw<LlmSettingsRow[]>`
-      SELECT
-        id,
-        "apiKeyEncrypted",
-        model,
-        "baseUrl",
-        "updatedAt",
-        "updatedByAdminId"
-      FROM "LlmSettings"
-      WHERE id = ${LLM_SETTINGS_ID}
-      LIMIT 1
-    `;
-    return rows[0] ?? null;
+    const row = await prisma.llmSettings.findUnique({
+      where: { id: LLM_SETTINGS_ID },
+    });
+    return row ? toRow(row) : null;
   } catch (error) {
     if (isMissingLlmTableError(error)) {
       throw new LlmSettingsTableMissingError();
@@ -59,48 +72,26 @@ export async function upsertLlmSettingsRow(input: {
   adminId: string;
 }): Promise<void> {
   try {
-    const existing = await readLlmSettingsRow();
-
-    if (!existing) {
-      await prisma.$executeRaw`
-        INSERT INTO "LlmSettings" (
-          id, model, "baseUrl", "apiKeyEncrypted", "updatedByAdminId", "createdAt", "updatedAt"
-        )
-        VALUES (
-          ${LLM_SETTINGS_ID},
-          ${input.model},
-          ${input.baseUrl},
-          ${input.apiKeyEncrypted ?? null},
-          ${input.adminId},
-          CURRENT_TIMESTAMP,
-          CURRENT_TIMESTAMP
-        )
-      `;
-      return;
-    }
-
+    const updateData: Prisma.LlmSettingsUpdateInput = {
+      model: input.model,
+      baseUrl: input.baseUrl,
+      updatedByAdminId: input.adminId,
+    };
     if (input.apiKeyEncrypted !== undefined) {
-      await prisma.$executeRaw`
-        UPDATE "LlmSettings"
-        SET
-          model = ${input.model},
-          "baseUrl" = ${input.baseUrl},
-          "apiKeyEncrypted" = ${input.apiKeyEncrypted},
-          "updatedByAdminId" = ${input.adminId},
-          "updatedAt" = CURRENT_TIMESTAMP
-        WHERE id = ${LLM_SETTINGS_ID}
-      `;
-    } else {
-      await prisma.$executeRaw`
-        UPDATE "LlmSettings"
-        SET
-          model = ${input.model},
-          "baseUrl" = ${input.baseUrl},
-          "updatedByAdminId" = ${input.adminId},
-          "updatedAt" = CURRENT_TIMESTAMP
-        WHERE id = ${LLM_SETTINGS_ID}
-      `;
+      updateData.apiKeyEncrypted = input.apiKeyEncrypted;
     }
+
+    await prisma.llmSettings.upsert({
+      where: { id: LLM_SETTINGS_ID },
+      create: {
+        id: LLM_SETTINGS_ID,
+        model: input.model,
+        baseUrl: input.baseUrl,
+        apiKeyEncrypted: input.apiKeyEncrypted ?? null,
+        updatedByAdminId: input.adminId,
+      },
+      update: updateData,
+    });
   } catch (error) {
     if (isMissingLlmTableError(error)) {
       throw new LlmSettingsTableMissingError();

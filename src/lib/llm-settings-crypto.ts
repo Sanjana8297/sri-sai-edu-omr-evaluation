@@ -2,12 +2,17 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypt
 
 const ALGO = "aes-256-gcm";
 
-function encryptionKey(): Buffer {
-  const secret = process.env.AUTH_SECRET?.trim();
+function encryptionSecret(): string {
+  const secret =
+    process.env.LLM_SETTINGS_SECRET?.trim() || process.env.AUTH_SECRET?.trim();
   if (!secret) {
-    throw new Error("AUTH_SECRET is not set");
+    throw new Error("AUTH_SECRET (or LLM_SETTINGS_SECRET) is not set");
   }
-  return scryptSync(secret, "llm-settings-v1", 32);
+  return secret;
+}
+
+function encryptionKey(): Buffer {
+  return scryptSync(encryptionSecret(), "llm-settings-v1", 32);
 }
 
 export function encryptApiKey(plain: string): string {
