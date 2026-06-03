@@ -17,7 +17,11 @@ async function verifyPasswordOrLegacyPlainText(
 }
 
 function roleRedirect(role: Role): string {
-  return role === "ADMIN" ? "/dashboard/admin" : role === "TEACHER" ? "/dashboard/teacher" : "/dashboard/student";
+  return role === "ADMIN"
+    ? "/dashboard/admin"
+    : role === "TEACHER"
+      ? "/dashboard/teacher"
+      : "/dashboard/student/performance-summary";
 }
 
 export async function POST(request: Request) {
