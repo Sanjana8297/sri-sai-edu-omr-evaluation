@@ -42,7 +42,6 @@ type PaperBlueprint = {
 };
 
 export default function TeacherAiBuilderPage() {
-  const [track, setTrack] = useState<"JEE" | "NEET">("JEE");
   const [aiTrackProfile, setAiTrackProfile] = useState<"JEE" | "JEE ADV" | "NEET">("JEE");
   const [advanceSubjects, setAdvanceSubjects] = useState<JeeAdvanceSubjectConfig[]>(
     buildDefaultAdvanceSubjects
@@ -64,13 +63,13 @@ export default function TeacherAiBuilderPage() {
   const [loadingBlueprint, setLoadingBlueprint] = useState(false);
   const [loadingCompose, setLoadingCompose] = useState(false);
   const [loadingValidate, setLoadingValidate] = useState(false);
+  const [loadingSave, setLoadingSave] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const loadMe = useCallback(async () => {
     const u = await fetch("/api/me").then((r) => r.json());
     if (u.user?.category) {
-      setTrack(u.user.category);
       setAiTrackProfile(u.user.category === "NEET" ? "NEET" : "JEE");
     }
   }, []);
@@ -258,36 +257,69 @@ export default function TeacherAiBuilderPage() {
     setErr(null);
     setMsg(null);
     const trimmed = questionContent.trim();
+    if (!blueprint) {
+      setErr("Generate a blueprint first.");
+      return;
+    }
     if (!aiComposed || !trimmed) {
       setErr("Please use AI Compose before saving.");
       return;
     }
-
-    const res = await fetch("/api/teacher/question-papers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: title.trim(),
-        questionContent: trimmed,
-        keyContent: keyContent.trim(),
-        category: track,
-        isAiGenerated: aiComposed,
-        aiPromptVersion: aiComposed ? "v1" : null,
-        aiConfig: blueprint,
-        generationMeta: aiWarnings.length ? { warnings: aiWarnings } : null,
-      }),
-    });
-
-    const j = await res.json();
-    if (!res.ok) {
-      setErr(j.error ?? "Could not save paper");
+    const paperTitle = title.trim() || `${blueprint.subject} Mock Test`;
+    if (!paperTitle) {
+      setErr("Paper title is required.");
       return;
     }
-    setTitle("");
-    setQuestionContent("");
-    setKeyContent("");
-    setAiComposed(false);
-    setMsg("Question paper saved.");
+
+    setLoadingSave(true);
+    try {
+      const res = await fetch("/api/teacher/question-papers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: paperTitle,
+          questionContent: trimmed,
+          keyContent: keyContent.trim(),
+          category: blueprint.category,
+          isAiGenerated: true,
+          aiPromptVersion: "v1",
+          aiConfig: blueprint,
+          generationMeta: aiWarnings.length ? { warnings: aiWarnings } : null,
+        }),
+      });
+
+      let j: { error?: string; paper?: { id: string } } = {};
+      try {
+        j = (await res.json()) as { error?: string; paper?: { id: string } };
+      } catch {
+        setErr(
+          res.status === 413
+            ? "Paper is too large to upload. Try a shorter paper or contact support."
+            : `Could not save paper (HTTP ${res.status}).`
+        );
+        return;
+      }
+
+      if (!res.ok) {
+        setErr(j.error ?? "Could not save paper");
+        return;
+      }
+
+      setTitle("");
+      setQuestionContent("");
+      setKeyContent("");
+      setBlueprint(null);
+      setAiComposed(false);
+      setAiWarnings([]);
+      setShowPreview(false);
+      setMsg(
+        "Question paper saved. Use OMR & Exam Delivery → Exam Scheduling to schedule it, or find it in the paper list when scheduling."
+      );
+    } catch {
+      setErr("Network error while saving. Check your connection and try again.");
+    } finally {
+      setLoadingSave(false);
+    }
   }
 
   return (
@@ -456,8 +488,12 @@ export default function TeacherAiBuilderPage() {
               Run step 2 (Compose Paper) to generate question content before saving.
             </p>
           )}
-          <button className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" type="submit">
-            Save paper
+          <button
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            type="submit"
+            disabled={!aiComposed || loadingSave}
+          >
+            {loadingSave ? "Saving…" : "Save paper"}
           </button>
         </form>
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}

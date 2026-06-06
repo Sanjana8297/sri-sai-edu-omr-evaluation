@@ -161,20 +161,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Category must be JEE or NEET and match your assigned track" }, { status: 400 });
   }
 
-  const paper = await prisma.questionPaper.create({
-    data: {
-      teacherId: session.sub,
-      category,
-      title,
-      questionContent,
-      keyContent,
-      isAiGenerated: Boolean(body.isAiGenerated),
-      aiPromptVersion: body.aiPromptVersion?.trim() || null,
-      aiConfig: toPrismaJsonInput(body.aiConfig),
-      generationMeta: toPrismaJsonInput(body.generationMeta),
-    },
-  });
-  return NextResponse.json({ paper });
+  try {
+    const paper = await prisma.questionPaper.create({
+      data: {
+        teacherId: session.sub,
+        category,
+        title,
+        questionContent,
+        keyContent,
+        isAiGenerated: Boolean(body.isAiGenerated),
+        aiPromptVersion: body.aiPromptVersion?.trim() || null,
+        aiConfig: toPrismaJsonInput(body.aiConfig),
+        generationMeta: toPrismaJsonInput(body.generationMeta),
+      },
+    });
+    return NextResponse.json({ paper });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not save paper";
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
 }
 
 export async function PATCH(_request: Request) {
