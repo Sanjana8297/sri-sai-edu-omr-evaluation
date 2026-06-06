@@ -7,7 +7,7 @@ export async function GET() {
   if (response) return response;
 
   const teachers = await prisma.teacher.findMany({
-    select: { id: true, name: true, email: true, category: true },
+    select: { id: true, name: true, email: true, username: true, category: true },
     orderBy: { name: "asc" },
   });
 

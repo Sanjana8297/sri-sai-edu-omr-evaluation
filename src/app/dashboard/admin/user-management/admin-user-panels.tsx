@@ -2,12 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
+import { displayLoginId } from "@/lib/user-login-id";
 
-type TeacherRow = { id: string; name: string; email: string; category: string | null };
+type TeacherRow = {
+  id: string;
+  name: string;
+  email: string | null;
+  username: string | null;
+  category: string | null;
+};
 type StudentRow = {
   id: string;
   name: string;
-  email: string;
+  email: string | null;
+  username: string | null;
   category: string | null;
   teacher: { name: string } | null;
 };
@@ -85,6 +93,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
   const [page, setPage] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [category, setCategory] = useState<"JEE" | "NEET">("JEE");
   const [teacherId, setTeacherId] = useState("");
@@ -114,10 +123,22 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    if (!email.trim() && !username.trim()) {
+      setError("Enter an email or username for the student.");
+      return;
+    }
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, role: "STUDENT", category, teacherId }),
+      body: JSON.stringify({
+        name,
+        email: email.trim() || undefined,
+        username: username.trim() || undefined,
+        password,
+        role: "STUDENT",
+        category,
+        teacherId,
+      }),
     });
     const j = await res.json();
     if (!res.ok) {
@@ -126,9 +147,22 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
     }
     setName("");
     setEmail("");
+    setUsername("");
     setPassword("");
     setTeacherId("");
-    const roll = autoRoll ? rollNumberFor({ id: j.user.id, category, name: j.user.name, email: j.user.email, teacher: null }, students.length) : "";
+    const roll = autoRoll
+      ? rollNumberFor(
+          {
+            id: j.user.id,
+            category,
+            name: j.user.name,
+            email: j.user.email,
+            username: j.user.username,
+            teacher: null,
+          },
+          students.length
+        )
+      : "";
     setSuccess(
       `Student "${j?.user?.name ?? name}" enrolled.${roll ? ` Roll no: ${roll}` : ""}`,
     );
@@ -148,21 +182,33 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
     const idx = {
       name: header.indexOf("name"),
       email: header.indexOf("email"),
+      username: header.indexOf("username"),
       category: header.indexOf("category"),
       teacherEmail: header.indexOf("teacheremail"),
+      teacherUsername: header.indexOf("teacherusername"),
       password: header.indexOf("password"),
     };
-    if (idx.name < 0 || idx.email < 0 || idx.category < 0 || idx.teacherEmail < 0) {
-      setError("CSV headers required: name, email, category, teacherEmail (optional: password)");
+    if (idx.name < 0 || idx.category < 0) {
+      setError("CSV headers required: name, category, and email or username");
+      return;
+    }
+    if (idx.email < 0 && idx.username < 0) {
+      setError("CSV must include an email or username column");
+      return;
+    }
+    if (idx.teacherEmail < 0 && idx.teacherUsername < 0) {
+      setError("CSV must include teacherEmail or teacherUsername");
       return;
     }
     const studentsPayload = lines.slice(1).map((line) => {
       const cols = line.split(",").map((c) => c.trim());
       return {
         name: cols[idx.name],
-        email: cols[idx.email],
+        email: idx.email >= 0 ? cols[idx.email] : undefined,
+        username: idx.username >= 0 ? cols[idx.username] : undefined,
         category: cols[idx.category],
-        teacherEmail: cols[idx.teacherEmail],
+        teacherEmail: idx.teacherEmail >= 0 ? cols[idx.teacherEmail] : undefined,
+        teacherUsername: idx.teacherUsername >= 0 ? cols[idx.teacherUsername] : undefined,
         password: idx.password >= 0 ? cols[idx.password] : undefined,
       };
     });
@@ -182,7 +228,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
   }
 
   const filteredStudents = students.filter((s) => {
-    const matchesQuery = `${s.name} ${s.email} ${s.category ?? ""} ${s.teacher?.name ?? ""}`
+    const matchesQuery = `${s.name} ${s.email ?? ""} ${s.username ?? ""} ${s.category ?? ""} ${s.teacher?.name ?? ""}`
       .toLowerCase()
       .includes(query.toLowerCase());
     const matchesTrack = trackFilter === "ALL" || s.category === trackFilter;
@@ -207,7 +253,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
           <div className="space-y-3">
             <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] px-4 py-6 text-center text-sm text-[var(--muted)]">
               <span className="font-medium text-[var(--foreground)]">Upload CSV</span>
-              <span className="mt-1 text-xs">name, email, category, teacherEmail, password (optional)</span>
+              <span className="mt-1 text-xs">name, category, email or username, teacherEmail or teacherUsername, password (optional)</span>
               <input
                 type="file"
                 accept=".csv,text/csv"
@@ -235,10 +281,15 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
             <input
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
               type="email"
-              placeholder="Email"
+              placeholder="Email (optional if username set)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
+            />
+            <input
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              placeholder="Username (optional if email set)"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
             />
             <input
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
@@ -265,7 +316,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
               <option value="">Assign teacher</option>
               {filteredTeachers.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} ({t.email})
+                  {t.name} ({displayLoginId(t)})
                 </option>
               ))}
             </select>
@@ -310,7 +361,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
           <div className="border-b border-[var(--border)] p-3">
             <input
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              placeholder="Search by name, email, track, teacher..."
+              placeholder="Search by name, email, username, track, teacher..."
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -323,7 +374,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
               <tr>
                 <th className="px-4 py-3 font-medium">Roll no.</th>
                 <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Email</th>
+                <th className="px-4 py-3 font-medium">Login ID</th>
                 <th className="px-4 py-3 font-medium">Target exam</th>
                 <th className="px-4 py-3 font-medium">Teacher</th>
               </tr>
@@ -335,7 +386,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
                     {autoRoll ? rollNumberFor(s, (page - 1) * pageSize + i) : "—"}
                   </td>
                   <td className="px-4 py-3">{s.name}</td>
-                  <td className="px-4 py-3">{s.email}</td>
+                  <td className="px-4 py-3">{displayLoginId(s)}</td>
                   <td className="px-4 py-3">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -437,6 +488,7 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
   const [page, setPage] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [category, setCategory] = useState<"JEE" | "NEET">("JEE");
   const [institute, setInstitute] = useState("");
@@ -466,10 +518,21 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    if (!email.trim() && !username.trim()) {
+      setError("Enter an email or username for the teacher.");
+      return;
+    }
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, role: "TEACHER", category }),
+      body: JSON.stringify({
+        name,
+        email: email.trim() || undefined,
+        username: username.trim() || undefined,
+        password,
+        role: "TEACHER",
+        category,
+      }),
     });
     const j = await res.json();
     if (!res.ok) {
@@ -478,17 +541,18 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
     }
     setName("");
     setEmail("");
+    setUsername("");
     setPassword("");
     setSuccess(`Teacher "${j?.user?.name ?? name}" created.`);
     pushAudit(
       "USER_CREATED",
-      `Teacher ${email} · ${institute || "Default institute"} · batch ${batchScope || "All"}`,
+      `Teacher ${displayLoginId(j.user ?? { email, username })} · ${institute || "Default institute"} · batch ${batchScope || "All"}`,
     );
     await load();
   }
 
   const filtered = teachers.filter((t) =>
-    `${t.name} ${t.email} ${t.category ?? ""}`.toLowerCase().includes(query.toLowerCase()),
+    `${t.name} ${t.email ?? ""} ${t.username ?? ""} ${t.category ?? ""}`.toLowerCase().includes(query.toLowerCase()),
   );
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -524,10 +588,15 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
             <input
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
               type="email"
-              placeholder="Email"
+              placeholder="Email (optional if username set)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
+            />
+            <input
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              placeholder="Username (optional if email set)"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
             />
             <input
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
@@ -618,7 +687,7 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
             <thead className="border-b border-[var(--border)] text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Email</th>
+                <th className="px-4 py-3 font-medium">Login ID</th>
                 <th className="px-4 py-3 font-medium">Track</th>
               </tr>
             </thead>
@@ -626,7 +695,7 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
               {paged.map((t) => (
                 <tr key={t.id} className="border-b border-[var(--border)] last:border-0">
                   <td className="px-4 py-3">{t.name}</td>
-                  <td className="px-4 py-3">{t.email}</td>
+                  <td className="px-4 py-3">{displayLoginId(t)}</td>
                   <td className="px-4 py-3">{t.category ?? "—"}</td>
                 </tr>
               ))}

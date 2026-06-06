@@ -7,7 +7,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function LoginPage() {
   const [role, setRole] = useState<Role>("STUDENT");
-  const [email, setEmail] = useState("");
+  const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -20,7 +20,7 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role }),
+        body: JSON.stringify({ loginId, password, role }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -69,18 +69,21 @@ export default function LoginPage() {
             </p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)]" htmlFor="email">
-              Email
+            <label className="block text-sm font-medium text-[var(--foreground)]" htmlFor="loginId">
+              Email or username
             </label>
             <input
-              id="email"
-              type="email"
+              id="loginId"
+              type="text"
               autoComplete="username"
               className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--foreground)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value)}
               required
             />
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Students and teachers can use either email or username. Admins sign in with email only.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-[var(--foreground)]" htmlFor="password">

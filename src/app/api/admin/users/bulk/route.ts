@@ -2,14 +2,16 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
-import { isEmailTaken } from "@/lib/email-taken";
+import { isLoginIdTaken, normalizeEmail, normalizeUsername, resolveAccountIdentifiers } from "@/lib/user-login-id";
 
 type BulkRow = {
   name?: string;
   email?: string;
+  username?: string;
   password?: string;
   category?: string;
   teacherEmail?: string;
+  teacherUsername?: string;
 };
 
 export async function POST(request: Request) {
@@ -32,9 +34,14 @@ export async function POST(request: Request) {
   }
 
   const teachers = await prisma.teacher.findMany({
-    select: { id: true, email: true, category: true },
+    select: { id: true, email: true, username: true, category: true },
   });
-  const teacherByEmail = new Map(teachers.map((t) => [t.email.toLowerCase(), t]));
+  const teacherByEmail = new Map(
+    teachers.filter((t) => t.email).map((t) => [t.email!.toLowerCase(), t])
+  );
+  const teacherByUsername = new Map(
+    teachers.filter((t) => t.username).map((t) => [t.username!, t])
+  );
 
   const created: string[] = [];
   const errors: string[] = [];
@@ -43,38 +50,60 @@ export async function POST(request: Request) {
     const row = rows[i];
     const line = i + 1;
     const name = row.name?.trim();
-    const email = row.email?.trim().toLowerCase();
     const password = row.password?.trim() || "ChangeMe123!";
     const category = row.category?.trim().toUpperCase();
     const teacherEmail = row.teacherEmail?.trim().toLowerCase();
+    const teacherUsername = row.teacherUsername?.trim().toLowerCase();
 
-    if (!name || !email || (category !== "JEE" && category !== "NEET")) {
-      errors.push(`Row ${line}: name, email, and category (JEE/NEET) are required`);
+    const { ids, error: idError } = resolveAccountIdentifiers({
+      email: row.email,
+      username: row.username,
+    });
+    if (idError) {
+      errors.push(`Row ${line}: ${idError}`);
       continue;
     }
-    if (!teacherEmail) {
-      errors.push(`Row ${line}: teacherEmail is required`);
+
+    if (!name || (category !== "JEE" && category !== "NEET")) {
+      errors.push(`Row ${line}: name and category (JEE/NEET) are required`);
       continue;
     }
-    const teacher = teacherByEmail.get(teacherEmail);
+    if (!teacherEmail && !teacherUsername) {
+      errors.push(`Row ${line}: teacherEmail or teacherUsername is required`);
+      continue;
+    }
+
+    const teacher =
+      (teacherEmail ? teacherByEmail.get(normalizeEmail(teacherEmail)) : undefined) ??
+      (teacherUsername ? teacherByUsername.get(normalizeUsername(teacherUsername)) : undefined);
+
     if (!teacher) {
-      errors.push(`Row ${line}: teacher not found (${teacherEmail})`);
+      errors.push(`Row ${line}: teacher not found (${teacherEmail ?? teacherUsername})`);
       continue;
     }
     if (teacher.category !== category) {
       errors.push(`Row ${line}: category must match teacher track (${teacher.category})`);
       continue;
     }
-    if (await isEmailTaken(email)) {
-      errors.push(`Row ${line}: email already in use (${email})`);
+    if (await isLoginIdTaken(ids)) {
+      errors.push(
+        `Row ${line}: login id already in use (${ids.email ?? ids.username})`
+      );
       continue;
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
     await prisma.student.create({
-      data: { email, passwordHash, name, category, teacherId: teacher.id },
+      data: {
+        email: ids.email,
+        username: ids.username,
+        passwordHash,
+        name,
+        category,
+        teacherId: teacher.id,
+      },
     });
-    created.push(email);
+    created.push(ids.email ?? ids.username ?? name);
   }
 
   return NextResponse.json({

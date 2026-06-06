@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken, setSessionCookie } from "@/lib/auth";
+import { parseLoginIdentifier, sessionLoginLabel } from "@/lib/user-login-id";
 import type { Role } from "@/lib/types";
 
 async function verifyPasswordOrLegacyPlainText(
@@ -12,7 +13,6 @@ async function verifyPasswordOrLegacyPlainText(
   if (looksHashed) {
     return bcrypt.compare(inputPassword, storedPasswordHash);
   }
-  // Backward-compatibility for legacy rows saved with plain-text passwords.
   return inputPassword === storedPasswordHash;
 }
 
@@ -24,34 +24,68 @@ function roleRedirect(role: Role): string {
       : "/dashboard/student/performance-summary";
 }
 
+type LoginLookup =
+  | { kind: "email"; value: string }
+  | { kind: "username"; value: string };
+
+async function findAdmin(lookup: LoginLookup) {
+  if (lookup.kind === "username") return null;
+  return prisma.admin.findUnique({ where: { email: lookup.value } });
+}
+
+async function findTeacher(lookup: LoginLookup) {
+  return lookup.kind === "email"
+    ? prisma.teacher.findUnique({ where: { email: lookup.value } })
+    : prisma.teacher.findUnique({ where: { username: lookup.value } });
+}
+
+async function findStudent(lookup: LoginLookup) {
+  return lookup.kind === "email"
+    ? prisma.student.findUnique({ where: { email: lookup.value } })
+    : prisma.student.findUnique({ where: { username: lookup.value } });
+}
+
+async function findOtherRoleAccount(lookup: LoginLookup, exclude: Role) {
+  const [admin, teacher, student] = await Promise.all([
+    exclude === "ADMIN" ? null : findAdmin(lookup),
+    exclude === "TEACHER" ? null : findTeacher(lookup),
+    exclude === "STUDENT" ? null : findStudent(lookup),
+  ]);
+  if (admin) return "ADMIN" as const;
+  if (teacher) return "TEACHER" as const;
+  if (student) return "STUDENT" as const;
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
-    let body: { email?: string; password?: string; role?: string };
+    let body: { email?: string; loginId?: string; password?: string; role?: string };
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const email = body.email?.trim().toLowerCase();
+    const rawLogin = (body.loginId ?? body.email)?.trim() ?? "";
     const password = body.password;
     const role = body.role as Role | undefined;
-    if (!email || !password) {
-      return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+    const lookup = parseLoginIdentifier(rawLogin);
+
+    if (!lookup || !password) {
+      return NextResponse.json({ error: "Email or username and password are required" }, { status: 400 });
     }
     if (role !== "ADMIN" && role !== "TEACHER" && role !== "STUDENT") {
       return NextResponse.json({ error: "Role must be ADMIN, TEACHER, or STUDENT" }, { status: 400 });
     }
+    if (role === "ADMIN" && lookup.kind === "username") {
+      return NextResponse.json({ error: "Administrators must sign in with email" }, { status: 400 });
+    }
 
     if (role === "ADMIN") {
-      const admin = await prisma.admin.findUnique({ where: { email } });
+      const admin = await findAdmin(lookup);
       if (!admin) {
-        const [teacher, student] = await Promise.all([
-          prisma.teacher.findUnique({ where: { email } }),
-          prisma.student.findUnique({ where: { email } }),
-        ]);
-        if (teacher || student) {
-          const actualRole: Role = teacher ? "TEACHER" : "STUDENT";
+        const actualRole = await findOtherRoleAccount(lookup, "ADMIN");
+        if (actualRole) {
           return NextResponse.json(
             { error: `This account is registered as ${actualRole}. Please select ${actualRole} and try again.` },
             { status: 401 },
@@ -69,7 +103,7 @@ export async function POST(request: Request) {
       }
       const token = await createSessionToken({
         sub: admin.id,
-        email: admin.email,
+        email: sessionLoginLabel(admin),
         role: "ADMIN",
         name: admin.name,
       });
@@ -78,14 +112,10 @@ export async function POST(request: Request) {
     }
 
     if (role === "TEACHER") {
-      const teacher = await prisma.teacher.findUnique({ where: { email } });
+      const teacher = await findTeacher(lookup);
       if (!teacher) {
-        const [admin, student] = await Promise.all([
-          prisma.admin.findUnique({ where: { email } }),
-          prisma.student.findUnique({ where: { email } }),
-        ]);
-        if (admin || student) {
-          const actualRole: Role = admin ? "ADMIN" : "STUDENT";
+        const actualRole = await findOtherRoleAccount(lookup, "TEACHER");
+        if (actualRole) {
           return NextResponse.json(
             { error: `This account is registered as ${actualRole}. Please select ${actualRole} and try again.` },
             { status: 401 },
@@ -103,7 +133,7 @@ export async function POST(request: Request) {
       }
       const token = await createSessionToken({
         sub: teacher.id,
-        email: teacher.email,
+        email: sessionLoginLabel(teacher),
         role: "TEACHER",
         name: teacher.name,
       });
@@ -111,14 +141,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, redirect: roleRedirect("TEACHER") });
     }
 
-    const student = await prisma.student.findUnique({ where: { email } });
+    const student = await findStudent(lookup);
     if (!student) {
-      const [admin, teacher] = await Promise.all([
-        prisma.admin.findUnique({ where: { email } }),
-        prisma.teacher.findUnique({ where: { email } }),
-      ]);
-      if (admin || teacher) {
-        const actualRole: Role = admin ? "ADMIN" : "TEACHER";
+      const actualRole = await findOtherRoleAccount(lookup, "STUDENT");
+      if (actualRole) {
         return NextResponse.json(
           { error: `This account is registered as ${actualRole}. Please select ${actualRole} and try again.` },
           { status: 401 },
@@ -136,7 +162,7 @@ export async function POST(request: Request) {
     }
     const token = await createSessionToken({
       sub: student.id,
-      email: student.email,
+      email: sessionLoginLabel(student),
       role: "STUDENT",
       name: student.name,
     });

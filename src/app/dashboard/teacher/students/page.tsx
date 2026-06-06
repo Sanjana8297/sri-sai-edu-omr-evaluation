@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { teacherNavItems } from "@/lib/dashboard-nav";
+import { displayLoginId } from "@/lib/user-login-id";
 
-type Student = { id: string; name: string; email: string; category: string | null };
+type Student = { id: string; name: string; email: string | null; username: string | null; category: string | null };
 
 export default function TeacherStudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -22,7 +23,7 @@ export default function TeacherStudentsPage() {
   }, [load]);
 
   const filtered = students.filter((s) =>
-    `${s.name} ${s.email} ${s.category ?? ""}`.toLowerCase().includes(query.toLowerCase()),
+    `${s.name} ${s.email ?? ""} ${s.username ?? ""} ${s.category ?? ""}`.toLowerCase().includes(query.toLowerCase()),
   );
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -39,7 +40,7 @@ export default function TeacherStudentsPage() {
         <div className="border-b border-[var(--border)] p-3">
           <input
             className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            placeholder="Search users by name, email, track..."
+            placeholder="Search users by name, email, username, track..."
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -51,7 +52,7 @@ export default function TeacherStudentsPage() {
           <thead className="border-b border-[var(--border)] text-[var(--muted)]">
             <tr>
               <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Email</th>
+              <th className="px-4 py-3 font-medium">Login ID</th>
               <th className="px-4 py-3 font-medium">Track</th>
             </tr>
           </thead>
@@ -59,7 +60,7 @@ export default function TeacherStudentsPage() {
             {paged.map((s) => (
               <tr key={s.id} className="border-b border-[var(--border)] last:border-0">
                 <td className="px-4 py-3">{s.name}</td>
-                <td className="px-4 py-3">{s.email}</td>
+                <td className="px-4 py-3">{displayLoginId(s)}</td>
                 <td className="px-4 py-3">{s.category ?? "-"}</td>
               </tr>
             ))}

@@ -31,7 +31,8 @@ model LlmSettings {
 
 model Teacher {
   id             String          @id @default(cuid())
-  email          String          @unique
+  email          String?         @unique
+  username       String?         @unique
   passwordHash   String
   name           String
   category       String
@@ -46,7 +47,8 @@ model Teacher {
 
 model Student {
   id           String        @id @default(cuid())
-  email        String        @unique
+  email        String?       @unique
+  username     String?       @unique
   passwordHash String
   name         String
   category     String
