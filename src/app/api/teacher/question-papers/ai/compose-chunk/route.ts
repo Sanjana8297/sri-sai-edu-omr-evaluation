@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireRoles } from "@/lib/api-auth";
-import { composeQuestionPaper, getAiConfigError, type PaperBlueprint } from "@/lib/ai-paper-config";
-import { getLlmRuntimeConfig } from "@/lib/openai-runtime";
+import {
+  composePaperChunk,
+  getAiConfigError,
+  type ExamSection,
+  type PaperBlueprint,
+} from "@/lib/ai-paper-config";
 import { prisma } from "@/lib/prisma";
 
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const { session, response } = await requireRoles(["TEACHER"]);
@@ -17,7 +21,9 @@ export async function POST(request: Request) {
     title?: string;
     blueprint?: PaperBlueprint;
     additionalConstraints?: string;
-    saveAsPaper?: boolean;
+    section?: ExamSection;
+    questionStart?: number;
+    questionCount?: number;
   };
   try {
     body = await request.json();
@@ -27,8 +33,21 @@ export async function POST(request: Request) {
 
   const title = body.title?.trim();
   const blueprint = body.blueprint;
-  if (!title || !blueprint) {
-    return NextResponse.json({ error: "title and blueprint are required" }, { status: 400 });
+  const section = body.section;
+  const questionStart = body.questionStart;
+  const questionCount = body.questionCount;
+
+  if (!title || !blueprint || !section) {
+    return NextResponse.json({ error: "title, blueprint, and section are required" }, { status: 400 });
+  }
+  if (typeof questionStart !== "number" || !Number.isInteger(questionStart) || questionStart < 1) {
+    return NextResponse.json({ error: "questionStart must be a positive integer" }, { status: 400 });
+  }
+  if (typeof questionCount !== "number" || !Number.isInteger(questionCount) || questionCount < 1) {
+    return NextResponse.json({ error: "questionCount must be a positive integer" }, { status: 400 });
+  }
+  if (questionStart + questionCount - 1 > section.questionCount) {
+    return NextResponse.json({ error: "Chunk exceeds section question count" }, { status: 400 });
   }
 
   const me = await prisma.teacher.findUnique({
@@ -41,40 +60,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const generated = await composeQuestionPaper({
+    const generated = await composePaperChunk({
       title,
       category: me.category as "JEE" | "NEET",
       blueprint,
       additionalConstraints: body.additionalConstraints?.trim(),
+      section,
+      questionStart,
+      questionCount,
     });
-
-    if (!body.saveAsPaper) {
-      return NextResponse.json({ generated });
-    }
-
-    const llm = await getLlmRuntimeConfig();
-
-    const paper = await prisma.questionPaper.create({
-      data: {
-        teacherId: session.sub,
-        category: me.category,
-        title,
-        questionContent: generated.questionContent,
-        keyContent: generated.keyContent,
-        isAiGenerated: true,
-        aiPromptVersion: "v1",
-        aiConfig: blueprint,
-        generationMeta: {
-          warnings: generated.warnings,
-          model: llm.model,
-          generatedAt: new Date().toISOString(),
-        },
-      },
-    });
-
-    return NextResponse.json({ generated, paper });
+    return NextResponse.json({ generated });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not compose paper";
+    const msg = e instanceof Error ? e.message : "Could not compose paper chunk";
     const isUpstream = msg.startsWith("AI request failed");
     return NextResponse.json({ error: msg }, { status: isUpstream ? 502 : 400 });
   }

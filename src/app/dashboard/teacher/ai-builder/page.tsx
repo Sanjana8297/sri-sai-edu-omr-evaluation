@@ -14,6 +14,11 @@ import {
 import { getJeeAdvanceTotalQuestions } from "@/lib/jee-advance-paper-builder";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 import { parseQuestionPaperContentWithOptions } from "@/lib/exam-paper-parser";
+import {
+  mergeKeyChunk,
+  mergeQuestionChunk,
+  planComposeChunks,
+} from "@/lib/ai-paper-config";
 import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
 import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
 
@@ -159,26 +164,52 @@ export default function TeacherAiBuilderPage() {
     setMsg(null);
     setLoadingCompose(true);
     try {
-      const res = await fetch("/api/teacher/question-papers/ai/compose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title.trim() || `${blueprint.subject} Mock Test`,
-          blueprint,
-          additionalConstraints: aiExtraInstructions.trim(),
-          saveAsPaper: false,
-        }),
-      });
-      const j = await res.json();
-      if (!res.ok) {
-        setErr(j.error ?? "Could not compose paper");
-        return;
+      const chunks = planComposeChunks(blueprint);
+      let questionContent = "";
+      let keyContent = "";
+      const warnings: string[] = [];
+      const paperTitle = title.trim() || `${blueprint.subject} Mock Test`;
+
+      for (let i = 0; i < chunks.length; i += 1) {
+        const chunk = chunks[i];
+        setMsg(
+          `Composing section ${chunk.section.name} (questions ${chunk.questionStart}–${chunk.questionStart + chunk.questionCount - 1})… ${i + 1}/${chunks.length}`
+        );
+        const res = await fetch("/api/teacher/question-papers/ai/compose-chunk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: paperTitle,
+            blueprint,
+            additionalConstraints: aiExtraInstructions.trim(),
+            section: chunk.section,
+            questionStart: chunk.questionStart,
+            questionCount: chunk.questionCount,
+          }),
+        });
+        const j = await res.json();
+        if (!res.ok) {
+          setErr(j.error ?? "Could not compose paper");
+          return;
+        }
+        const generated = j.generated as {
+          questionContent: string;
+          keyContent: string;
+          warnings: string[];
+        };
+        questionContent = mergeQuestionChunk(
+          questionContent,
+          chunk.section.name,
+          generated.questionContent
+        );
+        keyContent = mergeKeyChunk(keyContent, chunk.section.name, generated.keyContent);
+        warnings.push(...(generated.warnings ?? []));
       }
-      const generated = j.generated as { questionContent: string; keyContent: string; warnings: string[] };
-      setTitle((old) => old.trim() || `${blueprint.subject} Mock Test`);
-      setQuestionContent(generated.questionContent);
-      setKeyContent(generated.keyContent);
-      setAiWarnings(generated.warnings ?? []);
+
+      setTitle(paperTitle);
+      setQuestionContent(questionContent);
+      setKeyContent(keyContent);
+      setAiWarnings(warnings);
       setAiComposed(true);
       setShowPreview(true);
       setMsg("AI composed a full paper and answer key. Review and save.");

@@ -62,6 +62,8 @@ function buildDifficultyMix(
   return { easy: 30, medium: 40, hard: 30 };
 }
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   const { session, response } = await requireRoles(["TEACHER"]);
   if (response) return response;

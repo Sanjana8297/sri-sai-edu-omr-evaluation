@@ -57,9 +57,16 @@ export async function getAiConfigError(): Promise<string | null> {
   return getLlmAiConfigError();
 }
 
-async function callJsonModel<T>(schemaName: string, schema: object, system: string, user: string): Promise<T> {
+async function callJsonModel<T>(
+  schemaName: string,
+  schema: object,
+  system: string,
+  user: string,
+  options?: { maxTokens?: number }
+): Promise<T> {
   const response = await callOpenAiChatCompletion({
     temperature: 0.3,
+    max_tokens: options?.maxTokens,
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -207,6 +214,169 @@ const COMPOSE_SCHEMA = {
     warnings: { type: "array", items: { type: "string" } },
   },
 };
+
+/** Keep each serverless request small enough for Vercel Hobby (10s function limit). */
+export const COMPOSE_CHUNK_QUESTIONS = 3;
+
+export type ComposeChunkPlan = {
+  section: ExamSection;
+  questionStart: number;
+  questionCount: number;
+};
+
+export function planComposeChunks(
+  blueprint: PaperBlueprint,
+  chunkSize = COMPOSE_CHUNK_QUESTIONS
+): ComposeChunkPlan[] {
+  const chunks: ComposeChunkPlan[] = [];
+  for (const section of blueprint.sections) {
+    let start = 1;
+    let remaining = section.questionCount;
+    while (remaining > 0) {
+      const count = Math.min(chunkSize, remaining);
+      chunks.push({ section, questionStart: start, questionCount: count });
+      start += count;
+      remaining -= count;
+    }
+  }
+  return chunks;
+}
+
+function getSectionBody(content: string, sectionName: string): string | null {
+  const heading = `## ${sectionName}`;
+  const start = content.indexOf(heading);
+  if (start < 0) return null;
+  const rest = content.slice(start + heading.length);
+  const nextHeadingPos = rest.indexOf("\n## ");
+  return (nextHeadingPos >= 0 ? rest.slice(0, nextHeadingPos) : rest).trim();
+}
+
+export function mergeQuestionChunk(existing: string, sectionName: string, chunkContent: string): string {
+  const heading = `## ${sectionName}`;
+  const chunkBody =
+    getSectionBody(chunkContent, sectionName) ??
+    chunkContent.replace(new RegExp(`^## ${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`), "").trim();
+  if (!existing.trim()) return `${heading}\n${chunkBody}`;
+  const existingBody = getSectionBody(existing, sectionName);
+  if (!existingBody) return `${existing.trim()}\n\n${heading}\n${chunkBody}`;
+  return existing.replace(`${heading}\n${existingBody}`, `${heading}\n${existingBody}\n${chunkBody}`);
+}
+
+export function mergeKeyChunk(existing: string, sectionName: string, chunkContent: string): string {
+  const heading = `## ${sectionName}`;
+  const chunkBody =
+    getSectionBody(chunkContent, sectionName) ??
+    chunkContent.replace(new RegExp(`^## ${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`), "").trim();
+  if (!existing.trim()) return `${heading}\n${chunkBody}`;
+  const existingBody = getSectionBody(existing, sectionName);
+  if (!existingBody) return `${existing.trim()}\n\n${heading}\n${chunkBody}`;
+  return existing.replace(`${heading}\n${existingBody}`, `${heading}\n${existingBody}\n${chunkBody}`);
+}
+
+function validateChunkOutput(
+  sectionName: string,
+  questionStart: number,
+  questionCount: number,
+  questionContent: string,
+  keyContent: string
+): { ok: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const sectionBody = getSectionBody(questionContent, sectionName);
+  if (!sectionBody) {
+    errors.push(`Missing section heading ## ${sectionName} in question content.`);
+    return { ok: false, errors };
+  }
+
+  for (let i = 0; i < questionCount; i += 1) {
+    const n = questionStart + i;
+    const qPattern = new RegExp(`(?:^|\\n)Q${n}\\.`);
+    if (!qPattern.test(sectionBody)) {
+      errors.push(`${sectionName}: missing Q${n}. in chunk output.`);
+    }
+  }
+
+  const keyBody = getSectionBody(keyContent, sectionName);
+  if (!keyBody) {
+    errors.push(`Missing section heading ## ${sectionName} in answer key.`);
+  } else {
+    for (let i = 0; i < questionCount; i += 1) {
+      const n = questionStart + i;
+      const keyPattern = new RegExp(`(?:^|\\n)${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} Q${n}:`);
+      if (!keyPattern.test(keyBody)) {
+        errors.push(`${sectionName}: missing answer key entry for Q${n}.`);
+      }
+    }
+  }
+
+  if (hasAbbreviationMarkers(questionContent) || hasAbbreviationMarkers(keyContent)) {
+    errors.push(`${sectionName}: abbreviated output detected.`);
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+export async function composePaperChunk(
+  input: ComposeInput & ComposeChunkPlan
+): Promise<{ questionContent: string; keyContent: string; warnings: string[] }> {
+  const { section, questionStart, questionCount } = input;
+  const endQuestion = questionStart + questionCount - 1;
+  const miniBlueprint: PaperBlueprint = {
+    ...input.blueprint,
+    sections: [{ ...section, questionCount }],
+    totalQuestions: questionCount,
+    totalMarks: questionCount * section.marksPerQuestion,
+  };
+
+  const system = `${composeSystemPrompt(miniBlueprint)}
+Generate ONLY the section "## ${section.name}" with exactly ${questionCount} question(s), numbered Q${questionStart} through Q${endQuestion} (local numbering within this section).
+Do not include any other sections. Do not abbreviate or omit questions.
+questionContent must begin with "## ${section.name}" followed by those questions.
+keyContent must begin with "## ${section.name}" with answers formatted as "${section.name} Q${questionStart}: …" through "${section.name} Q${endQuestion}: …".`;
+
+  const user = JSON.stringify({
+    title: input.title,
+    category: input.category,
+    blueprint: miniBlueprint,
+    additionalConstraints: input.additionalConstraints,
+    chunk: { sectionName: section.name, questionStart, questionCount },
+  });
+
+  const maxTokens = Math.min(16000, Math.max(4000, questionCount * 900));
+
+  const attempt = async (retry: boolean) => {
+    const prompt = retry
+      ? `${system} RETRY: your previous output was incomplete. Output every question and answer with no omissions.`
+      : system;
+    return callJsonModel<{
+      questionContent: string;
+      keyContent: string;
+      warnings: string[];
+    }>("paper_compose_chunk", COMPOSE_SCHEMA, prompt, user, { maxTokens });
+  };
+
+  let result = await attempt(false);
+  let validation = validateChunkOutput(
+    section.name,
+    questionStart,
+    questionCount,
+    result.questionContent,
+    result.keyContent
+  );
+  if (!validation.ok) {
+    result = await attempt(true);
+    validation = validateChunkOutput(
+      section.name,
+      questionStart,
+      questionCount,
+      result.questionContent,
+      result.keyContent
+    );
+  }
+  if (!validation.ok) {
+    throw new Error(validation.errors.join("; ") || "Chunk compose output invalid.");
+  }
+  return result;
+}
 
 export async function generateBlueprint(input: {
   category: Category;
