@@ -152,6 +152,65 @@ function stripOptionPrefix(option: string): string {
   return option.replace(/^[A-H][\.\)]\s*/i, "").trim() || option.trim();
 }
 
+function isOptionLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  return (
+    /^\([A-H]\)\s*.+$/i.test(t) ||
+    /^[A-H][\.\)]\s*.+$/i.test(t) ||
+    /^option\s*[A-H]\s*[:\.\-\)]\s*.+$/i.test(t) ||
+    /^\(\d{1,2}\)\s*.+$/.test(t) ||
+    /^[1-9][0-9]?\s*[\.\)]\s*.+$/.test(t)
+  );
+}
+
+/** Remove option text from the stem when options are rendered separately in the exam UI. */
+export function cleanQuestionPrompt(prompt: string, parsedOptions: string[]): string {
+  const withoutOptionLines = prompt
+    .split(/\r?\n/)
+    .filter((line) => !isOptionLine(line.trim()))
+    .join("\n")
+    .trim();
+
+  if (parsedOptions.length === 0) return withoutOptionLines;
+
+  let stem = withoutOptionLines;
+
+  const letterMarkers = stem.match(/\([A-H]\)/gi) ?? [];
+  const numMarkers = stem.match(/\([1-8]\)/g) ?? [];
+  const dotMarkers = stem.match(/\b[A-H][\.\)]\s/gi) ?? [];
+  const markerCount = letterMarkers.length + numMarkers.length + dotMarkers.length;
+
+  if (markerCount >= 2) {
+    let earliest = stem.length;
+    const inlineMarkers = [
+      /\s*\([A-H]\)\s/i,
+      /\s*\([1-8]\)\s/,
+      /\n\s*[A-H][\.\)]\s/,
+      /\n\s*\([1-8]\)\s/,
+    ];
+    for (const pattern of inlineMarkers) {
+      const match = stem.match(pattern);
+      if (match?.index !== undefined && match.index < earliest) {
+        earliest = match.index;
+      }
+    }
+    if (earliest < stem.length) {
+      stem = stem.slice(0, earliest).trim();
+    }
+  }
+
+  for (const option of parsedOptions) {
+    const body = stripOptionPrefix(option);
+    if (body.length < 4) continue;
+    const escaped = body.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    stem = stem.replace(new RegExp(`\\s*\\([A-H1-8]\\)\\s*${escaped}`, "gi"), "");
+    stem = stem.replace(new RegExp(`\\s*[A-H][\\.)]\\s*${escaped}`, "gi"), "");
+  }
+
+  return stem.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function formatParsedOptions(options: string[]): string[] {
   return options.map((value, index) => {
     const stripped = stripOptionPrefix(value);
@@ -172,12 +231,20 @@ export function enrichParsedPaperWithOptions(
   const sections = parsed.sections.map((section) => ({
     ...section,
     questions: section.questions.map((question) => {
-      if (question.options.length >= 4) return question;
+      const cleanedPrompt = cleanQuestionPrompt(question.prompt, question.options);
+
+      if (question.options.length >= 4) {
+        return {
+          ...question,
+          prompt: formatQuestionTextForDisplay(cleanedPrompt),
+          options: formatParsedOptions(question.options),
+        };
+      }
 
       const rawOptions =
         question.options.length > 0 ? question.options.map(stripOptionPrefix) : null;
       const ensured = ensureFourOptionsForQuestion({
-        questionText: question.prompt,
+        questionText: cleanedPrompt,
         options: rawOptions,
         correctAnswer: answerKey[question.id] ?? null,
         seedId: seedFromQuestionId(question.id),
@@ -197,10 +264,14 @@ export function enrichParsedPaperWithOptions(
         }
       }
 
+      const formattedOptions = formatParsedOptions(ensured.options);
+
       return {
         ...question,
-        prompt: formatQuestionTextForDisplay(question.prompt),
-        options: formatParsedOptions(ensured.options),
+        prompt: formatQuestionTextForDisplay(
+          cleanQuestionPrompt(cleanedPrompt, formattedOptions)
+        ),
+        options: formattedOptions,
       };
     }),
   }));
@@ -238,7 +309,10 @@ export function prepareQuestionForPaperBlock(input: {
     correctAnswer: input.correctAnswer,
     seedId: input.seedId,
   });
-  const stem = formatQuestionTextForDisplay(input.questionText);
+  const formattedForStem = ensured.options.map((value, index) => `${letterByIndex(index)}. ${value}`);
+  const stem = formatQuestionTextForDisplay(
+    cleanQuestionPrompt(input.questionText, formattedForStem)
+  );
   const letter = parseLetterAnswer(ensured.correctAnswer);
   return {
     questionBlock: `${stem}${input.formatOptionsBlock(ensured.options)}`,
