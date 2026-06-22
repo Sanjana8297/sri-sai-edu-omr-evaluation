@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { dashGrid } from "@/lib/dashboard-ui";
 
 export type ActivityFeature = {
   id: string;
@@ -94,13 +95,13 @@ export function FeatureActivityHub({
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className={dashGrid}>
       {features.map((feature) => (
         <button
           key={feature.id}
           type="button"
           onClick={() => setActiveId(feature.id)}
-          className="group rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 text-left transition-colors hover:border-[var(--accent)] hover:bg-[var(--nav-hover-bg)]"
+          className="group rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 text-left transition-colors hover:bg-[var(--nav-hover-bg)]"
         >
           <h3 className="text-sm font-semibold text-[var(--foreground)] group-hover:text-[var(--accent)]">
             {feature.title}

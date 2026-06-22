@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { Role } from "@/lib/types";
+import { DASHBOARD_SURFACE } from "@/lib/dashboard-ui";
 import { InstituteBrand } from "@/components/InstituteBrand";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -42,7 +43,7 @@ export default function LoginPage() {
           <ThemeToggle />
         </div>
       </header>
-      <div className="flex flex-1 items-center justify-center px-4 py-8">
+      <div className={`flex flex-1 items-center justify-center px-4 py-8 ${DASHBOARD_SURFACE}`}>
       <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8 shadow-sm">
         <Link
           href="/"

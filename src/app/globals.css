@@ -44,3 +44,84 @@ body {
   background: var(--background);
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
+
+@layer components {
+  /* Shared dashboard / profile surfaces — interactive bordered blocks */
+  .dashboard-surface {
+    width: 100%;
+  }
+
+  .dashboard-surface
+    :where(section, article, li, div, button, a):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
+      .dash-static
+    ) {
+    transition:
+      box-shadow 0.2s ease,
+      transform 0.2s ease,
+      background-color 0.2s ease;
+  }
+
+  @media (hover: hover) {
+    .dashboard-surface
+      :where(section, article, li, div, button, a):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
+        .dash-static
+      ):hover {
+      box-shadow: 0 4px 14px -2px rgb(15 23 42 / 0.08);
+    }
+
+    html[data-theme="dark"]
+      .dashboard-surface
+      :where(section, article, li, div, button, a):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
+        .dash-static
+      ):hover {
+      box-shadow: 0 4px 18px -2px rgb(0 0 0 / 0.35);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .dashboard-surface
+        :where(section, article, li, div, button, a):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
+          .dash-static
+        ):hover {
+        transform: translateY(-1px);
+      }
+    }
+  }
+
+  .dashboard-surface
+    :where(section, article, li, div):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
+      .dash-static
+    ):focus-within {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  /* Responsive grids when pages use the shared utility classes */
+  .dashboard-surface .dash-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .dashboard-surface .dash-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .dashboard-surface .dash-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .dashboard-surface .dash-grid-wide {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  @media (min-width: 1024px) {
+    .dashboard-surface .dash-grid-wide {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+}

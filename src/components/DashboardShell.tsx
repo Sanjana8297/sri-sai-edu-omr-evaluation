@@ -14,6 +14,7 @@ import {
   type NavItem,
   type TeacherTrack,
 } from "@/lib/dashboard-nav";
+import { DASHBOARD_SURFACE } from "@/lib/dashboard-ui";
 
 const SIDEBAR_COLLAPSED_KEY = "dashboard-sidebar-collapsed";
 
@@ -204,7 +205,7 @@ function DashboardShellInner({
         className={`transition-[padding] duration-200 ${mainOffsetLg ? "lg:pl-[290px]" : ""} ${
           fullWidthContent
             ? "flex min-h-0 flex-1 flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-10"
-            : "px-6 py-8"
+            : "px-4 py-6 sm:px-6 sm:py-8"
         }`}
       >
         <div className={fullWidthContent ? "flex min-h-0 flex-1 flex-col" : ""}>
@@ -318,8 +319,8 @@ function DashboardShellInner({
           <section
             className={
               fullWidthContent
-                ? "flex min-h-0 w-full max-w-none flex-1 flex-col"
-                : "max-w-6xl"
+                ? `flex min-h-0 w-full max-w-none flex-1 flex-col ${DASHBOARD_SURFACE}`
+                : `max-w-6xl ${DASHBOARD_SURFACE}`
             }
           >
             {children}
