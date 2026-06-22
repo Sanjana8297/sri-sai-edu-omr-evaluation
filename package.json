@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "db:migrate": "prisma migrate dev",
+    "seed:question-bank": "tsx scripts/seed-question-bank-bulk.ts",
+    "seed:double-advanced": "tsx scripts/seed-question-bank-bulk.ts --double-advanced",
     "postinstall": "prisma generate"
   },
   "dependencies": {

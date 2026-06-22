@@ -15,6 +15,8 @@ function QuestionBankRowInner({ item, index }: Props) {
   const { data: detail, isLoading, isError } = useQuestionDetail(expanded ? item.id : null);
 
   const previewText = formatQuestionTextForDisplay(item.preview);
+  const stemText =
+    expanded && detail ? formatQuestionTextForDisplay(detail.question_text) : previewText;
 
   return (
     <article className="rounded-lg border border-[var(--border)] p-3">
@@ -37,7 +39,7 @@ function QuestionBankRowInner({ item, index }: Props) {
           <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[var(--muted)]">MCQ</span>
         ) : null}
       </div>
-      <p className="mt-2 line-clamp-3 text-sm">{previewText}</p>
+      <p className={`mt-2 text-sm ${expanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>{stemText}</p>
       <button
         type="button"
         className="mt-2 text-xs font-medium text-[var(--accent)] hover:underline"
@@ -51,9 +53,8 @@ function QuestionBankRowInner({ item, index }: Props) {
           {isError ? <p className="text-xs text-red-600">Could not load details.</p> : null}
           {detail ? (
             <>
-              <p className="whitespace-pre-wrap text-sm">{formatQuestionTextForDisplay(detail.question_text)}</p>
               {detail.options && detail.options.length > 0 ? (
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--muted)]">
+                <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--muted)]">
                   {detail.options.map((opt, optIdx) => (
                     <li key={`${detail.id}-opt-${optIdx}`}>
                       ({String.fromCharCode(65 + optIdx)}) {formatQuestionTextForDisplay(opt)}
