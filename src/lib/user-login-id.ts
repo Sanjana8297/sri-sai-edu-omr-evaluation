@@ -77,25 +77,51 @@ export function displayLoginId(user: { email?: string | null; username?: string 
 
 /** True if email or username is already used on any account type that stores it. */
 export async function isLoginIdTaken(ids: AccountIdentifiers): Promise<boolean> {
-  const checks: Promise<{ id: string } | null>[] = [];
+  return isLoginIdTakenExcept(ids, null);
+}
 
+type AccountRole = "ADMIN" | "TEACHER" | "STUDENT";
+
+/** Like isLoginIdTaken but ignores the given account (for credential updates). */
+export async function isLoginIdTakenExcept(
+  ids: AccountIdentifiers,
+  exclude: { role: AccountRole; id: string } | null
+): Promise<boolean> {
   if (ids.email) {
-    checks.push(
-      prisma.admin.findUnique({ where: { email: ids.email }, select: { id: true } }),
-      prisma.teacher.findUnique({ where: { email: ids.email }, select: { id: true } }),
-      prisma.student.findUnique({ where: { email: ids.email }, select: { id: true } })
-    );
+    const email = ids.email;
+    const [admin, teacher, student] = await Promise.all([
+      prisma.admin.findUnique({ where: { email }, select: { id: true } }),
+      prisma.teacher.findUnique({ where: { email }, select: { id: true } }),
+      prisma.student.findUnique({ where: { email }, select: { id: true } }),
+    ]);
+    for (const [role, row] of [
+      ["ADMIN", admin],
+      ["TEACHER", teacher],
+      ["STUDENT", student],
+    ] as const) {
+      if (!row) continue;
+      if (exclude?.role === role && exclude.id === row.id) continue;
+      return true;
+    }
   }
 
   if (ids.username) {
-    checks.push(
-      prisma.teacher.findUnique({ where: { username: ids.username }, select: { id: true } }),
-      prisma.student.findUnique({ where: { username: ids.username }, select: { id: true } })
-    );
+    const username = ids.username;
+    const [teacher, student] = await Promise.all([
+      prisma.teacher.findUnique({ where: { username }, select: { id: true } }),
+      prisma.student.findUnique({ where: { username }, select: { id: true } }),
+    ]);
+    for (const [role, row] of [
+      ["TEACHER", teacher],
+      ["STUDENT", student],
+    ] as const) {
+      if (!row) continue;
+      if (exclude?.role === role && exclude.id === row.id) continue;
+      return true;
+    }
   }
 
-  const results = await Promise.all(checks);
-  return results.some(Boolean);
+  return false;
 }
 
 export function sessionLoginLabel(user: { email?: string | null; username?: string | null }): string {

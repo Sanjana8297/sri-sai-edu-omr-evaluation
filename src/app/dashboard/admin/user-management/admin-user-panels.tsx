@@ -35,17 +35,270 @@ type PaperAccess = { create: boolean; publish: boolean; grade: boolean };
 
 const PAPER_ACCESS_KEY = "admin-teacher-paper-access";
 
+type CredentialRole = "STUDENT" | "TEACHER" | "ADMIN";
+
+type CredentialAccount = {
+  id: string;
+  name: string;
+  role: CredentialRole;
+  email: string | null;
+  username?: string | null;
+  category?: string | null;
+};
+
+function ResetCredentialsForm({
+  accounts,
+  onUpdated,
+}: {
+  accounts: CredentialAccount[];
+  onUpdated?: () => void | Promise<void>;
+}) {
+  const [selectedKey, setSelectedKey] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [clearEmail, setClearEmail] = useState(false);
+  const [clearUsername, setClearUsername] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const selected = useMemo(() => {
+    if (!selectedKey) return null;
+    const [role, id] = selectedKey.split(":");
+    return accounts.find((a) => a.role === role && a.id === id) ?? null;
+  }, [accounts, selectedKey]);
+
+  const canClearEmail = selected?.role !== "ADMIN" && Boolean(selected?.username || newUsername.trim());
+  const canClearUsername = selected?.role !== "ADMIN" && Boolean(selected?.email || newEmail.trim());
+
+  function clearInputs() {
+    setNewEmail("");
+    setNewUsername("");
+    setNewPassword("");
+    setClearEmail(false);
+    setClearUsername(false);
+  }
+
+  function resetFormFields() {
+    clearInputs();
+    setError(null);
+    setSuccess(null);
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selected) {
+      setSuccess(null);
+      setError("Select an account first.");
+      return;
+    }
+
+    const payload: {
+      role: CredentialRole;
+      userId: string;
+      email?: string | null;
+      username?: string | null;
+      password?: string;
+    } = {
+      role: selected.role,
+      userId: selected.id,
+    };
+
+    if (clearEmail) payload.email = null;
+    else if (newEmail.trim()) payload.email = newEmail.trim();
+
+    if (selected.role !== "ADMIN") {
+      if (clearUsername) payload.username = null;
+      else if (newUsername.trim()) payload.username = newUsername.trim();
+    }
+
+    if (newPassword.trim()) payload.password = newPassword.trim();
+
+    const hasChange =
+      payload.email !== undefined ||
+      payload.username !== undefined ||
+      Boolean(payload.password);
+
+    if (!hasChange) {
+      setSuccess(null);
+      setError("Enter a new email, username, and/or password.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch("/api/admin/users/credentials", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Failed to reset credentials. Please try again.");
+        return;
+      }
+      clearInputs();
+      const updatedUser = j.user as { email?: string | null; username?: string | null } | undefined;
+      const loginHint = updatedUser
+        ? displayLoginId(updatedUser)
+        : displayLoginId(selected);
+      setSuccess(`Credentials reset successfully for ${selected.name}. New login ID: ${loginHint}.`);
+      await onUpdated?.();
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form className="space-y-3" onSubmit={submit}>
+      {success ? (
+        <div
+          role="status"
+          className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+        >
+          {success}
+        </div>
+      ) : null}
+      {error ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+        >
+          {error}
+        </div>
+      ) : null}
+      <select
+        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        value={selectedKey}
+        onChange={(e) => {
+          setSelectedKey(e.target.value);
+          resetFormFields();
+        }}
+      >
+        <option value="">Select account</option>
+        {accounts.map((a) => (
+          <option key={`${a.role}:${a.id}`} value={`${a.role}:${a.id}`}>
+            {a.name}
+            {a.category ? ` (${a.category})` : ""} · {a.role === "ADMIN" ? "Admin" : a.role === "TEACHER" ? "Teacher" : "Student"} ·{" "}
+            {displayLoginId(a)}
+          </option>
+        ))}
+      </select>
+
+      {selected ? (
+        <p className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)]">
+          Current login: <strong className="text-[var(--foreground)]">{displayLoginId(selected)}</strong>
+          {selected.email ? (
+            <>
+              {" "}
+              · email: <span className="font-mono">{selected.email}</span>
+            </>
+          ) : null}
+          {selected.username ? (
+            <>
+              {" "}
+              · username: <span className="font-mono">{selected.username}</span>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+
+      <input
+        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        type="email"
+        placeholder="New email (leave blank to keep)"
+        value={newEmail}
+        onChange={(e) => {
+          setNewEmail(e.target.value);
+          if (e.target.value.trim()) setClearEmail(false);
+        }}
+        disabled={!selected || clearEmail}
+      />
+
+      {selected?.role !== "ADMIN" ? (
+        <>
+          <input
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            placeholder="New username (leave blank to keep)"
+            value={newUsername}
+            onChange={(e) => {
+              setNewUsername(e.target.value);
+              if (e.target.value.trim()) setClearUsername(false);
+            }}
+            disabled={!selected || clearUsername}
+          />
+          <div className="flex flex-wrap gap-4 text-xs">
+            {selected?.email || newEmail.trim() ? (
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={clearUsername}
+                  onChange={(e) => {
+                    setClearUsername(e.target.checked);
+                    if (e.target.checked) setNewUsername("");
+                  }}
+                  disabled={!canClearUsername}
+                />
+                Remove username
+              </label>
+            ) : null}
+            {selected?.username || newUsername.trim() ? (
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={clearEmail}
+                  onChange={(e) => {
+                    setClearEmail(e.target.checked);
+                    if (e.target.checked) setNewEmail("");
+                  }}
+                  disabled={!canClearEmail}
+                />
+                Remove email
+              </label>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+
+      <input
+        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        type="password"
+        placeholder="New password (leave blank to keep)"
+        value={newPassword}
+        onChange={(e) => setNewPassword(e.target.value)}
+        disabled={!selected}
+        autoComplete="new-password"
+      />
+
+      <button
+        type="submit"
+        disabled={!selected || loading}
+        className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+      >
+        {loading ? "Saving…" : "Update credentials"}
+      </button>
+    </form>
+  );
+}
+
 const STUDENT_PROFILE_ACTIVITIES: ActivityFeature[] = [
   { id: "bulk", title: "Bulk enrolment (CSV / API)", description: "Import many students at once" },
   { id: "single", title: "Single enrolment", description: "Add one student with mentor assignment" },
   { id: "track-tag", title: "Target exam: NEET / JEE tag", description: "Filter and view student records by track" },
-  { id: "attempt-history", title: "Attempt history timeline", description: "Exam attempts for a selected student" },
+  { id: "attempt-history", title: "Attempt history timeline", description: "Exam attempts — all students or filter by one" },
+  { id: "reset-credentials", title: "Reset credentials", description: "Change a student's email, username, or password" },
 ];
 
 const TEACHER_ROLE_ACTIVITIES: ActivityFeature[] = [
   { id: "create-staff", title: "Create staff account", description: "Institute / batch segmentation on enrolment" },
   { id: "paper-access", title: "Paper access permission control", description: "Per-teacher question paper rights" },
   { id: "staff-directory", title: "Staff directory", description: "Teachers on the platform" },
+  { id: "reset-credentials", title: "Reset credentials", description: "Change teacher or admin email, username, or password" },
   { id: "audit", title: "Activity / audit trail per role", description: "Recent admin actions in this session" },
 ];
 
@@ -240,11 +493,24 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
   const pagedStudents = filteredStudents.slice((page - 1) * pageSize, page * pageSize);
 
   const studentAttempts = useMemo(() => {
-    if (!historyStudentId) return [];
-    return attempts
-      .filter((a) => a.studentId === historyStudentId)
-      .sort((a, b) => new Date(b.examDate).getTime() - new Date(a.examDate).getTime());
+    const list = historyStudentId
+      ? attempts.filter((a) => a.studentId === historyStudentId)
+      : attempts;
+    return [...list].sort((a, b) => new Date(b.examDate).getTime() - new Date(a.examDate).getTime());
   }, [attempts, historyStudentId]);
+
+  const studentCredentialAccounts = useMemo<CredentialAccount[]>(
+    () =>
+      students.map((s) => ({
+        id: s.id,
+        name: s.name,
+        role: "STUDENT" as const,
+        email: s.email,
+        username: s.username,
+        category: s.category,
+      })),
+    [students]
+  );
 
   function renderFeature(id: string) {
     switch (id) {
@@ -440,14 +706,14 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
             value={historyStudentId}
             onChange={(e) => setHistoryStudentId(e.target.value)}
           >
-            <option value="">Select student</option>
+            <option value="">All students</option>
             {students.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name} ({s.category})
               </option>
             ))}
           </select>
-          {historyStudentId && studentAttempts.length === 0 ? (
+          {studentAttempts.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">No exam attempts recorded yet.</p>
           ) : null}
           <ul className="space-y-2">
@@ -458,6 +724,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
               >
                 <p className="text-sm font-medium">{a.title}</p>
                 <p className="text-xs text-[var(--muted)]">
+                  {!historyStudentId ? `${a.studentName} · ` : ""}
                   {new Date(a.examDate).toLocaleString()} · {a.category} · {a.marksObtained}/{a.maxMarks} (
                   {a.percentage}%)
                 </p>
@@ -465,6 +732,13 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
             ))}
           </ul>
           </div>
+        );
+      case "reset-credentials":
+        return (
+          <ResetCredentialsForm
+            accounts={studentCredentialAccounts}
+            onUpdated={load}
+          />
         );
       default:
         return null;
@@ -484,6 +758,7 @@ type AuditEntry = { at: string; action: string; detail: string };
 
 export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [admins, setAdmins] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [name, setName] = useState("");
@@ -500,9 +775,12 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
   const [success, setSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/admin/teachers");
-    const data = await res.json();
-    if (data.teachers) setTeachers(data.teachers);
+    const [t, a] = await Promise.all([
+      fetch("/api/admin/teachers").then((r) => r.json()),
+      fetch("/api/admin/admins").then((r) => r.json()),
+    ]);
+    if (t.teachers) setTeachers(t.teachers);
+    if (a.admins) setAdmins(a.admins);
     setPaperAccess(readPaperAccess());
   }, []);
 
@@ -560,6 +838,24 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
 
   const selectedAccess =
     paperAccess[selectedTeacherId] ?? { create: true, publish: false, grade: true };
+
+  const staffCredentialAccounts = useMemo<CredentialAccount[]>(() => {
+    const teacherAccounts: CredentialAccount[] = teachers.map((t) => ({
+      id: t.id,
+      name: t.name,
+      role: "TEACHER",
+      email: t.email,
+      username: t.username,
+      category: t.category,
+    }));
+    const adminAccounts: CredentialAccount[] = admins.map((a) => ({
+      id: a.id,
+      name: a.name,
+      role: "ADMIN",
+      email: a.email,
+    }));
+    return [...teacherAccounts, ...adminAccounts].sort((x, y) => x.name.localeCompare(y.name));
+  }, [teachers, admins]);
 
   function updatePaperAccess(patch: Partial<PaperAccess>) {
     if (!selectedTeacherId) return;
@@ -702,6 +998,16 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
             </tbody>
           </table>
         </div>
+        );
+      case "reset-credentials":
+        return (
+          <ResetCredentialsForm
+            accounts={staffCredentialAccounts}
+            onUpdated={async () => {
+              await load();
+              pushAudit("CREDENTIALS_RESET", "Staff or admin login details updated");
+            }}
+          />
         );
       case "audit":
         return auditLog.length === 0 ? (
