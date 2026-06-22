@@ -15,6 +15,7 @@ import {
 import { VIOLATION_LIMIT, isSessionSubmitted } from "@/lib/proctoring";
 import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
 import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
+import { InstituteBrand } from "@/components/InstituteBrand";
 import { isJeeAdvancePaperContent } from "@/lib/jee-mains-exam-structure";
 
 type StartResponse = {
@@ -524,6 +525,9 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-[var(--background)]">
         <header className="border-b border-[var(--border)] bg-[var(--card)] px-5 py-4">
+          <div className="mb-3 border-b border-[var(--border)] pb-3">
+            <InstituteBrand compact />
+          </div>
           <h1 className="text-lg font-semibold">{data.exam.title}</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">{examLabel} · Read all instructions before starting</p>
           {remainingMs != null ? (
@@ -565,9 +569,12 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[var(--background)]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 py-3">
-        <div>
-          <h1 className="text-base font-semibold">{data.exam.title}</h1>
-          <p className="text-xs text-[var(--muted)]">{data.exam.category} · CBT mode</p>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-4">
+          <InstituteBrand compact className="hidden sm:flex" />
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold">{data.exam.title}</h1>
+            <p className="text-xs text-[var(--muted)]">{data.exam.category} · CBT mode</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <div className={timerUrgent ? "text-red-600" : ""}>

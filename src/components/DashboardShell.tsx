@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { LogoutButton } from "@/components/LogoutButton";
+import { InstituteBrand } from "@/components/InstituteBrand";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   buildTeacherNavItems,
@@ -146,9 +147,14 @@ function DashboardShellInner({
     >
       <header className="shrink-0 border-b border-[var(--border)] bg-[var(--card)]">
         <div
-          className={`flex flex-wrap items-center justify-between gap-4 px-6 py-4 transition-[padding] duration-200 ${mainOffsetLg ? "lg:pl-[290px]" : ""}`}
+          className={`flex flex-wrap items-center justify-between gap-4 px-4 py-3 transition-[padding] duration-200 sm:px-6 sm:py-4 ${mainOffsetLg ? "lg:pl-[290px]" : ""}`}
         >
-          <div>
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            <InstituteBrand
+              compact
+              className={`shrink-0 ${hasNav ? "lg:hidden" : ""}`}
+            />
+            <div className="min-w-0">
             {hasNav ? (
               <button
                 type="button"
@@ -176,6 +182,7 @@ function DashboardShellInner({
             <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{badge}</p>
             <h1 className="text-xl font-semibold">{title}</h1>
             {subtitle ? <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p> : null}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {badge === "Teacher" ? (
@@ -215,6 +222,9 @@ function DashboardShellInner({
                   menuOpen ? "translate-x-0" : "-translate-x-full"
                 } ${sidebarCollapsed ? "lg:-translate-x-full" : "lg:translate-x-0"}`}
               >
+                <div className="mb-3 shrink-0 border-b border-[var(--border)] pb-3">
+                  <InstituteBrand compact />
+                </div>
                 <div className="mb-3 flex shrink-0 items-center justify-between lg:hidden">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Tasks</p>
                   <button

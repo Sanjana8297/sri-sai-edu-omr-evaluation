@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { Role } from "@/lib/types";
+import { InstituteBrand } from "@/components/InstituteBrand";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function LoginPage() {
@@ -34,10 +35,14 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-[var(--background)] px-4">
-      <div className="absolute right-4 top-4">
-        <ThemeToggle />
-      </div>
+    <div className="relative flex min-h-screen flex-col bg-[var(--background)]">
+      <header className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-3 sm:px-6">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
+          <InstituteBrand compact />
+          <ThemeToggle />
+        </div>
+      </header>
+      <div className="flex flex-1 items-center justify-center px-4 py-8">
       <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8 shadow-sm">
         <Link
           href="/"
@@ -108,6 +113,7 @@ export default function LoginPage() {
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
+      </div>
       </div>
     </div>
   );
