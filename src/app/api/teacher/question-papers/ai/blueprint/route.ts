@@ -8,6 +8,7 @@ import {
   validateSubjectSectionCounts,
 } from "@/lib/jee-advance-exam-structure";
 import { buildJeeAdvanceBlueprintPayload } from "@/lib/jee-advance-paper-builder";
+import { prisma } from "@/lib/prisma";
 
 type DifficultyLevel = "easy" | "medium" | "hard";
 
@@ -92,6 +93,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "durationMinutes is required" }, { status: 400 });
   }
 
+  const me = await prisma.teacher.findUnique({
+    where: { id: session.sub },
+    select: { category: true },
+  });
+  if (!me) {
+    return NextResponse.json({ error: "Invalid teacher profile" }, { status: 400 });
+  }
+
   try {
     const requestedProfile = body.examProfile;
     const targetCategory =
@@ -99,6 +108,13 @@ export async function POST(request: Request) {
     const isJee = targetCategory === "JEE";
     const isJeeAdvance = requestedProfile === "JEE ADV";
     const isNeet = targetCategory === "NEET";
+
+    if (isNeet && me.category !== "NEET") {
+      return NextResponse.json({ error: "NEET papers are only available on the NEET track" }, { status: 403 });
+    }
+    if (isJee && me.category !== "JEE") {
+      return NextResponse.json({ error: "JEE papers are only available on the JEE track" }, { status: 403 });
+    }
 
     if (isJeeAdvance) {
       const subjects =

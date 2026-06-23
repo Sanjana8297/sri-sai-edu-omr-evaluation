@@ -75,3 +75,23 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     },
   });
 }
+
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const { session, response } = await requireRoles(["TEACHER"]);
+  if (response) return response;
+
+  const { id } = await context.params;
+
+  const existing = await prisma.exam.findFirst({
+    where: { id, teacherId: session.sub },
+    select: { id: true, title: true, _count: { select: { examSessions: true } } },
+  });
+  if (!existing) return NextResponse.json({ error: "Exam not found" }, { status: 404 });
+
+  await prisma.exam.delete({ where: { id: existing.id } });
+
+  return NextResponse.json({
+    ok: true,
+    deletedSessions: existing._count.examSessions,
+  });
+}

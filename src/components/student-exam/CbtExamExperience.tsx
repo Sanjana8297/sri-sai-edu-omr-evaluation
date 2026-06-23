@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseQuestionPaperContentWithOptions, type ParsedQuestion } from "@/lib/exam-paper-parser";
-import { type CbtSettings, type BilingualMode } from "@/lib/cbt-settings";
+import { type CbtSettings } from "@/lib/cbt-settings";
 import { displayPrompt, splitBilingualPrompt } from "@/lib/bilingual-prompt";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 import {
@@ -78,7 +78,6 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   const [markedForReview, setMarkedForReview] = useState<Set<string>>(() => new Set());
   const [visited, setVisited] = useState<Set<string>>(() => new Set());
   const [activeGlobalIndex, setActiveGlobalIndex] = useState(0);
-  const [questionLang, setQuestionLang] = useState<"en" | "hi">("en");
   const [syncStatus, setSyncStatus] = useState<"synced" | "syncing" | "offline" | "error">("synced");
   const [fullscreenOk, setFullscreenOk] = useState(false);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
@@ -119,9 +118,6 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   const deadlineMs = useMemo(() => (data ? new Date(data.session.deadline).getTime() : null), [data]);
   const remainingMs = deadlineMs == null ? null : Math.max(0, deadlineMs - now);
   const timerUrgent = remainingMs != null && remainingMs < 5 * 60_000;
-
-  const bilingualMode: BilingualMode = settings?.bilingualMode ?? "both";
-  const showLangToggle = bilingualMode === "both";
 
   const stopMediaAccess = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -337,7 +333,6 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     setAnswers(mergedAnswers);
     setMarkedForReview(mergedMarked);
     setVisited(mergedVisited);
-    if (json.exam.cbtSettings.bilingualMode === "hi") setQuestionLang("hi");
 
     if (isSessionSubmitted(json.session.status)) {
       finalizedRef.current = true;
@@ -516,12 +511,10 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   }
 
   const promptParts = activeQuestion ? splitBilingualPrompt(activeQuestion.prompt) : null;
-  const displayMode = bilingualMode === "both" ? questionLang : bilingualMode;
+  const promptLang = settings?.bilingualMode === "hi" ? "hi" : "en";
   const promptText =
     promptParts && activeQuestion
-      ? formatQuestionTextForDisplay(
-          displayPrompt(promptParts, bilingualMode, displayMode as "en" | "hi")
-        )
+      ? formatQuestionTextForDisplay(displayPrompt(promptParts, promptLang, promptLang))
       : "";
 
   const answeredCount = flatQuestions.filter((q) => Boolean(answers[q.id])).length;
@@ -696,20 +689,6 @@ export function CbtExamExperience({ examId }: { examId: string }) {
                   Question {activeGlobalIndex + 1} of {flatQuestions.length}
                   <span className="ml-2 text-[var(--muted)]">({activeQuestion.section})</span>
                 </p>
-                {showLangToggle ? (
-                  <div className="flex rounded-lg border border-[var(--border)] p-0.5 text-xs">
-                    {(["en", "hi"] as const).map((lang) => (
-                      <button
-                        key={lang}
-                        type="button"
-                        className={`rounded-md px-3 py-1 ${questionLang === lang ? "bg-[var(--accent)] text-white" : ""}`}
-                        onClick={() => setQuestionLang(lang)}
-                      >
-                        {lang === "en" ? "English" : "हिंदी"}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
               </div>
 
               <div className="flex-1 overflow-y-auto px-5 py-4">

@@ -21,6 +21,19 @@ import {
 } from "@/lib/ai-paper-config";
 import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
 import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
+import type { TeacherTrack } from "@/lib/dashboard-nav";
+
+type AiTrackProfile = "JEE" | "JEE ADV" | "NEET";
+
+const AI_TRACK_OPTIONS: { value: AiTrackProfile; label: string; teacherTrack: TeacherTrack }[] = [
+  { value: "JEE", label: "JEE MAINS", teacherTrack: "JEE" },
+  { value: "JEE ADV", label: "JEE ADV", teacherTrack: "JEE" },
+  { value: "NEET", label: "NEET", teacherTrack: "NEET" },
+];
+
+function trackOptionsForTeacher(teacherTrack: TeacherTrack) {
+  return AI_TRACK_OPTIONS.filter((option) => option.teacherTrack === teacherTrack);
+}
 
 type DifficultyLevel = "easy" | "medium" | "hard";
 type ExamSection = {
@@ -42,7 +55,8 @@ type PaperBlueprint = {
 };
 
 export default function TeacherAiBuilderPage() {
-  const [aiTrackProfile, setAiTrackProfile] = useState<"JEE" | "JEE ADV" | "NEET">("JEE");
+  const [teacherTrack, setTeacherTrack] = useState<TeacherTrack | null>(null);
+  const [aiTrackProfile, setAiTrackProfile] = useState<AiTrackProfile>("JEE");
   const [advanceSubjects, setAdvanceSubjects] = useState<JeeAdvanceSubjectConfig[]>(
     buildDefaultAdvanceSubjects
   );
@@ -67,10 +81,20 @@ export default function TeacherAiBuilderPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const availableTrackOptions = useMemo(
+    () => (teacherTrack ? trackOptionsForTeacher(teacherTrack) : []),
+    [teacherTrack]
+  );
+
   const loadMe = useCallback(async () => {
     const u = await fetch("/api/me").then((r) => r.json());
-    if (u.user?.category) {
-      setAiTrackProfile(u.user.category === "NEET" ? "NEET" : "JEE");
+    const category = u.user?.category;
+    if (category === "JEE" || category === "NEET") {
+      setTeacherTrack(category);
+      const options = trackOptionsForTeacher(category);
+      setAiTrackProfile((prev) =>
+        options.some((option) => option.value === prev) ? prev : options[0]?.value ?? "JEE"
+      );
     }
   }, []);
 
@@ -337,13 +361,16 @@ export default function TeacherAiBuilderPage() {
             <label className="text-xs text-[var(--muted)]">
               Track
               <select
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-70"
                 value={aiTrackProfile}
-                onChange={(e) => setAiTrackProfile(e.target.value as "JEE" | "JEE ADV" | "NEET")}
+                onChange={(e) => setAiTrackProfile(e.target.value as AiTrackProfile)}
+                disabled={!teacherTrack}
               >
-                <option value="JEE">JEE</option>
-                <option value="JEE ADV">JEE ADV</option>
-                <option value="NEET">NEET</option>
+                {availableTrackOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="text-xs text-[var(--muted)]">

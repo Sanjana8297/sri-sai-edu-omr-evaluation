@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
-import { DEFAULT_CBT_SETTINGS, type BilingualMode, type CbtSettings } from "@/lib/cbt-settings";
+import { DEFAULT_CBT_SETTINGS, type CbtSettings } from "@/lib/cbt-settings";
 import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
 import { OmrTemplatePreview } from "@/components/omr/OmrTemplatePreview";
 import {
@@ -56,7 +56,6 @@ const ONLINE_ACTIVITIES: ActivityFeature[] = [
   { id: "palette", title: "Question palette", description: "NTA-style navigation during CBT" },
   { id: "proctoring", title: "Browser lock / anti-cheat", description: "Proctoring during live attempt" },
   { id: "offline", title: "Offline fallback sync", description: "Cache answers when connectivity drops" },
-  { id: "bilingual", title: "Bilingual question toggle", description: "English / Hindi stems during CBT" },
 ];
 
 function presetToTrack(preset: ExamPreset): OmrTrack {
@@ -614,26 +613,6 @@ export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: stri
             </p>
           </>
         );
-      case "bilingual":
-        return (
-          <>
-            <label className="block text-xs text-[var(--muted)]">
-              Default language mode
-              <select
-                value={cbt.bilingualMode}
-                onChange={(e) => update({ bilingualMode: e.target.value as BilingualMode })}
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              >
-                <option value="en">English only</option>
-                <option value="hi">Hindi only</option>
-                <option value="both">Bilingual (toggle per question)</option>
-              </select>
-            </label>
-            <p className="mt-3 text-xs text-[var(--muted)]">
-              Format stems as <span className="font-mono text-[11px]">English | Hindi</span> in your question paper.
-            </p>
-          </>
-        );
       default:
         return null;
     }
@@ -649,33 +628,17 @@ export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: stri
         ) : null}
       </div>
       <div className="flex flex-col gap-4">
-        {ONLINE_ACTIVITIES.map((feature, index) => {
-          const next = ONLINE_ACTIVITIES[index + 1];
-          return (
-            <section
-              key={feature.id}
-              id={`online-activity-${feature.id}`}
-              className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6 scroll-mt-6"
-            >
-              <h3 className="text-base font-semibold text-[var(--foreground)]">{feature.title}</h3>
-              <p className="mt-1 text-sm text-[var(--muted)]">{feature.description}</p>
-              <div className="mt-5 border-t border-[var(--border)] pt-5">{renderFeature(feature.id)}</div>
-              {next ? (
-                <div className="mt-6 flex justify-end border-t border-[var(--border)] pt-5">
-                  <button
-                    type="button"
-                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
-                    onClick={() =>
-                      document.getElementById(`online-activity-${next.id}`)?.scrollIntoView({ behavior: "smooth" })
-                    }
-                  >
-                    Next: {next.title} →
-                  </button>
-                </div>
-              ) : null}
-            </section>
-          );
-        })}
+        {ONLINE_ACTIVITIES.map((feature) => (
+          <section
+            key={feature.id}
+            id={`online-activity-${feature.id}`}
+            className="scroll-mt-6 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6"
+          >
+            <h3 className="text-base font-semibold text-[var(--foreground)]">{feature.title}</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">{feature.description}</p>
+            <div className="mt-5 border-t border-[var(--border)] pt-5">{renderFeature(feature.id)}</div>
+          </section>
+        ))}
       </div>
 
       <div className="sticky bottom-0 z-10 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm">

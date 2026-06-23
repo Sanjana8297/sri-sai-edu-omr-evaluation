@@ -41,6 +41,27 @@ const SECTION_SUBTITLES: Record<DeliverySection, string> = {
   online: "CBT / hybrid delivery",
 };
 
+function DeleteExamIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
 function ExamSchedulingPanel({
   err,
   msg,
@@ -62,6 +83,7 @@ function ExamSchedulingPanel({
   const [isPublished, setIsPublished] = useState(true);
   const [reviewExamId, setReviewExamId] = useState("");
   const [reviews, setReviews] = useState<SessionReview[]>([]);
+  const [deletingExamId, setDeletingExamId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [papersRes, examsRes] = await Promise.all([
@@ -138,6 +160,37 @@ function ExamSchedulingPanel({
     setErr(null);
     setMsg(`Exam ${json.exam.isPublished ? "published" : "unpublished"}.`);
     await load();
+  }
+
+  async function deleteExam(exam: Exam) {
+    const sessionNote =
+      exam._count.examSessions > 0
+        ? ` This will also remove ${exam._count.examSessions} student session(s) linked to this exam.`
+        : "";
+    const ok = window.confirm(
+      `Delete scheduled exam "${exam.title}"? This cannot be undone.${sessionNote}`
+    );
+    if (!ok) return;
+
+    setDeletingExamId(exam.id);
+    setErr(null);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/teacher/exams/${exam.id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) {
+        setErr(json.error ?? "Could not delete exam");
+        return;
+      }
+      if (reviewExamId === exam.id) {
+        setReviewExamId("");
+        setReviews([]);
+      }
+      setMsg(`Exam "${exam.title}" deleted.`);
+      await load();
+    } finally {
+      setDeletingExamId(null);
+    }
   }
 
   return (
@@ -239,12 +292,24 @@ function ExamSchedulingPanel({
                       Duration: {exam.durationMinutes} min · Sessions: {exam._count.examSessions}
                     </p>
                   </div>
-                  <button
-                    className="rounded border border-[var(--border)] px-3 py-1 text-sm"
-                    onClick={() => void togglePublish(exam)}
-                  >
-                    {exam.isPublished ? "Unpublish" : "Publish"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="rounded border border-[var(--border)] px-3 py-1 text-sm"
+                      onClick={() => void togglePublish(exam)}
+                    >
+                      {exam.isPublished ? "Unpublish" : "Publish"}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-red-200 p-2 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void deleteExam(exam)}
+                      disabled={deletingExamId === exam.id}
+                      aria-label={`Delete ${exam.title}`}
+                      title="Delete exam"
+                    >
+                      <DeleteExamIcon />
+                    </button>
+                  </div>
                 </div>
               </article>
             ))}

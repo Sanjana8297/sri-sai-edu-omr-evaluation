@@ -6,13 +6,17 @@ import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { DashboardShell } from "@/components/DashboardShell";
 import { QuestionBankFilters, type FilterState } from "@/components/question-bank/QuestionBankFilters";
-import { QuestionBankVirtualList } from "@/components/question-bank/QuestionBankVirtualList";
+import { QuestionBankPageList } from "@/components/question-bank/QuestionBankPageList";
+import { QuestionBankPagination } from "@/components/question-bank/QuestionBankPagination";
 import { SUBJECTS_BY_TRACK, teacherNavItems, type TeacherTrack } from "@/lib/dashboard-nav";
 import { parseQuestionBankCsvToObjects } from "@/lib/question-bank-csv";
 import { buildFullBankFilters, exportQuestionsFromServer } from "@/lib/questions/export-client";
 import type { QuestionBankFilters as QuestionBankQueryFilters } from "@/lib/questions/types";
 import { useDebouncedValue } from "@/hooks/questions/use-debounced-value";
-import { flattenQuestionPages, useQuestionBankInfinite } from "@/hooks/questions/use-question-bank-infinite";
+import {
+  QUESTION_BANK_PAGE_SIZE,
+  useQuestionBankPaged,
+} from "@/hooks/questions/use-question-bank-paged";
 import { hasActiveQuestionFilters, questionKeys } from "@/hooks/questions/keys";
 import { useQuestionBankFilteredTotal } from "@/hooks/questions/use-question-bank-total";
 
@@ -40,6 +44,8 @@ export default function TeacherSubjectQuestionBankPage() {
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingFullBank, setExportingFullBank] = useState(false);
+  const [page, setPage] = useState(1);
+  const listTopRef = useRef<HTMLDivElement>(null);
 
   const allowedSubjects = useMemo(() => SUBJECTS_BY_TRACK[track], [track]);
   const subjectAllowed = allowedSubjects.includes(subjectFromUrl);
@@ -61,23 +67,37 @@ export default function TeacherSubjectQuestionBankPage() {
   const filtersActive = hasActiveQuestionFilters(queryFilters);
 
   const {
-    data,
+    data: pageData,
     error,
     isLoading,
-    isFetchingNextPage,
-    hasNextPage,
-    fetchNextPage,
+    isFetching,
     refetch,
-  } = useQuestionBankInfinite(queryFilters, listEnabled);
+  } = useQuestionBankPaged(queryFilters, page, listEnabled);
 
   const { data: filteredTotal, isFetching: isTotalFetching } = useQuestionBankFilteredTotal(
     queryFilters,
     listEnabled
   );
 
-  const items = useMemo(() => flattenQuestionPages(data), [data]);
+  const items = pageData?.questions ?? [];
   const total = filteredTotal ?? null;
   const totalPending = isTotalFetching && filteredTotal === undefined;
+  const totalPages = total != null ? Math.max(1, Math.ceil(total / QUESTION_BANK_PAGE_SIZE)) : 1;
+
+  useEffect(() => {
+    setPage(1);
+  }, [queryFilters]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const goToPage = useCallback((nextPage: number) => {
+    setPage(nextPage);
+    listTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const loadMe = useCallback(async () => {
     try {
@@ -214,7 +234,7 @@ export default function TeacherSubjectQuestionBankPage() {
     <DashboardShell
       badge="Teacher"
       title={`${subjectFromUrl || "Subject"} Question Bank`}
-      subtitle="Paginated questions from the database — scroll to load more."
+      subtitle="Browse questions 25 per page with filters and export."
       navItems={teacherNavItems}
     >
       <div className="space-y-4">
@@ -247,7 +267,7 @@ export default function TeacherSubjectQuestionBankPage() {
                   <h2 className="text-sm font-semibold">Bulk import & export (CSV / PDF)</h2>
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     Filtered export uses your current filters. Full bank export fetches every question for this
-                    subject on the server only when you click — the list below still loads 40 at a time.
+                    subject on the server only when you click — the list below shows 25 questions per page.
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -308,7 +328,7 @@ export default function TeacherSubjectQuestionBankPage() {
               {importErr ? <p className="mt-3 text-sm text-red-600">{importErr}</p> : null}
             </div>
 
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+            <div ref={listTopRef} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
               <QuestionBankFilters
                 track={track}
                 filters={filterState}
@@ -319,25 +339,38 @@ export default function TeacherSubjectQuestionBankPage() {
                 <p className="mt-3 text-sm text-[var(--muted)]">
                   {totalPending ? (
                     <>Updating count…</>
+                  ) : total === 0 ? (
+                    <>No questions{filtersActive ? " matching your filters" : ""}</>
                   ) : (
                     <>
-                      Showing {items.length} of {total} question{total === 1 ? "" : "s"}
+                      Page {page} of {totalPages} · Showing{" "}
+                      {(page - 1) * QUESTION_BANK_PAGE_SIZE + 1}–
+                      {Math.min(page * QUESTION_BANK_PAGE_SIZE, total)} of {total} question
+                      {total === 1 ? "" : "s"}
                       {filtersActive ? " matching your filters" : ""}
-                      {hasNextPage ? " — scroll for more" : ""}
                     </>
                   )}
                 </p>
               ) : null}
 
-              <QuestionBankVirtualList
+              <QuestionBankPageList
                 items={items}
+                page={page}
+                pageSize={QUESTION_BANK_PAGE_SIZE}
                 isLoading={isLoading}
-                isFetchingNextPage={isFetchingNextPage}
-                hasNextPage={hasNextPage ?? false}
-                fetchNextPage={() => void fetchNextPage()}
+                isFetching={isFetching}
                 error={error}
                 onRetry={() => void refetch()}
               />
+
+              {total != null && total > 0 ? (
+                <QuestionBankPagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={goToPage}
+                  disabled={isFetching}
+                />
+              ) : null}
             </div>
           </>
         ) : null}

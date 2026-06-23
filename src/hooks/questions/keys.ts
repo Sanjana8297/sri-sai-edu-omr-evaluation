@@ -38,6 +38,8 @@ export const questionKeys = {
   lists: () => [...questionKeys.all, "list"] as const,
   list: (filters: QuestionBankQueryFilters) =>
     [...questionKeys.lists(), serializeQuestionFilters(filters)] as const,
+  listPage: (filters: QuestionBankQueryFilters, page: number) =>
+    [...questionKeys.list(filters), "page", page] as const,
   listTotal: (filters: QuestionBankQueryFilters) =>
     [...questionKeys.list(filters), "total"] as const,
   detail: (id: number) => [...questionKeys.all, "detail", id] as const,
