@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
 import { computeSessionDeadline } from "@/lib/proctoring";
-import { getExamSessionCbtState, saveExamSessionProgress } from "@/lib/cbt-settings-db";
+import { saveExamSessionProgress } from "@/lib/cbt-settings-db";
+import type { ExamSessionCbtState } from "@/lib/cbt-settings-db";
 
 export async function PATCH(request: Request, context: { params: Promise<{ examId: string }> }) {
   const { session, response } = await requireRoles(["STUDENT"]);
@@ -22,7 +23,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ examI
 
   const sessionRow = await prisma.examSession.findFirst({
     where: { examId, studentId: session.sub },
-    include: { exam: true },
+    select: {
+      id: true,
+      status: true,
+      startedAt: true,
+      submittedAnswers: true,
+      cbtState: true,
+      exam: { select: { endTime: true, durationMinutes: true } },
+    },
   });
   if (!sessionRow) return NextResponse.json({ error: "Exam session not found" }, { status: 404 });
   if (sessionRow.status !== "IN_PROGRESS") {
@@ -40,7 +48,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ examI
   }
 
   const existingAnswers = (sessionRow.submittedAnswers as Record<string, string> | null) ?? {};
-  const existingState = await getExamSessionCbtState(sessionRow.id);
+  const existingState = (sessionRow.cbtState as ExamSessionCbtState | null) ?? {};
 
   const nextAnswers = body.answers ? { ...existingAnswers, ...body.answers } : existingAnswers;
   const nextState = {

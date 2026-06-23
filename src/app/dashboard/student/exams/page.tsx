@@ -13,7 +13,7 @@ type StudentExam = {
   id: string;
   title: string;
   category: string;
-  status: "UPCOMING" | "LIVE" | "ENDED";
+  status: "LIVE";
   startTime: string;
   endTime: string;
   durationMinutes: number;
@@ -29,7 +29,6 @@ type StudentExam = {
 export default function StudentExamsPage() {
   const [exams, setExams] = useState<StudentExam[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const hasLiveExams = exams.some((exam) => exam.status === "LIVE");
 
   const load = useCallback(async () => {
     const res = await fetch("/api/student/exams/available");
@@ -46,7 +45,7 @@ export default function StudentExamsPage() {
         clearExamSubmittedLocally(exam.id);
       }
     }
-    setExams(list);
+    setExams(list.filter((exam) => !wasExamSubmittedLocally(exam.id)));
   }, []);
 
   useEffect(() => {
@@ -62,7 +61,6 @@ export default function StudentExamsPage() {
 
   function canTakeExam(exam: StudentExam): boolean {
     if (wasExamSubmittedLocally(exam.id)) return false;
-    if (exam.status !== "LIVE") return false;
     const session = exam.examSessions[0];
     return !session || !isSessionSubmitted(session.status);
   }
@@ -70,8 +68,8 @@ export default function StudentExamsPage() {
   return (
     <DashboardShell
       badge="Student"
-      title="Available Exams"
-      subtitle="Start exams only during the scheduled window. Proctoring runs during attempt."
+      title="Take Exam"
+      subtitle="Exams listed here are open now and ready for you to start or resume."
       navItems={studentNavItems}
     >
       <div className="space-y-4">
@@ -79,19 +77,13 @@ export default function StudentExamsPage() {
         {exams.length === 0 ? (
           <div className="flex min-h-[40vh] items-center justify-center">
             <p className="text-center text-2xl font-semibold text-[var(--muted)]">
-              No exams available for your track yet.
-            </p>
-          </div>
-        ) : null}
-        {exams.length > 0 && !hasLiveExams ? (
-          <div className="flex min-h-[20vh] items-center justify-center">
-            <p className="text-center text-2xl font-semibold text-[var(--muted)]">
-              No Live Exams to be taken.
+              No exams are open for you right now.
             </p>
           </div>
         ) : null}
         {exams.map((exam) => {
           const latestSession = exam.examSessions[0];
+          const inProgress = latestSession?.status === "IN_PROGRESS";
           return (
             <article key={exam.id} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -101,25 +93,22 @@ export default function StudentExamsPage() {
                     {exam.category} · Duration {exam.durationMinutes} minutes
                   </p>
                   <p className="text-sm text-[var(--muted)]">
-                    Window: {new Date(exam.startTime).toLocaleString()} to {new Date(exam.endTime).toLocaleString()}
+                    Open until {new Date(exam.endTime).toLocaleString()}
                   </p>
-                  <p className="mt-1 text-sm">
-                    Status: <strong>{exam.status}</strong>
-                    {latestSession ? ` · Last attempt: ${latestSession.status}` : ""}
-                  </p>
+                  {inProgress ? (
+                    <p className="mt-1 text-sm text-blue-700">
+                      You have an attempt in progress — resume to continue.
+                    </p>
+                  ) : null}
                 </div>
                 {canTakeExam(exam) ? (
                   <a
                     href={`/dashboard/student/exams/${exam.id}/take`}
                     className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white"
                   >
-                    Start / Resume
+                    {inProgress ? "Resume" : "Start exam"}
                   </a>
-                ) : (
-                  <span className="rounded-lg bg-[var(--muted)] px-3 py-2 text-sm font-medium text-white">
-                    Not available
-                  </span>
-                )}
+                ) : null}
               </div>
             </article>
           );

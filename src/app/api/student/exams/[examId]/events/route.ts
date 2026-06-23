@@ -6,7 +6,7 @@ import { getExamCbtSettings } from "@/lib/cbt-settings-db";
 import type { CbtSettings } from "@/lib/cbt-settings";
 import { Prisma } from "@prisma/client";
 import type { ProctoringEventType } from "@prisma/client";
-import { parseQuestionPaperContentWithOptions, compareExamAnswers } from "@/lib/exam-paper-parser";
+import { getCachedAnswerKeyForPaper, scoreExamAnswers } from "@/lib/exam-paper-parser";
 
 function isStrikeEvent(
   eventType: ProctoringEventType,
@@ -36,7 +36,28 @@ export async function POST(request: Request, context: { params: Promise<{ examId
 
   const sessionRow = await prisma.examSession.findFirst({
     where: { examId, studentId: session.sub },
-    include: { exam: { include: { questionPaper: true } } },
+    select: {
+      id: true,
+      status: true,
+      startedAt: true,
+      submittedAt: true,
+      violationCount: true,
+      autoSubmittedReason: true,
+      cameraGranted: true,
+      micGranted: true,
+      submittedAnswers: true,
+      studentId: true,
+      examId: true,
+      exam: {
+        select: {
+          title: true,
+          category: true,
+          endTime: true,
+          durationMinutes: true,
+          questionPaperId: true,
+        },
+      },
+    },
   });
   if (!sessionRow) return NextResponse.json({ error: "Exam session not found" }, { status: 404 });
   if (sessionRow.status !== "IN_PROGRESS") {
@@ -66,22 +87,13 @@ export async function POST(request: Request, context: { params: Promise<{ examId
     if (nextViolationCount >= VIOLATION_LIMIT) {
       const existingAnswers =
         (sessionRow.submittedAnswers as Record<string, string> | null) ?? {};
-      const { answerKey } = parseQuestionPaperContentWithOptions(
-        sessionRow.exam.questionPaper.questionContent ?? "",
-        sessionRow.exam.questionPaper.keyContent ?? ""
-      );
-      const keyEntries = Object.entries(answerKey);
-      let obtained = 0;
-      for (const [questionId, expectedRaw] of keyEntries) {
-        const selectedRaw = existingAnswers[questionId];
-        if (!selectedRaw) continue;
-        if (compareExamAnswers(selectedRaw, expectedRaw)) {
-          obtained += 4;
-        } else {
-          obtained -= 1;
-        }
-      }
-      const scoreMax = keyEntries.length * 4;
+      const paper = await tx.questionPaper.findUnique({
+        where: { id: sessionRow.exam.questionPaperId },
+        select: { id: true, keyContent: true },
+      });
+      if (!paper) throw new Error("Question paper not found");
+      const answerKey = getCachedAnswerKeyForPaper(paper.id, "", paper.keyContent);
+      const { obtained, scoreMax } = scoreExamAnswers(existingAnswers, answerKey);
 
       const autoSubmitted = await tx.examSession.update({
         where: { id: sessionRow.id },

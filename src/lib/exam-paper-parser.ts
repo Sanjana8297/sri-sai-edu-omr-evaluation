@@ -338,3 +338,81 @@ export function parseAnswerKeyByQuestion(content: string): Record<string, string
   }
   return map;
 }
+
+export function scoreExamAnswers(
+  submittedAnswers: Record<string, string>,
+  answerKey: Record<string, string>
+): { obtained: number; scoreMax: number } {
+  const keyEntries = Object.entries(answerKey);
+  let obtained = 0;
+  for (const [questionId, expectedRaw] of keyEntries) {
+    const selectedRaw = submittedAnswers[questionId];
+    if (!selectedRaw) continue;
+    if (compareExamAnswers(selectedRaw, expectedRaw)) {
+      obtained += 4;
+    } else {
+      obtained -= 1;
+    }
+  }
+  return { obtained, scoreMax: keyEntries.length * 4 };
+}
+
+const ANSWER_KEY_CACHE_MS = 30 * 60 * 1000;
+const answerKeyCache = new Map<string, { key: Record<string, string>; expires: number }>();
+
+function pruneAnswerKeyCache(now: number) {
+  if (answerKeyCache.size <= 100) return;
+  for (const [id, entry] of answerKeyCache) {
+    if (entry.expires <= now) answerKeyCache.delete(id);
+  }
+}
+
+function buildAnswerKeyForScoring(
+  questionContent: string,
+  keyContent?: string | null,
+  enrichFromPaper = false
+): Record<string, string> {
+  if (keyContent?.trim()) {
+    const fromKey = parseAnswerKeyByQuestion(keyContent);
+    if (!enrichFromPaper || !questionContent.trim()) {
+      return fromKey;
+    }
+    const { answerKey } = parseQuestionPaperContentWithOptions(questionContent, keyContent);
+    return answerKey;
+  }
+  if (!questionContent.trim()) return {};
+  return parseQuestionPaperContentWithOptions(questionContent, keyContent ?? "").answerKey;
+}
+
+/** Parse + cache answer keys per paper so submit/scoring avoids re-parsing large papers. */
+export function getCachedAnswerKeyForPaper(
+  paperId: string,
+  questionContent = "",
+  keyContent?: string | null
+): Record<string, string> {
+  const now = Date.now();
+  const cached = answerKeyCache.get(paperId);
+  if (cached && cached.expires > now) {
+    return cached.key;
+  }
+
+  const answerKey = buildAnswerKeyForScoring(questionContent, keyContent);
+  answerKeyCache.set(paperId, { key: answerKey, expires: now + ANSWER_KEY_CACHE_MS });
+  pruneAnswerKeyCache(now);
+  return answerKey;
+}
+
+/** Warm cache at exam start with enriched keys (generated options, numerical mapping). */
+export function warmAnswerKeyCache(
+  paperId: string,
+  questionContent: string,
+  keyContent?: string | null
+): void {
+  const now = Date.now();
+  const cached = answerKeyCache.get(paperId);
+  if (cached && cached.expires > now) return;
+
+  const answerKey = buildAnswerKeyForScoring(questionContent, keyContent, true);
+  answerKeyCache.set(paperId, { key: answerKey, expires: now + ANSWER_KEY_CACHE_MS });
+  pruneAnswerKeyCache(now);
+}

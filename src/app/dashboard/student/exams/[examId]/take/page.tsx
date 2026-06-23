@@ -1,7 +1,21 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
-import { CbtExamExperience } from "@/components/student-exam/CbtExamExperience";
+
+const CbtExamExperience = dynamic(
+  () =>
+    import("@/components/student-exam/CbtExamExperience").then((mod) => ({
+      default: mod.CbtExamExperience,
+    })),
+  {
+    loading: () => (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--background)] text-sm text-[var(--muted)]">
+        Loading exam…
+      </div>
+    ),
+  }
+);
 
 export default function StudentTakeExamPage() {
   const params = useParams<{ examId: string }>();

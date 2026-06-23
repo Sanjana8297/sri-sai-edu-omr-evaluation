@@ -12,40 +12,55 @@ export async function GET() {
   });
   if (!me) return NextResponse.json({ error: "Invalid student profile" }, { status: 400 });
 
+  const now = new Date();
+
   const exams = await prisma.exam.findMany({
-    where: { category: me.category, isPublished: true },
-    orderBy: [{ startTime: "asc" }],
-    include: {
-      questionPaper: {
-        select: { id: true, title: true, questionPaperUrl: true, questionContent: true },
+    where: {
+      category: me.category,
+      isPublished: true,
+      startTime: { lte: now },
+      endTime: { gte: now },
+      NOT: {
+        examSessions: {
+          some: {
+            studentId: me.id,
+            status: { in: ["SUBMITTED", "AUTO_SUBMITTED"] },
+          },
+        },
       },
+    },
+    orderBy: [{ startTime: "asc" }],
+    select: {
+      id: true,
+      title: true,
+      category: true,
+      startTime: true,
+      endTime: true,
+      durationMinutes: true,
       examSessions: {
         where: { studentId: me.id },
         orderBy: { startedAt: "desc" },
+        take: 1,
         select: { id: true, status: true, violationCount: true, startedAt: true, submittedAt: true },
       },
     },
   });
 
-  const now = Date.now();
   return NextResponse.json({
-    now: new Date(now).toISOString(),
-    exams: exams.map((exam) => {
-      const status =
-        now < exam.startTime.getTime() ? "UPCOMING" : now > exam.endTime.getTime() ? "ENDED" : "LIVE";
-      return {
-        ...exam,
-        status,
-        startTime: exam.startTime.toISOString(),
-        endTime: exam.endTime.toISOString(),
-        createdAt: exam.createdAt.toISOString(),
-        updatedAt: exam.updatedAt.toISOString(),
-        examSessions: exam.examSessions.map((s) => ({
-          ...s,
-          startedAt: s.startedAt.toISOString(),
-          submittedAt: s.submittedAt?.toISOString() ?? null,
-        })),
-      };
-    }),
+    now: now.toISOString(),
+    exams: exams.map((exam) => ({
+      id: exam.id,
+      title: exam.title,
+      category: exam.category,
+      status: "LIVE" as const,
+      startTime: exam.startTime.toISOString(),
+      endTime: exam.endTime.toISOString(),
+      durationMinutes: exam.durationMinutes,
+      examSessions: exam.examSessions.map((s) => ({
+        ...s,
+        startedAt: s.startedAt.toISOString(),
+        submittedAt: s.submittedAt?.toISOString() ?? null,
+      })),
+    })),
   });
 }

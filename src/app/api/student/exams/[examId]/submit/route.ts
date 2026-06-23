@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
 import { computeSessionDeadline, toIso } from "@/lib/proctoring";
-import { parseQuestionPaperContentWithOptions, compareExamAnswers } from "@/lib/exam-paper-parser";
+import { getCachedAnswerKeyForPaper, scoreExamAnswers } from "@/lib/exam-paper-parser";
 import { Prisma } from "@prisma/client";
+
+export const runtime = "nodejs";
 
 export async function POST(request: Request, context: { params: Promise<{ examId: string }> }) {
   const { session, response } = await requireRoles(["STUDENT"]);
@@ -19,7 +21,29 @@ export async function POST(request: Request, context: { params: Promise<{ examId
 
   const sessionRow = await prisma.examSession.findFirst({
     where: { examId, studentId: session.sub },
-    include: { exam: { include: { questionPaper: true } } },
+    select: {
+      id: true,
+      status: true,
+      startedAt: true,
+      submittedAt: true,
+      violationCount: true,
+      autoSubmittedReason: true,
+      studentId: true,
+      exam: {
+        select: {
+          title: true,
+          category: true,
+          endTime: true,
+          durationMinutes: true,
+          questionPaper: {
+            select: {
+              id: true,
+              keyContent: true,
+            },
+          },
+        },
+      },
+    },
   });
   if (!sessionRow) return NextResponse.json({ error: "Exam session not found" }, { status: 404 });
 
@@ -37,28 +61,19 @@ export async function POST(request: Request, context: { params: Promise<{ examId
   }
 
   const now = new Date();
-  const deadline = computeSessionDeadline(sessionRow.startedAt, sessionRow.exam.endTime, sessionRow.exam.durationMinutes);
+  const deadline = computeSessionDeadline(
+    sessionRow.startedAt,
+    sessionRow.exam.endTime,
+    sessionRow.exam.durationMinutes
+  );
   const timedOut = now > deadline;
   const status = timedOut ? "AUTO_SUBMITTED" : "SUBMITTED";
   const autoSubmittedReason = timedOut ? "TIME_WINDOW_EXPIRED" : (body.reason ?? null);
   const submittedAnswers = body.answers ?? {};
 
-  const { answerKey } = parseQuestionPaperContentWithOptions(
-    sessionRow.exam.questionPaper.questionContent ?? "",
-    sessionRow.exam.questionPaper.keyContent ?? ""
-  );
-  const keyEntries = Object.entries(answerKey);
-  let obtained = 0;
-  for (const [questionId, expectedRaw] of keyEntries) {
-    const selectedRaw = submittedAnswers[questionId];
-    if (!selectedRaw) continue;
-    if (compareExamAnswers(selectedRaw, expectedRaw)) {
-      obtained += 4;
-    } else {
-      obtained -= 1;
-    }
-  }
-  const scoreMax = keyEntries.length * 4;
+  const paper = sessionRow.exam.questionPaper;
+  const answerKey = getCachedAnswerKeyForPaper(paper.id, "", paper.keyContent);
+  const { obtained, scoreMax } = scoreExamAnswers(submittedAnswers, answerKey);
 
   const updated = await prisma.$transaction(async (tx) => {
     const finalized = await tx.examSession.update({

@@ -242,11 +242,12 @@ export function CbtExamExperience({ examId }: { examId: string }) {
           };
         });
         if (json.autoSubmitted) {
-          await finalizeExamSession();
+          finalizedRef.current = true;
           clearCachedProgress(examId);
           markExamSubmittedLocally(examId);
-          setError("Exam auto-submitted due to a proctoring violation.");
           router.replace("/dashboard/student/exams");
+          void finalizeExamSession();
+          setError("Exam auto-submitted due to a proctoring violation.");
         }
       }
     },
@@ -257,24 +258,30 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     async (reason?: string) => {
       if (finalizedRef.current) return;
       setSubmitting(true);
-      await syncProgress(true);
-      const res = await fetch(`/api/student/exams/${examId}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason, answers: answersRef.current }),
-      });
-      const json = await res.json();
-      setSubmitting(false);
-      if (!res.ok) {
-        setError(json.error ?? "Could not submit exam");
-        return;
+      setError(null);
+      try {
+        const res = await fetch(`/api/student/exams/${examId}/submit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason, answers: answersRef.current }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          setError(json.error ?? "Could not submit exam");
+          return;
+        }
+        finalizedRef.current = true;
+        clearCachedProgress(examId);
+        markExamSubmittedLocally(examId);
+        router.replace("/dashboard/student/exams");
+        void finalizeExamSession();
+      } catch {
+        setError("Could not submit exam. Check your connection and try again.");
+      } finally {
+        setSubmitting(false);
       }
-      await finalizeExamSession();
-      clearCachedProgress(examId);
-      markExamSubmittedLocally(examId);
-      router.replace("/dashboard/student/exams");
     },
-    [examId, finalizeExamSession, router, syncProgress],
+    [examId, finalizeExamSession, router],
   );
 
   const startFullscreenWatchdog = useCallback(() => {

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
 import { computeSessionDeadline, isSessionSubmitted, toIso } from "@/lib/proctoring";
 import { getExamCbtSettings, getExamSessionCbtState } from "@/lib/cbt-settings-db";
+import { warmAnswerKeyCache } from "@/lib/exam-paper-parser";
 
 export async function POST(request: Request, context: { params: Promise<{ examId: string }> }) {
   const { session, response } = await requireRoles(["STUDENT"]);
@@ -57,6 +58,12 @@ export async function POST(request: Request, context: { params: Promise<{ examId
     getExamCbtSettings(exam.id),
     getExamSessionCbtState(sessionRow.id),
   ]);
+
+  warmAnswerKeyCache(
+    exam.questionPaper.id,
+    exam.questionPaper.questionContent,
+    exam.questionPaper.keyContent
+  );
 
   return NextResponse.json({
     exam: {
