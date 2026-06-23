@@ -10,7 +10,7 @@ const programs = [
       "Strong core preparation in Mathematics, Physics, and Chemistry for board exam success.",
   },
   {
-    title: "MPC + JEE-MAINS",
+    title: "MPC + JEE-MAINS/ADVANCED",
     duration: "Integrated Program",
     description:
       "Board syllabus with focused JEE Main coaching, problem-solving practice, and test preparation.",
@@ -42,6 +42,55 @@ const stats = [
   { label: "Average Class Size", value: "35" },
   { label: "Years of Excellence", value: "14" },
 ];
+
+const wellbeingItems = [
+  {
+    title: "Student Counseling",
+    description:
+      "Dedicated guidance to support students' emotional well-being and personal growth.",
+  },
+  {
+    title: "Academic Guidance & Support",
+    description:
+      "Personalized mentoring and continuous support to help students achieve their academic goals.",
+  },
+  {
+    title: "Health & Care Readiness",
+    description:
+      "Well-equipped facilities and trained staff to address student health and safety needs.",
+  },
+  {
+    title: "Student-Centric Environment",
+    description:
+      "A disciplined, nurturing, and secure campus that promotes confidence, well-being, and holistic development.",
+  },
+];
+
+const learningStages = [
+  { title: "Foundational Stage", subtitle: "Jr.KG, KG, Grade I & II" },
+  { title: "Preparatory Stage", subtitle: "Grade III – V" },
+  { title: "Middle Stage", subtitle: "Grade VI – VIII" },
+  { title: "Secondary Stage", subtitle: "Grade IX – XII, JEE & NEET" },
+];
+
+function StageIcon() {
+  return (
+    <svg
+      className="mx-auto h-10 w-10 text-indigo-600"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 10.5L12 4l9 6.5V20a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1v-9.5z"
+      />
+    </svg>
+  );
+}
 
 export default function Home() {
   return (
@@ -114,29 +163,79 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="bg-white">
-        <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-10 sm:px-6 sm:pb-12 sm:pt-12">
-          <div className="rounded-3xl border border-blue-100 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-200/70 sm:p-8 md:p-10">
-          <h2 className="text-2xl font-extrabold text-blue-700 sm:text-4xl">
-            Welcome to SRI SAI Educational Institute
-          </h2>
-          <div className="mt-5 space-y-4 text-sm leading-relaxed text-blue-900 sm:text-base">
-            <p>
-              Where learning begins with care and grows with confidence. From Kindergarten to Intermediate, we provide a safe and supportive environment for every student.
-            </p>
-            <p>
-              With experienced faculty and personal attention, we help students build strong academic foundations. We also offer focused coaching for JEE and NEET to prepare students for competitive success.
-            </p>
-            <p>
-              At Sri Sai Educational Institute, we guide every learner toward a
-              bright and confident future.
-            </p>
-          </div>
+      <section className="relative min-h-screen w-full overflow-hidden">
+        <Image
+          src="/images/Welcome_BG_image.png"
+          alt=""
+          fill
+          className="object-cover object-center"
+          sizes="100vw"
+          priority
+        />
+        <div
+          className="absolute inset-0 bg-gradient-to-r from-white/95 via-white/85 to-white/55 sm:from-white/90 sm:via-white/75 sm:to-white/40"
+          aria-hidden
+        />
+        <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl items-center px-4 py-16 sm:px-6 sm:py-20">
+          <div className="max-w-3xl">
+            <h2 className="text-2xl font-extrabold text-blue-700 sm:text-4xl lg:text-5xl">
+              Welcome to SRI SAI Educational Institute
+            </h2>
+            <div className="mt-5 space-y-4 text-sm leading-relaxed text-blue-900 sm:text-base lg:text-lg">
+              <p>
+                Where learning begins with care and grows with confidence. From Kindergarten to Intermediate, we provide a safe and supportive environment for every student.
+              </p>
+              <p>
+                With experienced faculty and personal attention, we help students build strong academic foundations. We also offer focused coaching for JEE and NEET to prepare students for competitive success.
+              </p>
+              <p>
+                At Sri Sai Educational Institute, we guide every learner toward a
+                bright and confident future.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
       <section className="bg-blue-50">
+        <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-10 sm:px-6 sm:pb-12 sm:pt-12">
+          <div className="grid gap-10 rounded-3xl border border-blue-100 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-200/70 sm:p-8 lg:grid-cols-2 lg:items-center lg:gap-12 md:p-10">
+            <div>
+              <h2 className="text-2xl font-extrabold leading-tight text-blue-700 sm:text-4xl">
+                A Strong Academic Foundation for Future Success
+              </h2>
+              <p className="mt-5 text-sm leading-relaxed text-blue-800 sm:text-base">
+                For families exploring quality schooling from early years through Intermediate,
+                Sri Sai Educational Institute is a trusted choice in Yanam. We combine strong
+                academics, holistic development, and focused JEE/NEET preparation on one
+                nurturing campus.
+              </p>
+              <div className="mt-6 h-1 w-16 rounded-full bg-indigo-600" aria-hidden />
+              <a
+                href="#contact"
+                className="mt-8 inline-block rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+              >
+                Get Contact Details
+              </a>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {learningStages.map((stage) => (
+                <article
+                  key={stage.title}
+                  className="rounded-xl border border-blue-100 bg-white p-6 text-center shadow-md shadow-blue-100/50 transition duration-300 hover:-translate-y-0.5 hover:shadow-lg"
+                >
+                  <StageIcon />
+                  <h3 className="mt-4 text-base font-bold text-blue-950 sm:text-lg">{stage.title}</h3>
+                  <p className="mt-2 text-sm text-blue-700">{stage.subtitle}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white">
         <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-10 sm:px-6 sm:pb-12 sm:pt-12">
           <div className="grid gap-6 rounded-3xl border border-blue-100 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-200/70 sm:p-8 lg:grid-cols-2 lg:gap-8 md:p-10">
           <div>
@@ -204,7 +303,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="bg-white">
+      <section className="bg-blue-50">
         <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-10 sm:px-6 sm:pb-12 sm:pt-12">
           <div className="grid gap-6 rounded-3xl border border-blue-100 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-200/70 sm:p-8 lg:grid-cols-2 lg:gap-8 md:p-10">
             <div className="order-1 min-h-[280px] overflow-hidden rounded-2xl border border-blue-200 bg-blue-50 sm:min-h-[340px] lg:order-none">
@@ -282,7 +381,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="bg-blue-50">
+      <section className="bg-white">
         <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-10 sm:px-6 sm:pb-12 sm:pt-12">
           <div className="grid gap-6 rounded-3xl border border-blue-100 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-200/70 sm:p-8 lg:grid-cols-2 lg:gap-8 md:p-10">
             <div>
@@ -329,6 +428,29 @@ export default function Home() {
                 height={800}
                 className="h-full w-full object-cover"
               />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-blue-50">
+        <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-10 sm:px-6 sm:pb-12 sm:pt-12">
+          <div className="grid gap-6 rounded-3xl border border-blue-100 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-200/70 sm:p-8 lg:grid-cols-2 lg:gap-8 md:p-10">
+            <div className="order-1 min-h-[280px] rounded-2xl border border-dashed border-blue-200 bg-blue-50 sm:min-h-[340px] lg:order-none" aria-hidden />
+
+            <div className="order-2 lg:order-none">
+              <h3 className="text-2xl font-extrabold text-blue-700 sm:text-3xl">
+                Safety &amp; Well-being
+              </h3>
+
+              <ul className="mt-6 space-y-5 text-sm text-blue-900 sm:text-base">
+                {wellbeingItems.map((item) => (
+                  <li key={item.title}>
+                    <p className="font-bold text-blue-950">{item.title}:</p>
+                    <p className="mt-1 leading-relaxed">{item.description}</p>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>
