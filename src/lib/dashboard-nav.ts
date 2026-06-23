@@ -83,6 +83,7 @@ export const adminNavItems: NavItem[] = [
       { href: "/dashboard/admin/reports?section=institution", label: "Institution Dashboard" },
     ],
   },
+  { href: "/dashboard/admin/audit-trail", label: "Activity / audit trail" },
   { href: "/dashboard/admin/llm-settings", label: "LLM Settings" },
 ];
 

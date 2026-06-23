@@ -29,8 +29,9 @@ type LoginLookup =
   | { kind: "username"; value: string };
 
 async function findAdmin(lookup: LoginLookup) {
-  if (lookup.kind === "username") return null;
-  return prisma.admin.findUnique({ where: { email: lookup.value } });
+  return lookup.kind === "email"
+    ? prisma.admin.findUnique({ where: { email: lookup.value } })
+    : prisma.admin.findUnique({ where: { username: lookup.value } });
 }
 
 async function findTeacher(lookup: LoginLookup) {
@@ -76,9 +77,6 @@ export async function POST(request: Request) {
     }
     if (role !== "ADMIN" && role !== "TEACHER" && role !== "STUDENT") {
       return NextResponse.json({ error: "Role must be ADMIN, TEACHER, or STUDENT" }, { status: 400 });
-    }
-    if (role === "ADMIN" && lookup.kind === "username") {
-      return NextResponse.json({ error: "Administrators must sign in with email" }, { status: 400 });
     }
 
     if (role === "ADMIN") {

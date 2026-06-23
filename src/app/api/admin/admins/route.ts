@@ -7,7 +7,7 @@ export async function GET() {
   if (response) return response;
 
   const admins = await prisma.admin.findMany({
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true, email: true, username: true },
     orderBy: { name: "asc" },
   });
 

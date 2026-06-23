@@ -5,6 +5,17 @@ import { requireRoles } from "@/lib/api-auth";
 import { isLoginIdTaken, resolveAccountIdentifiers } from "@/lib/user-login-id";
 import type { Category, Role } from "@/lib/types";
 
+function parseStudentYear(raw: unknown): { value: number | undefined; error: string | null } {
+  if (raw === undefined || raw === null || raw === "") {
+    return { value: undefined, error: null };
+  }
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (n !== 1 && n !== 2) {
+    return { value: undefined, error: "Year must be 1 or 2" };
+  }
+  return { value: n, error: null };
+}
+
 export async function POST(request: Request) {
   const { response } = await requireRoles(["ADMIN"]);
   if (response) return response;
@@ -17,6 +28,7 @@ export async function POST(request: Request) {
     role?: string;
     category?: string;
     teacherId?: string | null;
+    year?: number | string;
   };
   try {
     body = await request.json();
@@ -37,13 +49,38 @@ export async function POST(request: Request) {
   const role = body.role as Role | undefined;
   const category = body.category as Category | undefined;
   const teacherId = body.teacherId ?? null;
+  const { value: studentYear, error: yearError } = parseStudentYear(body.year);
+  if (yearError) {
+    return NextResponse.json({ error: yearError }, { status: 400 });
+  }
 
   if (!password || !name || !role) {
     return NextResponse.json({ error: "Name, password, and role are required" }, { status: 400 });
   }
-  if (role !== "STUDENT" && role !== "TEACHER") {
-    return NextResponse.json({ error: "Role must be STUDENT or TEACHER" }, { status: 400 });
+  if (role !== "STUDENT" && role !== "TEACHER" && role !== "ADMIN") {
+    return NextResponse.json({ error: "Role must be STUDENT, TEACHER, or ADMIN" }, { status: 400 });
   }
+
+  if (role === "ADMIN") {
+    if (!ids.email && !ids.username) {
+      return NextResponse.json({ error: "Admin accounts require an email or username" }, { status: 400 });
+    }
+    if (await isLoginIdTaken(ids)) {
+      return NextResponse.json({ error: "Email or username already in use" }, { status: 409 });
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    const admin = await prisma.admin.create({
+      data: {
+        email: ids.email,
+        username: ids.username,
+        passwordHash,
+        name,
+      },
+      select: { id: true, email: true, username: true, name: true },
+    });
+    return NextResponse.json({ user: { ...admin, role: "ADMIN" as const } });
+  }
+
   if (!category || (category !== "JEE" && category !== "NEET")) {
     return NextResponse.json({ error: "Category must be JEE or NEET" }, { status: 400 });
   }
@@ -89,9 +126,10 @@ export async function POST(request: Request) {
       passwordHash,
       name,
       category,
+      year: studentYear,
       teacherId: teacherId!,
     },
-    select: { id: true, email: true, username: true, name: true, category: true },
+    select: { id: true, email: true, username: true, name: true, category: true, year: true },
   });
   return NextResponse.json({ user: { ...student, role: "STUDENT" as const } });
 }

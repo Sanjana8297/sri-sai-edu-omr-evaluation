@@ -86,18 +86,23 @@ export async function PATCH(request: Request) {
     if (!admin) return NextResponse.json({ error: "Admin not found" }, { status: 404 });
 
     const nextEmail = emailParsed.value === undefined ? admin.email : emailParsed.value;
-    if (!nextEmail) {
-      return NextResponse.json({ error: "Admin accounts must have an email" }, { status: 400 });
+    const nextUsername = usernameParsed.value === undefined ? admin.username : usernameParsed.value;
+
+    if (!nextEmail && !nextUsername) {
+      return NextResponse.json({ error: "Admin must have an email or username" }, { status: 400 });
     }
 
-    const ids: AccountIdentifiers = { email: nextEmail, username: null };
+    const ids: AccountIdentifiers = { email: nextEmail, username: nextUsername };
     if (await isLoginIdTakenExcept(ids, { role: "ADMIN", id: admin.id })) {
-      return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+      return NextResponse.json({ error: "Email or username already in use" }, { status: 409 });
     }
 
-    const data: { email?: string; passwordHash?: string } = {};
+    const data: { email?: string | null; username?: string | null; passwordHash?: string } = {};
     if (emailParsed.value !== undefined && emailParsed.value !== admin.email) {
       data.email = nextEmail;
+    }
+    if (usernameParsed.value !== undefined && usernameParsed.value !== admin.username) {
+      data.username = nextUsername;
     }
     if (password) {
       if (password.length < 6) {
@@ -113,7 +118,7 @@ export async function PATCH(request: Request) {
     const updated = await prisma.admin.update({
       where: { id: admin.id },
       data,
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, email: true, username: true },
     });
     return NextResponse.json({ user: { ...updated, role: "ADMIN" as const } });
   }

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { displayLoginId } from "@/lib/user-login-id";
+import { pushAuditTrail } from "@/lib/admin-staff-storage";
 
 type TeacherRow = {
   id: string;
@@ -17,23 +18,10 @@ type StudentRow = {
   email: string | null;
   username: string | null;
   category: string | null;
+  year: number | null;
+  createdAt: string;
   teacher: { name: string } | null;
 };
-type AttemptRow = {
-  id: string;
-  studentId: string;
-  studentName: string;
-  category: string;
-  title: string;
-  examDate: string;
-  marksObtained: number;
-  maxMarks: number;
-  percentage: number;
-};
-
-type PaperAccess = { create: boolean; publish: boolean; grade: boolean };
-
-const PAPER_ACCESS_KEY = "admin-teacher-paper-access";
 
 type CredentialRole = "STUDENT" | "TEACHER" | "ADMIN";
 
@@ -48,12 +36,18 @@ type CredentialAccount = {
 
 function ResetCredentialsForm({
   accounts,
+  fixedAccount,
   onUpdated,
+  onCancel,
 }: {
   accounts: CredentialAccount[];
+  fixedAccount?: CredentialAccount | null;
   onUpdated?: () => void | Promise<void>;
+  onCancel?: () => void;
 }) {
-  const [selectedKey, setSelectedKey] = useState("");
+  const [selectedKey, setSelectedKey] = useState(
+    fixedAccount ? `${fixedAccount.role}:${fixedAccount.id}` : ""
+  );
   const [newEmail, setNewEmail] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -64,13 +58,14 @@ function ResetCredentialsForm({
   const [success, setSuccess] = useState<string | null>(null);
 
   const selected = useMemo(() => {
+    if (fixedAccount) return fixedAccount;
     if (!selectedKey) return null;
     const [role, id] = selectedKey.split(":");
     return accounts.find((a) => a.role === role && a.id === id) ?? null;
-  }, [accounts, selectedKey]);
+  }, [accounts, fixedAccount, selectedKey]);
 
-  const canClearEmail = selected?.role !== "ADMIN" && Boolean(selected?.username || newUsername.trim());
-  const canClearUsername = selected?.role !== "ADMIN" && Boolean(selected?.email || newEmail.trim());
+  const canClearEmail = Boolean(selected?.username || newUsername.trim());
+  const canClearUsername = Boolean(selected?.email || newEmail.trim());
 
   function clearInputs() {
     setNewEmail("");
@@ -108,10 +103,8 @@ function ResetCredentialsForm({
     if (clearEmail) payload.email = null;
     else if (newEmail.trim()) payload.email = newEmail.trim();
 
-    if (selected.role !== "ADMIN") {
-      if (clearUsername) payload.username = null;
-      else if (newUsername.trim()) payload.username = newUsername.trim();
-    }
+    if (clearUsername) payload.username = null;
+    else if (newUsername.trim()) payload.username = newUsername.trim();
 
     if (newPassword.trim()) payload.password = newPassword.trim();
 
@@ -172,23 +165,25 @@ function ResetCredentialsForm({
           {error}
         </div>
       ) : null}
-      <select
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-        value={selectedKey}
-        onChange={(e) => {
-          setSelectedKey(e.target.value);
-          resetFormFields();
-        }}
-      >
-        <option value="">Select account</option>
-        {accounts.map((a) => (
-          <option key={`${a.role}:${a.id}`} value={`${a.role}:${a.id}`}>
-            {a.name}
-            {a.category ? ` (${a.category})` : ""} · {a.role === "ADMIN" ? "Admin" : a.role === "TEACHER" ? "Teacher" : "Student"} ·{" "}
-            {displayLoginId(a)}
-          </option>
-        ))}
-      </select>
+      {!fixedAccount ? (
+        <select
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+          value={selectedKey}
+          onChange={(e) => {
+            setSelectedKey(e.target.value);
+            resetFormFields();
+          }}
+        >
+          <option value="">Select account</option>
+          {accounts.map((a) => (
+            <option key={`${a.role}:${a.id}`} value={`${a.role}:${a.id}`}>
+              {a.name}
+              {a.category ? ` (${a.category})` : ""} · {a.role === "ADMIN" ? "Admin" : a.role === "TEACHER" ? "Teacher" : "Student"} ·{" "}
+              {displayLoginId(a)}
+            </option>
+          ))}
+        </select>
+      ) : null}
 
       {selected ? (
         <p className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)]">
@@ -220,50 +215,46 @@ function ResetCredentialsForm({
         disabled={!selected || clearEmail}
       />
 
-      {selected?.role !== "ADMIN" ? (
-        <>
-          <input
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            placeholder="New username (leave blank to keep)"
-            value={newUsername}
-            onChange={(e) => {
-              setNewUsername(e.target.value);
-              if (e.target.value.trim()) setClearUsername(false);
-            }}
-            disabled={!selected || clearUsername}
-          />
-          <div className="flex flex-wrap gap-4 text-xs">
-            {selected?.email || newEmail.trim() ? (
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={clearUsername}
-                  onChange={(e) => {
-                    setClearUsername(e.target.checked);
-                    if (e.target.checked) setNewUsername("");
-                  }}
-                  disabled={!canClearUsername}
-                />
-                Remove username
-              </label>
-            ) : null}
-            {selected?.username || newUsername.trim() ? (
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={clearEmail}
-                  onChange={(e) => {
-                    setClearEmail(e.target.checked);
-                    if (e.target.checked) setNewEmail("");
-                  }}
-                  disabled={!canClearEmail}
-                />
-                Remove email
-              </label>
-            ) : null}
-          </div>
-        </>
-      ) : null}
+      <input
+        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        placeholder="New username (leave blank to keep)"
+        value={newUsername}
+        onChange={(e) => {
+          setNewUsername(e.target.value);
+          if (e.target.value.trim()) setClearUsername(false);
+        }}
+        disabled={!selected || clearUsername}
+      />
+      <div className="flex flex-wrap gap-4 text-xs">
+        {selected?.email || newEmail.trim() ? (
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={clearUsername}
+              onChange={(e) => {
+                setClearUsername(e.target.checked);
+                if (e.target.checked) setNewUsername("");
+              }}
+              disabled={!canClearUsername}
+            />
+            Remove username
+          </label>
+        ) : null}
+        {selected?.username || newUsername.trim() ? (
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={clearEmail}
+              onChange={(e) => {
+                setClearEmail(e.target.checked);
+                if (e.target.checked) setNewEmail("");
+              }}
+              disabled={!canClearEmail}
+            />
+            Remove email
+          </label>
+        ) : null}
+      </div>
 
       <input
         className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
@@ -275,47 +266,82 @@ function ResetCredentialsForm({
         autoComplete="new-password"
       />
 
-      <button
-        type="submit"
-        disabled={!selected || loading}
-        className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-      >
-        {loading ? "Saving…" : "Update credentials"}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="submit"
+          disabled={!selected || loading}
+          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+        >
+          {loading ? "Saving…" : "Update credentials"}
+        </button>
+        {onCancel ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium"
+          >
+            Cancel
+          </button>
+        ) : null}
+      </div>
     </form>
   );
 }
 
-const STUDENT_PROFILE_ACTIVITIES: ActivityFeature[] = [
-  { id: "bulk", title: "Bulk enrolment (CSV / API)", description: "Import many students at once" },
-  { id: "single", title: "Single enrolment", description: "Add one student with mentor assignment" },
-  { id: "track-tag", title: "Target exam: NEET / JEE tag", description: "Filter and view student records by track" },
-  { id: "attempt-history", title: "Attempt history timeline", description: "Exam attempts — all students or filter by one" },
-  { id: "reset-credentials", title: "Reset credentials", description: "Change a student's email, username, or password" },
-];
+function DeleteIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M3 6h18" strokeLinecap="round" />
+      <path d="M8 6V4h8v2" strokeLinecap="round" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" strokeLinecap="round" />
+      <path d="M10 11v6" strokeLinecap="round" />
+      <path d="M14 11v6" strokeLinecap="round" />
+    </svg>
+  );
+}
 
-const TEACHER_ROLE_ACTIVITIES: ActivityFeature[] = [
-  { id: "create-staff", title: "Create staff account", description: "Institute / batch segmentation on enrolment" },
-  { id: "paper-access", title: "Paper access permission control", description: "Per-teacher question paper rights" },
-  { id: "staff-directory", title: "Staff directory", description: "Teachers on the platform" },
-  { id: "reset-credentials", title: "Reset credentials", description: "Change teacher or admin email, username, or password" },
-  { id: "audit", title: "Activity / audit trail per role", description: "Recent admin actions in this session" },
-];
+function EditIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M12 20h9" strokeLinecap="round" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
-function ToggleRow({
-  label,
-  checked,
-  onChange,
+function Modal({
+  title,
+  onClose,
+  children,
 }: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm">
-      <span>{label}</span>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-    </label>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-modal-title"
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <h3 id="admin-modal-title" className="text-lg font-semibold">
+            {title}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-[var(--border)] px-2 py-1 text-sm text-[var(--muted)] hover:text-[var(--foreground)]"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -324,37 +350,28 @@ function rollNumberFor(student: StudentRow, index: number): string {
   return `${track}-${String(index + 1).padStart(4, "0")}`;
 }
 
-function readPaperAccess(): Record<string, PaperAccess> {
-  if (typeof window === "undefined") return {};
-  try {
-    return JSON.parse(localStorage.getItem(PAPER_ACCESS_KEY) ?? "{}") as Record<string, PaperAccess>;
-  } catch {
-    return {};
-  }
-}
-
-function writePaperAccess(map: Record<string, PaperAccess>) {
-  localStorage.setItem(PAPER_ACCESS_KEY, JSON.stringify(map));
-}
-
-export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
+export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: string }) {
+  const router = useRouter();
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
-  const [attempts, setAttempts] = useState<AttemptRow[]>([]);
   const [query, setQuery] = useState("");
   const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
+  const [yearFilter, setYearFilter] = useState<"ALL" | "1" | "2">("ALL");
   const [page, setPage] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [category, setCategory] = useState<"JEE" | "NEET">("JEE");
+  const [year, setYear] = useState<"1" | "2">("1");
   const [teacherId, setTeacherId] = useState("");
   const [autoRoll, setAutoRoll] = useState(true);
-  const [historyStudentId, setHistoryStudentId] = useState("");
   const [csvStatus, setCsvStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [modal, setModal] = useState<"bulk" | "single" | "edit" | null>(null);
+  const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [t, o] = await Promise.all([
@@ -363,7 +380,6 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
     ]);
     if (t.teachers) setTeachers(t.teachers);
     if (o.students) setStudents(o.students);
-    if (o.performance) setAttempts(o.performance);
   }, []);
 
   useEffect(() => {
@@ -371,6 +387,14 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
   }, [load]);
 
   const filteredTeachers = teachers.filter((t) => t.category === category);
+
+  function closeModal() {
+    setModal(null);
+    setEditStudent(null);
+    setError(null);
+    setSuccess(null);
+    setCsvStatus(null);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -391,6 +415,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
         role: "STUDENT",
         category,
         teacherId,
+        year: Number(year),
       }),
     });
     const j = await res.json();
@@ -403,6 +428,7 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
     setUsername("");
     setPassword("");
     setTeacherId("");
+    setYear("1");
     const roll = autoRoll
       ? rollNumberFor(
           {
@@ -411,14 +437,14 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
             name: j.user.name,
             email: j.user.email,
             username: j.user.username,
+            year: Number(year),
+            createdAt: new Date().toISOString(),
             teacher: null,
           },
           students.length
         )
       : "";
-    setSuccess(
-      `Student "${j?.user?.name ?? name}" enrolled.${roll ? ` Roll no: ${roll}` : ""}`,
-    );
+    setSuccess(`Student "${j?.user?.name ?? name}" enrolled.${roll ? ` Roll no: ${roll}` : ""}`);
     await load();
   }
 
@@ -480,46 +506,265 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
     await load();
   }
 
+  async function deleteStudent(student: StudentRow) {
+    const ok = window.confirm(
+      `Delete student "${student.name}"? This removes their account and exam sessions. This cannot be undone.`
+    );
+    if (!ok) return;
+    setDeletingId(student.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/students/${encodeURIComponent(student.id)}`, {
+        method: "DELETE",
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setError(j.error ?? "Could not delete student");
+        return;
+      }
+      setSuccess(`Student "${student.name}" deleted.`);
+      await load();
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   const filteredStudents = students.filter((s) => {
     const matchesQuery = `${s.name} ${s.email ?? ""} ${s.username ?? ""} ${s.category ?? ""} ${s.teacher?.name ?? ""}`
       .toLowerCase()
       .includes(query.toLowerCase());
     const matchesTrack = trackFilter === "ALL" || s.category === trackFilter;
-    return matchesQuery && matchesTrack;
+    const matchesYear =
+      yearFilter === "ALL" ||
+      (yearFilter === "1" && s.year === 1) ||
+      (yearFilter === "2" && s.year === 2);
+    return matchesQuery && matchesTrack && matchesYear;
   });
 
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(filteredStudents.length / pageSize));
   const pagedStudents = filteredStudents.slice((page - 1) * pageSize, page * pageSize);
 
-  const studentAttempts = useMemo(() => {
-    const list = historyStudentId
-      ? attempts.filter((a) => a.studentId === historyStudentId)
-      : attempts;
-    return [...list].sort((a, b) => new Date(b.examDate).getTime() - new Date(a.examDate).getTime());
-  }, [attempts, historyStudentId]);
+  function formatStudentYear(student: StudentRow): string {
+    if (student.year === 1 || student.year === 2) return String(student.year);
+    const calendarYear = new Date(student.createdAt).getFullYear();
+    return Number.isNaN(calendarYear) ? "—" : String(calendarYear);
+  }
 
-  const studentCredentialAccounts = useMemo<CredentialAccount[]>(
+  function openAttemptHistory(studentId: string) {
+    router.push(`/dashboard/admin/user-management/students/${encodeURIComponent(studentId)}`);
+  }
+
+  const editCredentialAccount = useMemo<CredentialAccount | null>(
     () =>
-      students.map((s) => ({
-        id: s.id,
-        name: s.name,
-        role: "STUDENT" as const,
-        email: s.email,
-        username: s.username,
-        category: s.category,
-      })),
-    [students]
+      editStudent
+        ? {
+            id: editStudent.id,
+            name: editStudent.name,
+            role: "STUDENT",
+            email: editStudent.email,
+            username: editStudent.username,
+            category: editStudent.category,
+          }
+        : null,
+    [editStudent]
   );
 
-  function renderFeature(id: string) {
-    switch (id) {
-      case "bulk":
-        return (
+  return (
+    <div className="space-y-4">
+      {success && !modal ? <p className="text-sm text-green-700">{success}</p> : null}
+      {error && !modal ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="grid gap-1 text-xs font-medium text-[var(--muted)]">
+            Track
+            <select
+              className="min-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+              value={trackFilter}
+              onChange={(e) => {
+                setTrackFilter(e.target.value as "ALL" | "JEE" | "NEET");
+                setPage(1);
+              }}
+            >
+              <option value="ALL">All tracks</option>
+              <option value="JEE">JEE</option>
+              <option value="NEET">NEET</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-[var(--muted)]">
+            Year
+            <select
+              className="min-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+              value={yearFilter}
+              onChange={(e) => {
+                setYearFilter(e.target.value as "ALL" | "1" | "2");
+                setPage(1);
+              }}
+            >
+              <option value="ALL">All years</option>
+              <option value="1">Year 1</option>
+              <option value="2">Year 2</option>
+            </select>
+          </label>
+        </div>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+            onClick={() => {
+              closeModal();
+              setModal("bulk");
+            }}
+          >
+            Bulk enrolment
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-medium"
+            onClick={() => {
+              closeModal();
+              setModal("single");
+            }}
+          >
+            Add Single Student
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+        <div className="border-b border-[var(--border)] p-3">
+          <input
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            placeholder="Search by name, email, username, track, teacher..."
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+            <tr>
+              <th className="px-4 py-3 font-medium">Roll no.</th>
+              <th className="px-4 py-3 font-medium">Name</th>
+              <th className="px-4 py-3 font-medium">Year</th>
+              <th className="px-4 py-3 font-medium">Login ID</th>
+              <th className="px-4 py-3 font-medium">Target exam</th>
+              <th className="px-4 py-3 font-medium">Teacher</th>
+              <th className="px-4 py-3 font-medium text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pagedStudents.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-center text-[var(--muted)]">
+                  No students match your filters.
+                </td>
+              </tr>
+            ) : null}
+            {pagedStudents.map((s, i) => (
+              <tr
+                key={s.id}
+                className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--background)]"
+                onClick={() => openAttemptHistory(s.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openAttemptHistory(s.id);
+                  }
+                }}
+                tabIndex={0}
+                role="link"
+                aria-label={`View attempt history for ${s.name}`}
+              >
+                <td className="px-4 py-3 font-mono text-xs">
+                  {autoRoll ? rollNumberFor(s, (page - 1) * pageSize + i) : "—"}
+                </td>
+                <td className="px-4 py-3 font-medium text-[var(--accent)]">{s.name}</td>
+                <td className="px-4 py-3">{formatStudentYear(s)}</td>
+                <td className="px-4 py-3">{displayLoginId(s)}</td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      s.category === "NEET"
+                        ? "bg-violet-100 text-violet-800"
+                        : "bg-sky-100 text-sky-800"
+                    }`}
+                  >
+                    {s.category ?? "—"}
+                  </span>
+                </td>
+                <td className="px-4 py-3">{s.teacher?.name ?? "—"}</td>
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--card)]"
+                      aria-label={`Edit credentials for ${s.name}`}
+                      title="Edit credentials"
+                      onClick={() => {
+                        setEditStudent(s);
+                        setError(null);
+                        setSuccess(null);
+                        setModal("edit");
+                      }}
+                    >
+                      <EditIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      aria-label={`Delete ${s.name}`}
+                      title="Delete student"
+                      disabled={deletingId === s.id}
+                      onClick={() => void deleteStudent(s)}
+                    >
+                      <DeleteIcon />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3 text-sm">
+          <p className="text-[var(--muted)]">
+            Showing {pagedStudents.length} of {filteredStudents.length}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Prev
+            </button>
+            <span className="px-2 py-1">
+              {page} / {pageCount}
+            </span>
+            <button
+              type="button"
+              className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
+              disabled={page >= pageCount}
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {modal === "bulk" ? (
+        <Modal title="Bulk enrolment" onClose={closeModal}>
           <div className="space-y-3">
             <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] px-4 py-6 text-center text-sm text-[var(--muted)]">
               <span className="font-medium text-[var(--foreground)]">Upload CSV</span>
-              <span className="mt-1 text-xs">name, category, email or username, teacherEmail or teacherUsername, password (optional)</span>
+              <span className="mt-1 text-xs">
+                name, category, email or username, teacherEmail or teacherUsername, password (optional)
+              </span>
               <input
                 type="file"
                 accept=".csv,text/csv"
@@ -531,11 +776,13 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
               />
             </label>
             {csvStatus ? <p className="text-xs text-green-700">{csvStatus}</p> : null}
+            {error ? <p className="text-sm text-red-600">{error}</p> : null}
           </div>
-        );
-      case "single":
-        return (
-          <>
+        </Modal>
+      ) : null}
+
+      {modal === "single" ? (
+        <Modal title="Add Single Student" onClose={closeModal}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={submit}>
             <input
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
@@ -574,6 +821,15 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
               <option value="NEET">Target: NEET</option>
             </select>
             <select
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              value={year}
+              onChange={(e) => setYear(e.target.value as "1" | "2")}
+              required
+            >
+              <option value="1">Year: 1</option>
+              <option value="2">Year: 2</option>
+            </select>
+            <select
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm sm:col-span-2"
               value={teacherId}
               onChange={(e) => setTeacherId(e.target.value)}
@@ -599,178 +855,53 @@ export function StudentProfilesPanel({ resetKey }: { resetKey?: string }) {
           </form>
           {success ? <p className="mt-3 text-sm text-green-700">{success}</p> : null}
           {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
-          </>
-        );
-      case "track-tag":
-        return (
-        <>
-        <div className="mb-4 flex flex-wrap gap-2">
-          {(["ALL", "JEE", "NEET"] as const).map((track) => (
-            <button
-              key={track}
-              type="button"
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                trackFilter === track
-                  ? "bg-[var(--accent)] text-white"
-                  : "border border-[var(--border)] text-[var(--muted)]"
-              }`}
-              onClick={() => {
-                setTrackFilter(track);
-                setPage(1);
-              }}
-            >
-              {track === "ALL" ? "All tracks" : track}
-            </button>
-          ))}
-        </div>
-        <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-          <div className="border-b border-[var(--border)] p-3">
-            <input
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              placeholder="Search by name, email, username, track, teacher..."
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-[var(--border)] text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">Roll no.</th>
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Login ID</th>
-                <th className="px-4 py-3 font-medium">Target exam</th>
-                <th className="px-4 py-3 font-medium">Teacher</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedStudents.map((s, i) => (
-                <tr key={s.id} className="border-b border-[var(--border)] last:border-0">
-                  <td className="px-4 py-3 font-mono text-xs">
-                    {autoRoll ? rollNumberFor(s, (page - 1) * pageSize + i) : "—"}
-                  </td>
-                  <td className="px-4 py-3">{s.name}</td>
-                  <td className="px-4 py-3">{displayLoginId(s)}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        s.category === "NEET"
-                          ? "bg-violet-100 text-violet-800"
-                          : "bg-sky-100 text-sky-800"
-                      }`}
-                    >
-                      {s.category ?? "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{s.teacher?.name ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3 text-sm">
-            <p className="text-[var(--muted)]">
-              Showing {pagedStudents.length} of {filteredStudents.length}
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Prev
-              </button>
-              <span className="px-2 py-1">
-                {page} / {pageCount}
-              </span>
-              <button
-                type="button"
-                className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
-                disabled={page >= pageCount}
-                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </div>
-        </>
-        );
-      case "attempt-history":
-        return (
-          <div className="space-y-3">
-          <select
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            value={historyStudentId}
-            onChange={(e) => setHistoryStudentId(e.target.value)}
-          >
-            <option value="">All students</option>
-            {students.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.category})
-              </option>
-            ))}
-          </select>
-          {studentAttempts.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">No exam attempts recorded yet.</p>
-          ) : null}
-          <ul className="space-y-2">
-            {studentAttempts.map((a) => (
-              <li
-                key={a.id}
-                className="relative border-l-2 border-[var(--accent)] pl-4 before:absolute before:-left-[5px] before:top-2 before:h-2 before:w-2 before:rounded-full before:bg-[var(--accent)]"
-              >
-                <p className="text-sm font-medium">{a.title}</p>
-                <p className="text-xs text-[var(--muted)]">
-                  {!historyStudentId ? `${a.studentName} · ` : ""}
-                  {new Date(a.examDate).toLocaleString()} · {a.category} · {a.marksObtained}/{a.maxMarks} (
-                  {a.percentage}%)
-                </p>
-              </li>
-            ))}
-          </ul>
-          </div>
-        );
-      case "reset-credentials":
-        return (
-          <ResetCredentialsForm
-            accounts={studentCredentialAccounts}
-            onUpdated={load}
-          />
-        );
-      default:
-        return null;
-    }
-  }
+        </Modal>
+      ) : null}
 
-  return (
-    <FeatureActivityHub
-      features={STUDENT_PROFILE_ACTIVITIES}
-      renderFeature={renderFeature}
-      resetKey={resetKey}
-    />
+      {modal === "edit" && editCredentialAccount ? (
+        <Modal title={`Edit credentials — ${editCredentialAccount.name}`} onClose={closeModal}>
+          <ResetCredentialsForm
+            accounts={[]}
+            fixedAccount={editCredentialAccount}
+            onUpdated={async () => {
+              await load();
+              closeModal();
+              setSuccess(`Credentials updated for ${editCredentialAccount.name}.`);
+            }}
+            onCancel={closeModal}
+          />
+        </Modal>
+      ) : null}
+    </div>
   );
 }
 
-type AuditEntry = { at: string; action: string; detail: string };
+type StaffRow = {
+  id: string;
+  name: string;
+  email: string | null;
+  username?: string | null;
+  category?: string | null;
+  role: "TEACHER" | "ADMIN";
+};
 
-export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
+export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }) {
+  const router = useRouter();
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
-  const [admins, setAdmins] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [admins, setAdmins] = useState<
+    Array<{ id: string; name: string; email: string | null; username: string | null }>
+  >([]);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [modal, setModal] = useState<"create" | "edit" | null>(null);
+  const [editStaff, setEditStaff] = useState<StaffRow | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [category, setCategory] = useState<"JEE" | "NEET">("JEE");
-  const [institute, setInstitute] = useState("");
-  const [batchScope, setBatchScope] = useState("");
-  const [selectedTeacherId, setSelectedTeacherId] = useState("");
-  const [paperAccess, setPaperAccess] = useState<Record<string, PaperAccess>>({});
-  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [createRole, setCreateRole] = useState<"TEACHER" | "ADMIN">("TEACHER");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -781,23 +912,61 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
     ]);
     if (t.teachers) setTeachers(t.teachers);
     if (a.admins) setAdmins(a.admins);
-    setPaperAccess(readPaperAccess());
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  function pushAudit(action: string, detail: string) {
-    setAuditLog((prev) => [{ at: new Date().toISOString(), action, detail }, ...prev].slice(0, 12));
+  function closeModal() {
+    setModal(null);
+    setEditStaff(null);
+    setError(null);
   }
 
-  async function submit(e: React.FormEvent) {
+  const staff = useMemo<StaffRow[]>(() => {
+    const rows: StaffRow[] = [
+      ...teachers.map((t) => ({ ...t, role: "TEACHER" as const })),
+      ...admins.map((a) => ({
+        id: a.id,
+        name: a.name,
+        email: a.email,
+        username: a.username,
+        role: "ADMIN" as const,
+      })),
+    ];
+    return rows.sort((x, y) => x.name.localeCompare(y.name));
+  }, [teachers, admins]);
+
+  const filteredStaff = staff.filter((s) =>
+    `${s.name} ${s.email ?? ""} ${s.username ?? ""} ${s.category ?? ""} ${s.role}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+
+  const pageSize = 10;
+  const pageCount = Math.max(1, Math.ceil(filteredStaff.length / pageSize));
+  const pagedStaff = filteredStaff.slice((page - 1) * pageSize, page * pageSize);
+
+  function openStaffDetail(row: StaffRow) {
+    if (row.role === "TEACHER") {
+      router.push(
+        `/dashboard/admin/user-management/teachers/${encodeURIComponent(row.id)}/paper-access`
+      );
+    } else {
+      setEditStaff(row);
+      setError(null);
+      setSuccess(null);
+      setModal("edit");
+    }
+  }
+
+  async function submitCreate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
     if (!email.trim() && !username.trim()) {
-      setError("Enter an email or username for the teacher.");
+      setError("Enter an email or username.");
       return;
     }
     const res = await fetch("/api/admin/users", {
@@ -808,8 +977,8 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
         email: email.trim() || undefined,
         username: username.trim() || undefined,
         password,
-        role: "TEACHER",
-        category,
+        role: createRole,
+        ...(createRole === "TEACHER" ? { category } : {}),
       }),
     });
     const j = await res.json();
@@ -821,59 +990,222 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
     setEmail("");
     setUsername("");
     setPassword("");
-    setSuccess(`Teacher "${j?.user?.name ?? name}" created.`);
-    pushAudit(
+    setCreateRole("TEACHER");
+    const roleLabel = createRole === "ADMIN" ? "Admin" : "Teacher";
+    setSuccess(`${roleLabel} "${j?.user?.name ?? name}" created.`);
+    pushAuditTrail(
       "USER_CREATED",
-      `Teacher ${displayLoginId(j.user ?? { email, username })} · ${institute || "Default institute"} · batch ${batchScope || "All"}`,
+      createRole === "ADMIN"
+        ? `Admin ${displayLoginId(j.user ?? { email, username })}`
+        : `Teacher ${displayLoginId(j.user ?? { email, username })}`
     );
+    closeModal();
     await load();
   }
 
-  const filtered = teachers.filter((t) =>
-    `${t.name} ${t.email ?? ""} ${t.username ?? ""} ${t.category ?? ""}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const pageSize = 10;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
-
-  const selectedAccess =
-    paperAccess[selectedTeacherId] ?? { create: true, publish: false, grade: true };
-
-  const staffCredentialAccounts = useMemo<CredentialAccount[]>(() => {
-    const teacherAccounts: CredentialAccount[] = teachers.map((t) => ({
-      id: t.id,
-      name: t.name,
-      role: "TEACHER",
-      email: t.email,
-      username: t.username,
-      category: t.category,
-    }));
-    const adminAccounts: CredentialAccount[] = admins.map((a) => ({
-      id: a.id,
-      name: a.name,
-      role: "ADMIN",
-      email: a.email,
-    }));
-    return [...teacherAccounts, ...adminAccounts].sort((x, y) => x.name.localeCompare(y.name));
-  }, [teachers, admins]);
-
-  function updatePaperAccess(patch: Partial<PaperAccess>) {
-    if (!selectedTeacherId) return;
-    const next = {
-      ...paperAccess,
-      [selectedTeacherId]: { ...selectedAccess, ...patch },
-    };
-    setPaperAccess(next);
-    writePaperAccess(next);
-    pushAudit("PERMISSION_UPDATE", `Paper access updated for teacher id ${selectedTeacherId}`);
+  async function deleteStaff(row: StaffRow) {
+    const label = row.role === "TEACHER" ? "teacher" : "admin";
+    const extra =
+      row.role === "TEACHER"
+        ? " This also removes their students and related data."
+        : "";
+    const ok = window.confirm(
+      `Delete ${label} "${row.name}"?${extra} This cannot be undone.`
+    );
+    if (!ok) return;
+    setDeletingId(row.id);
+    setError(null);
+    try {
+      const endpoint =
+        row.role === "TEACHER"
+          ? `/api/admin/teachers/${encodeURIComponent(row.id)}`
+          : `/api/admin/admins/${encodeURIComponent(row.id)}`;
+      const res = await fetch(endpoint, { method: "DELETE" });
+      const j = await res.json();
+      if (!res.ok) {
+        setError(j.error ?? `Could not delete ${label}`);
+        return;
+      }
+      setSuccess(`${row.role === "TEACHER" ? "Teacher" : "Admin"} "${row.name}" deleted.`);
+      pushAuditTrail("USER_DELETED", `${row.role} ${row.name} removed`);
+      await load();
+    } finally {
+      setDeletingId(null);
+    }
   }
 
-  function renderFeature(id: string) {
-    switch (id) {
-      case "create-staff":
-        return (
-          <>
-          <form className="grid gap-3" onSubmit={submit}>
+  const editCredentialAccount = useMemo<CredentialAccount | null>(
+    () =>
+      editStaff
+        ? {
+            id: editStaff.id,
+            name: editStaff.name,
+            role: editStaff.role,
+            email: editStaff.email,
+            username: editStaff.username,
+            category: editStaff.category,
+          }
+        : null,
+    [editStaff]
+  );
+
+  return (
+    <div className="space-y-4">
+      {success && !modal ? <p className="text-sm text-green-700">{success}</p> : null}
+      {error && !modal ? <p className="text-sm text-red-600">{error}</p> : null}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+          onClick={() => {
+            closeModal();
+            setSuccess(null);
+            setModal("create");
+          }}
+        >
+          Create new Teacher/Admin
+        </button>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+        <div className="border-b border-[var(--border)] p-3">
+          <input
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            placeholder="Search staff by name, login, track, or role..."
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+            <tr>
+              <th className="px-4 py-3 font-medium">Name</th>
+              <th className="px-4 py-3 font-medium">Login ID</th>
+              <th className="px-4 py-3 font-medium">Track</th>
+              <th className="px-4 py-3 font-medium">Role</th>
+              <th className="px-4 py-3 font-medium text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pagedStaff.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-center text-[var(--muted)]">
+                  No staff match your search.
+                </td>
+              </tr>
+            ) : null}
+            {pagedStaff.map((s) => (
+              <tr
+                key={`${s.role}-${s.id}`}
+                className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--background)]"
+                onClick={() => openStaffDetail(s)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openStaffDetail(s);
+                  }
+                }}
+                tabIndex={0}
+                role="link"
+                aria-label={
+                  s.role === "TEACHER"
+                    ? `Configure paper access for ${s.name}`
+                    : `Edit credentials for ${s.name}`
+                }
+              >
+                <td className="px-4 py-3 font-medium text-[var(--accent)]">{s.name}</td>
+                <td className="px-4 py-3">{displayLoginId(s)}</td>
+                <td className="px-4 py-3">
+                  {s.category ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        s.category === "NEET"
+                          ? "bg-violet-100 text-violet-800"
+                          : "bg-sky-100 text-sky-800"
+                      }`}
+                    >
+                      {s.category}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="px-4 py-3">{s.role === "TEACHER" ? "Teacher" : "Admin"}</td>
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--card)]"
+                      aria-label={`Edit credentials for ${s.name}`}
+                      title="Edit credentials"
+                      onClick={() => {
+                        setEditStaff(s);
+                        setError(null);
+                        setSuccess(null);
+                        setModal("edit");
+                      }}
+                    >
+                      <EditIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      aria-label={`Delete ${s.name}`}
+                      title={`Delete ${s.role === "TEACHER" ? "teacher" : "admin"}`}
+                      disabled={deletingId === s.id}
+                      onClick={() => void deleteStaff(s)}
+                    >
+                      <DeleteIcon />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3 text-sm">
+          <p className="text-[var(--muted)]">
+            Showing {pagedStaff.length} of {filteredStaff.length}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </button>
+            <span className="px-2 py-1 text-[var(--muted)]">
+              Page {page} of {pageCount}
+            </span>
+            <button
+              type="button"
+              className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
+              disabled={page >= pageCount}
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {modal === "create" ? (
+        <Modal title="Create new Teacher/Admin" onClose={closeModal}>
+          <form className="grid gap-3" onSubmit={submitCreate}>
+            <select
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              value={createRole}
+              onChange={(e) => setCreateRole(e.target.value as "TEACHER" | "ADMIN")}
+            >
+              <option value="TEACHER">Role: Teacher</option>
+              <option value="ADMIN">Role: Admin</option>
+            </select>
             <input
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
               placeholder="Name"
@@ -902,138 +1234,40 @@ export function TeacherRolesPanel({ resetKey }: { resetKey?: string }) {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-            <select
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              value={category}
-              onChange={(e) => setCategory(e.target.value as "JEE" | "NEET")}
-            >
-              <option value="JEE">Track: JEE</option>
-              <option value="NEET">Track: NEET</option>
-            </select>
-            <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              placeholder="Institute name"
-              value={institute}
-              onChange={(e) => setInstitute(e.target.value)}
-            />
-            <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              placeholder="Batch scope (e.g. Batch A 2026)"
-              value={batchScope}
-              onChange={(e) => setBatchScope(e.target.value)}
-            />
+            {createRole === "TEACHER" ? (
+              <select
+                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                value={category}
+                onChange={(e) => setCategory(e.target.value as "JEE" | "NEET")}
+              >
+                <option value="JEE">Track: JEE</option>
+                <option value="NEET">Track: NEET</option>
+              </select>
+            ) : null}
             <button type="submit" className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white">
               Create account
             </button>
           </form>
           {success ? <p className="mt-3 text-sm text-green-700">{success}</p> : null}
           {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
-          </>
-        );
-      case "paper-access":
-        return (
-          <div className="space-y-3">
-            <select
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              value={selectedTeacherId}
-              onChange={(e) => setSelectedTeacherId(e.target.value)}
-            >
-              <option value="">Select teacher</option>
-              {teachers.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.category})
-                </option>
-              ))}
-            </select>
-            <ToggleRow
-              label="Create / edit papers"
-              checked={selectedAccess.create}
-              onChange={(create) => updatePaperAccess({ create })}
-            />
-            <ToggleRow
-              label="Publish exams"
-              checked={selectedAccess.publish}
-              onChange={(publish) => updatePaperAccess({ publish })}
-            />
-            <ToggleRow
-              label="Grade / view results"
-              checked={selectedAccess.grade}
-              onChange={(grade) => updatePaperAccess({ grade })}
-            />
-            {!selectedTeacherId ? (
-              <p className="text-xs text-[var(--muted)]">Select a teacher to configure permissions.</p>
-            ) : null}
-          </div>
-        );
-      case "staff-directory":
-        return (
-        <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-          <div className="border-b border-[var(--border)] p-3">
-            <input
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              placeholder="Search staff..."
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-[var(--border)] text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">Name</th>
-                <th className="px-4 py-3 font-medium">Login ID</th>
-                <th className="px-4 py-3 font-medium">Track</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paged.map((t) => (
-                <tr key={t.id} className="border-b border-[var(--border)] last:border-0">
-                  <td className="px-4 py-3">{t.name}</td>
-                  <td className="px-4 py-3">{displayLoginId(t)}</td>
-                  <td className="px-4 py-3">{t.category ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        );
-      case "reset-credentials":
-        return (
-          <ResetCredentialsForm
-            accounts={staffCredentialAccounts}
-            onUpdated={async () => {
-              await load();
-              pushAudit("CREDENTIALS_RESET", "Staff or admin login details updated");
-            }}
-          />
-        );
-      case "audit":
-        return auditLog.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">Actions you take here will appear in this trail.</p>
-        ) : (
-          <ul className="space-y-2">
-            {auditLog.map((entry) => (
-              <li key={entry.at + entry.action} className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
-                <p className="font-medium">{entry.action}</p>
-                <p className="text-xs text-[var(--muted)]">
-                  {new Date(entry.at).toLocaleString()} · {entry.detail}
-                </p>
-              </li>
-            ))}
-          </ul>
-        );
-      default:
-        return null;
-    }
-  }
+        </Modal>
+      ) : null}
 
-  return (
-    <FeatureActivityHub
-      features={TEACHER_ROLE_ACTIVITIES}
-      renderFeature={renderFeature}
-      resetKey={resetKey}
-    />
+      {modal === "edit" && editCredentialAccount ? (
+        <Modal title={`Edit credentials — ${editCredentialAccount.name}`} onClose={closeModal}>
+          <ResetCredentialsForm
+            accounts={[]}
+            fixedAccount={editCredentialAccount}
+            onUpdated={async () => {
+              pushAuditTrail("CREDENTIALS_RESET", `${editCredentialAccount.role} ${editCredentialAccount.name} login updated`);
+              await load();
+              closeModal();
+              setSuccess(`Credentials updated for ${editCredentialAccount.name}.`);
+            }}
+            onCancel={closeModal}
+          />
+        </Modal>
+      ) : null}
+    </div>
   );
 }

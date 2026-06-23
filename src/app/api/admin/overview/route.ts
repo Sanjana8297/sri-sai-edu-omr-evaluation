@@ -16,6 +16,8 @@ export async function GET() {
         email: true,
         username: true,
         category: true,
+        year: true,
+        createdAt: true,
         teacher: { select: { id: true, name: true, email: true, username: true } },
       },
       orderBy: { name: "asc" },
@@ -66,7 +68,10 @@ export async function GET() {
   return NextResponse.json({
     counts: { students: studentCount, teachers: teacherCount, exams: exams.length },
     avgPercentageAcrossAttempts: avgPct,
-    students,
+    students: students.map((s) => ({
+      ...s,
+      createdAt: s.createdAt.toISOString(),
+    })),
     teachers: teachers.map((t) => ({
       id: t.id,
       name: t.name,

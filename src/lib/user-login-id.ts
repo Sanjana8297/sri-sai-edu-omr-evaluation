@@ -107,11 +107,13 @@ export async function isLoginIdTakenExcept(
 
   if (ids.username) {
     const username = ids.username;
-    const [teacher, student] = await Promise.all([
+    const [admin, teacher, student] = await Promise.all([
+      prisma.admin.findUnique({ where: { username }, select: { id: true } }),
       prisma.teacher.findUnique({ where: { username }, select: { id: true } }),
       prisma.student.findUnique({ where: { username }, select: { id: true } }),
     ]);
     for (const [role, row] of [
+      ["ADMIN", admin],
       ["TEACHER", teacher],
       ["STUDENT", student],
     ] as const) {

@@ -11,7 +11,7 @@ export async function GET() {
   if (session.role === "ADMIN") {
     const admin = await prisma.admin.findUnique({
       where: { id: session.sub },
-      select: { id: true, email: true, name: true },
+      select: { id: true, email: true, username: true, name: true },
     });
     if (!admin) {
       return NextResponse.json({ user: null }, { status: 200 });

@@ -11,7 +11,8 @@ datasource db {
 
 model Admin {
   id           String   @id @default(cuid())
-  email        String   @unique
+  email        String?  @unique
+  username     String?  @unique
   passwordHash String
   name         String
   createdAt    DateTime @default(now())
@@ -52,6 +53,7 @@ model Student {
   passwordHash String
   name         String
   category     String
+  year         Int?
   teacherId    String
   teacher      Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   examAttempts ExamAttempt[]
