@@ -436,7 +436,15 @@ export default function Home() {
       <section className="bg-blue-50">
         <div className="mx-auto w-full max-w-7xl px-4 pb-10 pt-10 sm:px-6 sm:pb-12 sm:pt-12">
           <div className="grid gap-6 rounded-3xl border border-blue-100 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-blue-200/70 sm:p-8 lg:grid-cols-2 lg:gap-8 md:p-10">
-            <div className="order-1 min-h-[280px] rounded-2xl border border-dashed border-blue-200 bg-blue-50 sm:min-h-[340px] lg:order-none" aria-hidden />
+            <div className="order-1 min-h-[280px] overflow-hidden rounded-2xl border border-blue-200 bg-blue-50 sm:min-h-[340px] lg:order-none">
+              <Image
+                src="/images/wellbeing.png"
+                alt="Counselor supporting a student at Sri Sai Educational Institute"
+                width={1200}
+                height={800}
+                className="h-full w-full object-cover"
+              />
+            </div>
 
             <div className="order-2 lg:order-none">
               <h3 className="text-2xl font-extrabold text-blue-700 sm:text-3xl">
@@ -497,27 +505,38 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="contact" className="bg-white">
-        <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-16">
-          <div className="rounded-3xl bg-blue-700 p-6 text-white transition duration-300 hover:-translate-y-1 hover:bg-blue-800 hover:shadow-xl hover:shadow-blue-300/60 sm:p-8 md:p-12">
-          <h3 className="text-2xl font-bold sm:text-3xl">Visit Our Campus</h3>
-          <p className="mt-3 max-w-2xl text-blue-100">
-            Book a counseling session, attend a demo class, and get your
-            personalized roadmap for JEE/NEET success.
-          </p>
-          <div className="mt-6 flex flex-col items-start gap-3 text-sm text-blue-100 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6">
-            <p>Phone: +91 9573773459</p>
-            <p>Email: admissions@jeeneetcoaching.in</p>
-            <p>Address: 9-7-046, Yerra Gardens, Yanam, India</p>
-            <a
-              href="https://www.instagram.com/srisaiedu_yanam?igsh=emI1MGw4NHlsYmQ0"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-4 transition hover:text-white"
-            >
-              Instagram
-            </a>
-          </div>
+      <section id="contact" className="relative min-h-screen w-full overflow-hidden">
+        <Image
+          src="/images/contact_us.png"
+          alt=""
+          fill
+          className="object-cover object-center"
+          sizes="100vw"
+        />
+        <div
+          className="absolute inset-0 bg-gradient-to-r from-blue-900/90 via-blue-800/75 to-blue-900/40 sm:from-blue-900/88 sm:via-blue-800/65 sm:to-blue-900/30"
+          aria-hidden
+        />
+        <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl items-center px-4 py-16 sm:px-6 sm:py-20">
+          <div className="max-w-2xl text-white">
+            <h3 className="text-2xl font-bold sm:text-3xl lg:text-4xl">Visit Our Campus</h3>
+            <p className="mt-3 text-blue-100 sm:text-lg">
+              Book a counseling session, attend a demo class, and get your
+              personalized roadmap for JEE/NEET success.
+            </p>
+            <div className="mt-6 flex flex-col items-start gap-3 text-sm text-blue-100 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6 sm:text-base">
+              <p>Phone: +91 9676643459</p>
+              <p>Email: admissions@jeeneetcoaching.in</p>
+              <p>Address: 9-7-046, Yerra Gardens, Yanam, India</p>
+              <a
+                href="https://www.instagram.com/srisaiedu_yanam?igsh=emI1MGw4NHlsYmQ0"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-4 transition hover:text-white"
+              >
+                Instagram
+              </a>
+            </div>
           </div>
         </div>
       </section>
