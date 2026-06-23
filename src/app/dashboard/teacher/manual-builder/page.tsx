@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
+import { QuestionBankPagination } from "@/components/question-bank/QuestionBankPagination";
 import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
 import { teacherNavItems } from "@/lib/dashboard-nav";
 import {
@@ -23,6 +24,10 @@ import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
 import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
 import { NEET_EXAM_DURATION_MINUTES, NEET_MAX_MARKS } from "@/lib/neet-exam-structure";
 import { JEE_MAINS_EXAM_DURATION_MINUTES, JEE_MAINS_MAX_MARKS } from "@/lib/jee-mains-exam-structure";
+import { buildQuestionsSearchParams } from "@/hooks/questions/fetch-questions-page";
+import { QUESTION_BANK_PAGE_SIZE } from "@/hooks/questions/use-question-bank-paged";
+import { useDebouncedValue } from "@/hooks/questions/use-debounced-value";
+import type { QuestionBankFilters as QuestionBankQueryFilters } from "@/lib/questions/types";
 
 type QuestionBankItem = {
   id: number;
@@ -175,7 +180,8 @@ function TeacherManualBuilderPage() {
   const [bankLoading, setBankLoading] = useState(false);
   const [paperSlots, setPaperSlots] = useState<PaperSlot[]>([]);
   const [selectionDetails, setSelectionDetails] = useState<Map<number, QuestionBankItem>>(() => new Map());
-  const [bankOffset, setBankOffset] = useState(0);
+  const [bankPage, setBankPage] = useState(1);
+  const bankListTopRef = useRef<HTMLDivElement>(null);
   const [bankTotal, setBankTotal] = useState(0);
   const [dragPaperIndex, setDragPaperIndex] = useState<number | null>(null);
 
@@ -208,7 +214,8 @@ function TeacherManualBuilderPage() {
   const [headerRollField, setHeaderRollField] = useState(true);
   const [paperSetVariant, setPaperSetVariant] = useState<"none" | "A" | "B" | "C" | "D">("none");
 
-  const pageSize = 40;
+  const pageSize = QUESTION_BANK_PAGE_SIZE;
+  const debouncedBankSearch = useDebouncedValue(bankSearch, 300);
 
   useEffect(() => {
     const bankIds = paperSlots
@@ -253,20 +260,25 @@ function TeacherManualBuilderPage() {
   const loadQuestionBank = useCallback(async () => {
     setBankLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (bankSubject !== "All") params.set("subject", bankSubject);
-      if (bankDifficulty !== "All") params.set("difficulty", bankDifficulty);
-      if (bankImportantOnly) params.set("important", "true");
-      if (bankRepeatedOnly) params.set("repeated", "true");
-      if (bankYear.trim()) params.set("year", bankYear.trim());
-      if (bankChapter.trim()) params.set("chapter", bankChapter.trim());
-      if (bankSearch.trim()) params.set("search", bankSearch.trim());
-      if (track === "JEE" && bankExamType !== "All") params.set("jeeExamType", bankExamType);
-      if (bankQuestionType === "MCQ") params.set("questionType", "mcq");
-      if (bankQuestionType === "Numerical") params.set("questionType", "numerical");
-      params.set("limit", String(pageSize));
-      params.set("offset", String(bankOffset));
-      params.set("fullRows", "true");
+      const filters: QuestionBankQueryFilters = { exam: track };
+      if (bankSubject !== "All") filters.subject = bankSubject;
+      if (bankDifficulty !== "All") filters.difficulty = bankDifficulty as "easy" | "medium" | "hard";
+      if (bankImportantOnly) filters.important = true;
+      if (bankRepeatedOnly) filters.repeated = true;
+      const yearNum = Number(bankYear);
+      if (bankYear.trim() && !Number.isNaN(yearNum)) filters.year = yearNum;
+      if (bankChapter.trim()) filters.chapter = bankChapter.trim();
+      if (debouncedBankSearch.trim()) filters.search = debouncedBankSearch.trim();
+      if (track === "JEE" && bankExamType !== "All") filters.jeeExamType = bankExamType;
+      if (bankQuestionType === "MCQ") filters.questionType = "mcq";
+      if (bankQuestionType === "Numerical") filters.questionType = "numerical";
+
+      const params = buildQuestionsSearchParams(filters, {
+        limit: pageSize,
+        offset: (bankPage - 1) * pageSize,
+        includeTotal: true,
+        fullRows: true,
+      });
       const res = await fetch(`/api/questions?${params.toString()}`);
       const j = await res.json();
       if (!res.ok) {
@@ -274,7 +286,7 @@ function TeacherManualBuilderPage() {
         return;
       }
       setBankItems(j.questions ?? []);
-      setBankTotal(Number(j.total ?? 0));
+      setBankTotal(typeof j.total === "number" ? j.total : 0);
     } finally {
       setBankLoading(false);
     }
@@ -282,13 +294,14 @@ function TeacherManualBuilderPage() {
     bankChapter,
     bankDifficulty,
     bankImportantOnly,
-    bankOffset,
+    bankPage,
     bankRepeatedOnly,
-    bankSearch,
+    debouncedBankSearch,
     bankSubject,
     bankYear,
     bankExamType,
     bankQuestionType,
+    pageSize,
     track,
   ]);
 
@@ -306,8 +319,21 @@ function TeacherManualBuilderPage() {
   }, [workflowStep, paperSlots, selectionDetails]);
 
   useEffect(() => {
-    setBankOffset(0);
-  }, [bankSubject, bankDifficulty, bankImportantOnly, bankRepeatedOnly, bankYear, bankChapter, bankSearch, bankExamType, bankQuestionType]);
+    setBankPage(1);
+  }, [bankSubject, bankDifficulty, bankImportantOnly, bankRepeatedOnly, bankYear, bankChapter, debouncedBankSearch, bankExamType, bankQuestionType, track]);
+
+  const bankTotalPages = Math.max(1, Math.ceil(bankTotal / pageSize));
+
+  useEffect(() => {
+    if (bankPage > bankTotalPages) {
+      setBankPage(bankTotalPages);
+    }
+  }, [bankPage, bankTotalPages]);
+
+  const goToBankPage = useCallback((nextPage: number) => {
+    setBankPage(nextPage);
+    bankListTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const streamSubjects: Record<"JEE" | "NEET", string[]> = {
     JEE: ["Maths", "Physics", "Chemistry"],
@@ -834,6 +860,20 @@ function TeacherManualBuilderPage() {
               </button>
             </div>
 
+            <div ref={bankListTopRef} className="mt-3 text-sm text-[var(--muted)]">
+              {bankLoading && bankItems.length === 0 ? (
+                <p>Loading questions…</p>
+              ) : bankTotal === 0 ? (
+                <p>No questions match these filters for your {track} track.</p>
+              ) : (
+                <p>
+                  Page {bankPage} of {bankTotalPages} · Showing{" "}
+                  {(bankPage - 1) * pageSize + 1}–{Math.min(bankPage * pageSize, bankTotal)} of {bankTotal}{" "}
+                  question{bankTotal === 1 ? "" : "s"}
+                </p>
+              )}
+            </div>
+
             <div
               className={`${fullPageSection ? "max-h-[min(68vh,52rem)]" : "max-h-80"} space-y-2 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--card)] p-2`}
             >
@@ -906,19 +946,15 @@ function TeacherManualBuilderPage() {
               })}
               {!bankLoading && bankItems.length === 0 ? <p className="p-3 text-sm text-[var(--muted)]">No questions match these filters.</p> : null}
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--muted)]">
-              <p>
-                Showing {bankItems.length === 0 ? 0 : bankOffset + 1}-{Math.min(bankOffset + bankItems.length, bankTotal)} of {bankTotal}
-              </p>
-              <div className="flex items-center gap-2">
-                <button type="button" className="rounded-lg border border-[var(--border)] px-2 py-1 disabled:opacity-50" disabled={bankOffset === 0 || bankLoading} onClick={() => setBankOffset((old) => Math.max(old - pageSize, 0))}>
-                  Prev
-                </button>
-                <button type="button" className="rounded-lg border border-[var(--border)] px-2 py-1 disabled:opacity-50" disabled={bankLoading || bankOffset + pageSize >= bankTotal} onClick={() => setBankOffset((old) => old + pageSize)}>
-                  Next
-                </button>
-              </div>
-            </div>
+
+            {bankTotal > 0 ? (
+              <QuestionBankPagination
+                page={bankPage}
+                totalPages={bankTotalPages}
+                onPageChange={goToBankPage}
+                disabled={bankLoading}
+              />
+            ) : null}
             </>
             ) : (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 space-y-3">
