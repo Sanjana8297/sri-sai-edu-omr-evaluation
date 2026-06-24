@@ -4,27 +4,32 @@ import { requireRoles } from "@/lib/api-auth";
 import { buildReportsOverviewPayload } from "@/lib/reports-overview";
 
 export async function GET() {
-  const { response } = await requireRoles(["ADMIN"]);
+  const { session, response } = await requireRoles(["TEACHER"]);
   if (response) return response;
 
-  const [studentCount, teacherCount, students, sessions, attempts, exams, teachers] = await Promise.all([
-    prisma.student.count(),
-    prisma.teacher.count(),
-    prisma.student.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        username: true,
-        category: true,
-        year: true,
-        createdAt: true,
-        teacher: { select: { id: true, name: true, email: true, username: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
+  const teacherId = session.sub;
+
+  const students = await prisma.student.findMany({
+    where: { teacherId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      username: true,
+      category: true,
+      year: true,
+      createdAt: true,
+      teacher: { select: { id: true, name: true, email: true, username: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  const studentIds = students.map((s) => s.id);
+
+  const [sessions, attempts, exams, teacher] = await Promise.all([
     prisma.examSession.findMany({
       where: {
+        studentId: { in: studentIds },
         status: { in: ["SUBMITTED", "AUTO_SUBMITTED"] },
         scoreMax: { not: null },
       },
@@ -39,6 +44,7 @@ export async function GET() {
       },
     }),
     prisma.examAttempt.findMany({
+      where: { studentId: { in: studentIds } },
       select: {
         id: true,
         studentId: true,
@@ -47,15 +53,16 @@ export async function GET() {
         examDate: true,
         marksObtained: true,
         maxMarks: true,
-        student: { select: { id: true, name: true, email: true, category: true } },
       },
       orderBy: { examDate: "desc" },
     }),
     prisma.exam.findMany({
+      where: { teacherId },
       select: { id: true, title: true, category: true, startTime: true, isPublished: true },
       orderBy: { startTime: "desc" },
     }),
-    prisma.teacher.findMany({
+    prisma.teacher.findUnique({
+      where: { id: teacherId },
       select: {
         id: true,
         name: true,
@@ -64,9 +71,20 @@ export async function GET() {
         category: true,
         _count: { select: { students: true } },
       },
-      orderBy: { name: "asc" },
     }),
   ]);
+
+  const teachers = teacher
+    ? [
+        {
+          id: teacher.id,
+          name: teacher.name,
+          email: teacher.email,
+          category: teacher.category,
+          studentCount: teacher._count.students,
+        },
+      ]
+    : [];
 
   return NextResponse.json(
     buildReportsOverviewPayload({
@@ -74,15 +92,9 @@ export async function GET() {
       sessions,
       attempts,
       exams,
-      teachers: teachers.map((t) => ({
-        id: t.id,
-        name: t.name,
-        email: t.email,
-        category: t.category,
-        studentCount: t._count.students,
-      })),
-      studentCount,
-      teacherCount,
+      teachers,
+      studentCount: students.length,
+      teacherCount: 1,
     })
   );
 }

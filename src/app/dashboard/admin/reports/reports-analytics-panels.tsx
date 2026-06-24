@@ -73,17 +73,17 @@ function downloadCsv(filename: string, rows: string[][]) {
 
 const ALL_STUDENTS_SUBJECT_VALUE = "__all__";
 
-export function useAdminOverview() {
+export function useReportsOverview(overviewPath: string) {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/admin/overview");
+    const res = await fetch(overviewPath);
     const json = await res.json();
     if (json.counts) setData(json as OverviewData);
     setLoading(false);
-  }, []);
+  }, [overviewPath]);
 
   useEffect(() => {
     void load();
@@ -92,26 +92,34 @@ export function useAdminOverview() {
   return { data, loading, reload: load };
 }
 
-function useSubjectScores() {
+export function useAdminOverview() {
+  return useReportsOverview("/api/admin/overview");
+}
+
+function useSubjectScoresApi(subjectScoresPath: string) {
   const [subjectScores, setSubjectScores] = useState<SubjectScoresPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/reports/subject-scores");
+      const res = await fetch(subjectScoresPath);
       const json = await res.json();
       if (json.byStudent) setSubjectScores(json as SubjectScoresPayload);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [subjectScoresPath]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   return { subjectScores, subjectScoresLoading: loading };
+}
+
+function useSubjectScores() {
+  return useSubjectScoresApi("/api/admin/reports/subject-scores");
 }
 
 function PanelLoading() {
@@ -126,9 +134,21 @@ function NoExamDataNote() {
   );
 }
 
-export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
-  const { data, loading } = useAdminOverview();
-  const { subjectScores, subjectScoresLoading } = useSubjectScores();
+export function ResultScoreReportsPanel({
+  resetKey,
+  variant = "admin",
+}: {
+  resetKey?: string;
+  variant?: "admin" | "teacher";
+}) {
+  const overviewPath =
+    variant === "teacher" ? "/api/teacher/reports/overview" : "/api/admin/overview";
+  const subjectScoresPath =
+    variant === "teacher"
+      ? "/api/teacher/reports/subject-scores"
+      : "/api/admin/reports/subject-scores";
+  const { data, loading } = useReportsOverview(overviewPath);
+  const { subjectScores, subjectScoresLoading } = useSubjectScoresApi(subjectScoresPath);
   const [reportStudentId, setReportStudentId] = useState("");
   const [subjectStudentId, setSubjectStudentId] = useState("");
   const [subjectTrackFilter, setSubjectTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
@@ -438,8 +458,13 @@ export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
             <div id="student-report-card" className="rounded-lg border border-[var(--border)] p-4 print:border-black">
               <h4 className="font-semibold">{reportStudent.name}</h4>
               <p className="text-xs text-[var(--muted)]">
-                {reportStudent.email} · Target {reportStudent.category} · Mentor:{" "}
-                {reportStudent.teacher?.name ?? "—"}
+                {reportStudent.email} · Target {reportStudent.category}
+                {variant === "admin" ? (
+                  <>
+                    {" "}
+                    · Mentor: {reportStudent.teacher?.name ?? "—"}
+                  </>
+                ) : null}
               </p>
               <p className="mt-2 text-sm">
                 Average score: <strong>{reportAvg ?? "—"}%</strong> · Attempts: {reportAttemptCount}

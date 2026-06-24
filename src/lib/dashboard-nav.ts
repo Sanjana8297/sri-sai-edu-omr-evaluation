@@ -52,6 +52,7 @@ export function buildTeacherNavItems(track: TeacherTrack): NavItem[] {
     },
     { href: "/dashboard/teacher/all-question-papers", label: "All Question Papers" },
     { href: "/dashboard/teacher/uploaded-papers", label: "Archived Question Papers" },
+    { href: "/dashboard/teacher/result-score-reports", label: "Result & Score Reports" },
     { href: "/dashboard/teacher/students", label: "Student Management" },
     { href: "/dashboard/teacher/help", label: "Help" },
   ];
