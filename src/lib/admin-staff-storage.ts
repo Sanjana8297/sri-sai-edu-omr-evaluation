@@ -11,6 +11,31 @@ export const DEFAULT_PAPER_ACCESS: PaperAccess = {
   grade: true,
 };
 
+export const PAPER_ACCESS_LABELS: Record<keyof PaperAccess, string> = {
+  create: "Create / edit papers",
+  publish: "Publish exams",
+  grade: "Grade / view results",
+};
+
+export function formatPaperAccessState(access: PaperAccess): string {
+  return (Object.keys(PAPER_ACCESS_LABELS) as (keyof PaperAccess)[])
+    .map((key) => `${PAPER_ACCESS_LABELS[key]}: ${access[key] ? "enabled" : "disabled"}`)
+    .join("; ");
+}
+
+export function describePaperAccessChanges(
+  before: PaperAccess,
+  after: PaperAccess,
+  patch: Partial<PaperAccess>
+): string[] {
+  return (Object.keys(patch) as (keyof PaperAccess)[])
+    .filter((key) => before[key] !== after[key])
+    .map(
+      (key) =>
+        `${PAPER_ACCESS_LABELS[key]}: ${before[key] ? "enabled" : "disabled"} → ${after[key] ? "enabled" : "disabled"}`
+    );
+}
+
 export function readPaperAccess(): Record<string, PaperAccess> {
   if (typeof window === "undefined") return {};
   try {

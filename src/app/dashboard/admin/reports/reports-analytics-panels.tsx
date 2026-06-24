@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
+import type { TeacherTrack } from "@/lib/dashboard-nav";
+import { SUBJECTS_BY_TRACK } from "@/lib/dashboard-nav";
+import type { SubjectScoresPayload } from "@/lib/subject-score-breakdown";
 
 export type AttemptRow = {
   id: string;
@@ -42,13 +45,12 @@ type OverviewData = {
 };
 
 const CUTOFF_PCT: Record<string, number> = { NEET: 50, JEE: 90 };
-const SUBJECT_KEYWORDS = ["Physics", "Chemistry", "Maths", "Mathematics", "Botany", "Zoology", "Biology"];
 
 const RESULT_ACTIVITIES: ActivityFeature[] = [
   { id: "rank", title: "Rank list with percentile", description: "Instant aggregate across attempts" },
-  { id: "subject", title: "Subject-wise score breakdown", description: "Average % by track and subject area" },
+  { id: "subject", title: "Subject-wise score breakdown", description: "Per-student subject averages from exam paper scoring" },
   { id: "report-card", title: "Individual student report card", description: "Per-student exam history and summary" },
-  { id: "export-bulk", title: "Bulk PDF / Excel export", description: "Download rank list, all scores, or print bulk reports" },
+  { id: "export-bulk", title: "Bulk Excel export", description: "Download rank list or all scores" },
 ];
 
 const ANALYTICS_ACTIVITIES: ActivityFeature[] = [
@@ -56,13 +58,6 @@ const ANALYTICS_ACTIVITIES: ActivityFeature[] = [
   { id: "trend", title: "Improvement trend across attempts", description: "Chronological score progression" },
   { id: "cutoff", title: "NEET/JEE cut-off proximity meter", description: "Latest score vs qualifying benchmark" },
   { id: "difficulty", title: "Question difficulty vs response analysis", description: "Performance by inferred paper difficulty" },
-];
-
-const INSTITUTION_ACTIVITIES: ActivityFeature[] = [
-  { id: "heatmap", title: "Batch-wise score heatmap", description: "Average % by mentor batch and track" },
-  { id: "alerts", title: "Low-performer alert and follow-up", description: "Students below score threshold" },
-  { id: "frequency", title: "Exam frequency and coverage tracker", description: "Attempts logged per month" },
-  { id: "ratio", title: "Teacher-student ratio insights", description: "Centre staffing vs enrolment" },
 ];
 
 function downloadCsv(filename: string, rows: string[][]) {
@@ -76,10 +71,7 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
-function subjectFromTitle(title: string): string {
-  const found = SUBJECT_KEYWORDS.find((kw) => title.toLowerCase().includes(kw.toLowerCase()));
-  return found ?? "General";
-}
+const ALL_STUDENTS_SUBJECT_VALUE = "__all__";
 
 export function useAdminOverview() {
   const [data, setData] = useState<OverviewData | null>(null);
@@ -100,6 +92,28 @@ export function useAdminOverview() {
   return { data, loading, reload: load };
 }
 
+function useSubjectScores() {
+  const [subjectScores, setSubjectScores] = useState<SubjectScoresPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/reports/subject-scores");
+      const json = await res.json();
+      if (json.byStudent) setSubjectScores(json as SubjectScoresPayload);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { subjectScores, subjectScoresLoading: loading };
+}
+
 function PanelLoading() {
   return <p className="text-sm text-[var(--muted)]">Loading analytics…</p>;
 }
@@ -114,7 +128,10 @@ function NoExamDataNote() {
 
 export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
   const { data, loading } = useAdminOverview();
+  const { subjectScores, subjectScoresLoading } = useSubjectScores();
   const [reportStudentId, setReportStudentId] = useState("");
+  const [subjectStudentId, setSubjectStudentId] = useState("");
+  const [subjectTrackFilter, setSubjectTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
   const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
 
   const rankList = useMemo(() => {
@@ -146,33 +163,53 @@ export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
 
   const filteredRanks = rankList.filter((r) => trackFilter === "ALL" || r.category === trackFilter);
 
-  const subjectBreakdown = useMemo(() => {
+  const filteredSubjectStudents = useMemo(() => {
     if (!data) return [];
-    const map = new Map<string, { total: number; count: number }>();
-    for (const row of data.performance) {
-      const key = `${row.category} · ${subjectFromTitle(row.title)}`;
-      const cur = map.get(key) ?? { total: 0, count: 0 };
-      cur.total += row.percentage;
-      cur.count += 1;
-      map.set(key, cur);
+    if (subjectTrackFilter === "ALL") return data.students;
+    return data.students.filter((s) => s.category === subjectTrackFilter);
+  }, [data, subjectTrackFilter]);
+
+  const subjectBreakdown = useMemo(() => {
+    if (!subjectScores || !subjectStudentId) return null;
+
+    if (subjectStudentId === ALL_STUDENTS_SUBJECT_VALUE && subjectTrackFilter !== "ALL") {
+      const track = subjectTrackFilter as TeacherTrack;
+      const aggregate = subjectScores.trackAggregates[track];
+      return {
+        title: `All students · Target ${track}`,
+        subtitle: "Average % per subject across all exam attempts on the report card",
+        allAttempts: aggregate.allAttempts,
+        overallAvg: aggregate.overallAvg,
+        scores: aggregate.subjects,
+      };
     }
-    return [...map.entries()]
-      .map(([label, v]) => ({ label, avg: Math.round((v.total / v.count) * 10) / 10 }))
-      .sort((a, b) => b.avg - a.avg);
-  }, [data]);
+
+    const student = data?.students.find((s) => s.id === subjectStudentId);
+    const entry = subjectScores.byStudent[subjectStudentId];
+    if (!student || !entry) return null;
+    return {
+      title: `${student.name} · Target ${entry.track}`,
+      subtitle: "Average % per subject across all exam attempts on the report card",
+      allAttempts: entry.allAttempts,
+      overallAvg: entry.overallAvg,
+      scores: entry.subjects,
+    };
+  }, [data, subjectStudentId, subjectTrackFilter, subjectScores]);
 
   const reportStudent = data?.students.find((s) => s.id === reportStudentId);
+  const reportStudentStats = reportStudentId ? subjectScores?.byStudent[reportStudentId] : undefined;
   const reportAttempts = useMemo(() => {
     if (!reportStudentId || !data) return [];
     return data.performance.filter((p) => p.studentId === reportStudentId);
   }, [data, reportStudentId]);
 
-  const reportAvg =
-    reportAttempts.length > 0
+  const reportAttemptCount = reportStudentStats?.allAttempts ?? reportAttempts.length;
+  const reportAvg = reportStudentStats?.overallAvg ??
+    (reportAttempts.length > 0
       ? Math.round(
           (reportAttempts.reduce((s, a) => s + a.percentage, 0) / reportAttempts.length) * 10,
         ) / 10
-      : null;
+      : null);
 
   function exportRankExcel() {
     downloadCsv("rank-list.csv", [
@@ -256,18 +293,110 @@ export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
             case "subject":
               return !hasPerformance ? (
                 <NoExamDataNote />
+              ) : subjectScoresLoading ? (
+                <PanelLoading />
               ) : (
-          <ul className="space-y-2">
-            {subjectBreakdown.map((s) => (
-              <li key={s.label} className="flex items-center gap-3">
-                <span className="w-40 shrink-0 text-xs text-[var(--muted)]">{s.label}</span>
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
-                  <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.min(100, s.avg)}%` }} />
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-2">
+                    {(["ALL", "JEE", "NEET"] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${
+                          subjectTrackFilter === t
+                            ? "bg-[var(--accent)] text-white"
+                            : "border border-[var(--border)] text-[var(--muted)]"
+                        }`}
+                        onClick={() => {
+                          setSubjectTrackFilter(t);
+                          setSubjectStudentId("");
+                        }}
+                      >
+                        {t === "ALL" ? "All tracks" : `Track: ${t}`}
+                      </button>
+                    ))}
+                  </div>
+                  <select
+                    className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    value={subjectStudentId}
+                    onChange={(e) => setSubjectStudentId(e.target.value)}
+                  >
+                    <option value="">Select student</option>
+                    {subjectTrackFilter !== "ALL" ? (
+                      <option value={ALL_STUDENTS_SUBJECT_VALUE}>All students</option>
+                    ) : null}
+                    {filteredSubjectStudents.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.category})
+                      </option>
+                    ))}
+                  </select>
+                  {subjectBreakdown ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-[var(--muted)]">
+                        {subjectBreakdown.title} · {subjectBreakdown.subtitle}
+                      </p>
+                      <p className="text-sm">
+                        Total attempts: <strong>{subjectBreakdown.allAttempts}</strong>
+                        {" · "}
+                        Total average:{" "}
+                        <strong>
+                          {subjectBreakdown.overallAvg != null
+                            ? `${subjectBreakdown.overallAvg}%`
+                            : "—"}
+                        </strong>
+                      </p>
+                      <ul className="space-y-2">
+                        {subjectBreakdown.scores.map((s) => (
+                          <li key={s.subject} className="flex items-center gap-3">
+                            <span className="w-28 shrink-0 text-sm font-medium">{s.subject}</span>
+                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
+                              <div
+                                className="h-full rounded-full bg-[var(--accent)]"
+                                style={{ width: `${s.avg != null ? Math.min(100, s.avg) : 0}%` }}
+                              />
+                            </div>
+                            <span className="w-24 text-right text-sm font-medium">
+                              {s.avg != null ? `${s.avg}%` : "—"}
+                            </span>
+                            <span className="w-28 text-right text-xs text-[var(--muted)]">
+                              {s.examCount > 0
+                                ? `${s.examCount} test${s.examCount === 1 ? "" : "s"}`
+                                : "No data"}
+                            </span>
+                          </li>
+                        ))}
+                        <li className="flex items-center gap-3 border-t border-[var(--border)] pt-3">
+                          <span className="w-28 shrink-0 text-sm font-semibold">Total Average</span>
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
+                            <div
+                              className="h-full rounded-full bg-[var(--accent)]"
+                              style={{
+                                width: `${
+                                  subjectBreakdown.overallAvg != null
+                                    ? Math.min(100, subjectBreakdown.overallAvg)
+                                    : 0
+                                }%`,
+                              }}
+                            />
+                          </div>
+                          <span className="w-24 text-right text-sm font-semibold">
+                            {subjectBreakdown.overallAvg != null
+                              ? `${subjectBreakdown.overallAvg}%`
+                              : "—"}
+                          </span>
+                          <span className="w-28 text-right text-xs text-[var(--muted)]">Combined</span>
+                        </li>
+                      </ul>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-[var(--muted)]">
+                      {subjectTrackFilter === "ALL"
+                        ? "Select a student to view subject-wise scores, or choose a track to include all students."
+                        : "Select a student or All students to view subject-wise scores for this track."}
+                    </p>
+                  )}
                 </div>
-                <span className="w-10 text-right text-sm font-medium">{s.avg}%</span>
-              </li>
-            ))}
-          </ul>
               );
             case "export-bulk":
               return (
@@ -287,14 +416,6 @@ export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
                     onClick={exportAllExcel}
                   >
                     Export all scores (Excel)
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                    disabled={!hasPerformance}
-                    onClick={() => window.print()}
-                  >
-                    Bulk PDF (print)
                   </button>
                 </div>
               );
@@ -321,7 +442,7 @@ export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
                 {reportStudent.teacher?.name ?? "—"}
               </p>
               <p className="mt-2 text-sm">
-                Average score: <strong>{reportAvg ?? "—"}%</strong> · Attempts: {reportAttempts.length}
+                Average score: <strong>{reportAvg ?? "—"}%</strong> · Attempts: {reportAttemptCount}
               </p>
               <table className="mt-3 min-w-full text-left text-sm">
                 <thead>
@@ -374,24 +495,30 @@ export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
 
 export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
   const { data, loading } = useAdminOverview();
+  const { subjectScores, subjectScoresLoading } = useSubjectScores();
+  const [weakTrackFilter, setWeakTrackFilter] = useState<TeacherTrack>("JEE");
   const [trendStudentId, setTrendStudentId] = useState("");
   const [proximityStudentId, setProximityStudentId] = useState("");
 
-  const weakChapters = useMemo(() => {
-    if (!data) return [];
-    const map = new Map<string, { total: number; count: number }>();
-    for (const row of data.performance) {
-      const ch = subjectFromTitle(row.title);
-      const cur = map.get(`${row.category} · ${ch}`) ?? { total: 0, count: 0 };
-      cur.total += row.percentage;
-      cur.count += 1;
-      map.set(`${row.category} · ${ch}`, cur);
-    }
-    return [...map.entries()]
-      .map(([label, v]) => ({ label, avg: v.total / v.count }))
-      .sort((a, b) => a.avg - b.avg)
-      .slice(0, 5);
-  }, [data]);
+  const weakSubjects = useMemo(() => {
+    if (!subjectScores) return [];
+    const aggregate = subjectScores.trackAggregates[weakTrackFilter];
+    return SUBJECTS_BY_TRACK[weakTrackFilter]
+      .map((subject) => {
+        const row = aggregate.subjects.find((s) => s.subject === subject);
+        return {
+          subject,
+          avg: row?.avg ?? null,
+          examCount: row?.examCount ?? 0,
+        };
+      })
+      .sort((a, b) => {
+        if (a.avg == null && b.avg == null) return 0;
+        if (a.avg == null) return 1;
+        if (b.avg == null) return -1;
+        return a.avg - b.avg;
+      });
+  }, [subjectScores, weakTrackFilter]);
 
   const trendAttempts = useMemo(() => {
     if (!trendStudentId || !data) return [];
@@ -436,6 +563,10 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
   }, [data]);
 
   const hasPerformance = (data?.performance.length ?? 0) > 0;
+  const hasSubjectScores =
+    subjectScores != null &&
+    (subjectScores.trackAggregates.JEE.allAttempts > 0 ||
+      subjectScores.trackAggregates.NEET.allAttempts > 0);
 
   if (loading) return <PanelLoading />;
 
@@ -446,25 +577,56 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
       renderFeature={(id) => {
         switch (id) {
           case "weak-chapters":
-            return !hasPerformance ? (
+            return subjectScoresLoading ? (
+              <PanelLoading />
+            ) : !hasSubjectScores ? (
               <NoExamDataNote />
             ) : (
           <>
-          <ul className="space-y-2">
-            {weakChapters.length === 0 ? (
-              <li className="text-sm text-[var(--muted)]">No chapter data available yet.</li>
-            ) : null}
-            {weakChapters.map((w) => (
-              <li
-                key={w.label}
-                className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(["JEE", "NEET"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  weakTrackFilter === t ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"
+                }`}
+                onClick={() => setWeakTrackFilter(t)}
               >
-                <span>{w.label}</span>
-                <span className="font-semibold">{Math.round(w.avg * 10) / 10}% avg</span>
+                Track: {t}
+              </button>
+            ))}
+          </div>
+          <p className="mb-3 text-sm text-[var(--muted)]">
+            Target {weakTrackFilter} · All subjects ranked weakest first ·{" "}
+            {subjectScores?.trackAggregates[weakTrackFilter].allAttempts ?? 0} exam attempts considered
+          </p>
+          <ul className="space-y-2">
+            {weakSubjects.map((w, index) => (
+              <li
+                key={w.subject}
+                className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
+                  index === 0 && w.avg != null
+                    ? "border-amber-200 bg-amber-50 text-amber-900"
+                    : "border-[var(--border)]"
+                }`}
+              >
+                <span className="font-medium">{w.subject}</span>
+                <span>
+                  <span className="font-semibold">{w.avg != null ? `${w.avg}%` : "—"}</span>
+                  <span className="ml-2 text-xs text-[var(--muted)]">
+                    {w.examCount > 0
+                      ? `${w.examCount} test${w.examCount === 1 ? "" : "s"}`
+                      : "No attempts"}
+                  </span>
+                </span>
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-[var(--muted)]">Heuristic ranking from exam titles and scores; connect AI tagging for finer chapters.</p>
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            Uses the same subject scoring as the report card (paper sections, single-subject tests, and overall
+            scores for full mocks).
+          </p>
           </>
             );
           case "trend":
@@ -570,205 +732,6 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
               ))}
             </tbody>
           </table>
-            );
-          default:
-            return null;
-        }
-      }}
-    />
-  );
-}
-
-export function InstitutionDashboardPanel({ resetKey }: { resetKey?: string }) {
-  const { data, loading } = useAdminOverview();
-  const [alertThreshold, setAlertThreshold] = useState(40);
-
-  const batchHeatmap = useMemo(() => {
-    if (!data) return [];
-    const map = new Map<string, { total: number; count: number; teacher: string; category: string }>();
-    for (const row of data.performance) {
-      const student = data.students.find((s) => s.id === row.studentId);
-      const batchKey = `${student?.teacher?.name ?? "Unassigned"} · ${row.category}`;
-      const cur = map.get(batchKey) ?? {
-        total: 0,
-        count: 0,
-        teacher: student?.teacher?.name ?? "Unassigned",
-        category: row.category,
-      };
-      cur.total += row.percentage;
-      cur.count += 1;
-      map.set(batchKey, cur);
-    }
-    return [...map.entries()].map(([key, v]) => ({
-      key,
-      avg: Math.round((v.total / v.count) * 10) / 10,
-      teacher: v.teacher,
-      category: v.category,
-    }));
-  }, [data]);
-
-  const lowPerformers = useMemo(() => {
-    if (!data) return [];
-    const byStudent = new Map<string, { name: string; category: string; avg: number }>();
-    for (const row of data.performance) {
-      const cur = byStudent.get(row.studentId);
-      if (!cur) {
-        byStudent.set(row.studentId, {
-          name: row.studentName,
-          category: row.category,
-          avg: row.percentage,
-        });
-      } else {
-        cur.avg = (cur.avg + row.percentage) / 2;
-      }
-    }
-    return [...byStudent.values()]
-      .filter((s) => s.avg < alertThreshold)
-      .sort((a, b) => a.avg - b.avg);
-  }, [data, alertThreshold]);
-
-  const examFrequency = useMemo(() => {
-    if (!data) return [];
-    const map = new Map<string, number>();
-    for (const row of data.performance) {
-      const d = new Date(row.examDate);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [data]);
-
-  const teacherRatios = data?.teachers ?? [];
-  const totalStudents = data?.counts.students ?? 0;
-
-  const hasPerformance = (data?.performance.length ?? 0) > 0;
-
-  if (loading) return <PanelLoading />;
-
-  return (
-    <FeatureActivityHub
-      features={INSTITUTION_ACTIVITIES}
-      resetKey={resetKey}
-      renderFeature={(id) => {
-        switch (id) {
-          case "heatmap":
-            return !hasPerformance ? (
-              <NoExamDataNote />
-            ) : batchHeatmap.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">No batch scores to display yet.</p>
-            ) : (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {batchHeatmap.map((b) => {
-            const intensity =
-              b.avg >= 70 ? "bg-emerald-600 text-white" : b.avg >= 50 ? "bg-amber-400 text-amber-950" : "bg-red-500 text-white";
-            return (
-              <div key={b.key} className={`rounded-lg px-3 py-4 text-center ${intensity}`}>
-                <p className="text-xs font-medium opacity-90">{b.key}</p>
-                <p className="mt-1 text-2xl font-bold">{b.avg}%</p>
-              </div>
-            );
-          })}
-        </div>
-            );
-          case "alerts":
-            return (
-          <>
-          <label className="mb-3 block text-xs text-[var(--muted)]">
-            Alert below (%)
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={alertThreshold}
-              onChange={(e) => setAlertThreshold(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            />
-          </label>
-          {lowPerformers.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">No students below {alertThreshold}% average.</p>
-          ) : (
-            <ul className="space-y-2">
-              {lowPerformers.map((s) => (
-                <li
-                  key={s.name}
-                  className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm"
-                >
-                  <span>
-                    {s.name} <span className="text-[var(--muted)]">({s.category})</span>
-                  </span>
-                  <span className="font-semibold text-red-700">{Math.round(s.avg * 10) / 10}%</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          </>
-            );
-          case "frequency":
-            return !hasPerformance ? (
-              <NoExamDataNote />
-            ) : (
-          <>
-          <ul className="space-y-2">
-            {examFrequency.length === 0 ? (
-              <li className="text-sm text-[var(--muted)]">No attempts logged yet.</li>
-            ) : null}
-            {examFrequency.map(([month, count]) => (
-              <li key={month} className="flex items-center gap-3 text-sm">
-                <span className="w-20 text-[var(--muted)]">{month}</span>
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
-                  <div
-                    className="h-full bg-[var(--accent)]"
-                    style={{
-                      width: `${Math.min(100, (count / Math.max(...examFrequency.map(([, c]) => c), 1)) * 100)}%`,
-                    }}
-                  />
-                </div>
-                <span className="w-8 font-medium">{count}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-xs text-[var(--muted)]">
-            Published exams on platform: {data?.counts.exams ?? 0}
-          </p>
-          </>
-            );
-          case "ratio":
-            return (
-          <>
-        <table className="min-w-full text-left text-sm">
-          <thead className="text-[var(--muted)]">
-            <tr>
-              <th className="py-2">Teacher</th>
-              <th className="py-2">Track</th>
-              <th className="py-2">Students</th>
-              <th className="py-2">Ratio</th>
-            </tr>
-          </thead>
-          <tbody>
-            {teacherRatios.map((t) => (
-              <tr key={t.id} className="border-t border-[var(--border)]">
-                <td className="py-2">{t.name}</td>
-                <td className="py-2">{t.category}</td>
-                <td className="py-2">{t.studentCount}</td>
-                <td className="py-2">
-                  {t.studentCount > 0
-                    ? `1 : ${t.studentCount}`
-                    : "—"}
-                  {t.studentCount > 25 ? (
-                    <span className="ml-2 text-xs text-amber-600">High load</span>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="mt-3 text-sm text-[var(--muted)]">
-          Institute total: {totalStudents} students · {teacherRatios.length} teachers · overall{" "}
-          {teacherRatios.length > 0
-            ? `1 : ${Math.round(totalStudents / teacherRatios.length)}`
-            : "—"}
-        </p>
-          </>
             );
           default:
             return null;

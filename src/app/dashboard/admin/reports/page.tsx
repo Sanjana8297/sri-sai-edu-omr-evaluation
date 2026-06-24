@@ -5,10 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { adminNavItems } from "@/lib/dashboard-nav";
 import {
-  InstitutionDashboardPanel,
   PerformanceAnalyticsPanel,
   ResultScoreReportsPanel,
 } from "./reports-analytics-panels";
+import { InstitutionDashboardPanel } from "./institution-dashboard-panel";
 
 type ReportsSection = "results" | "analytics" | "institution";
 
@@ -48,13 +48,17 @@ function AdminReportsContent() {
     >
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="mb-6 border-b border-[var(--border)] pb-4">
-          <h2 className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</h2>
-          <p className="mt-0.5 text-xs text-[var(--muted)]">{SECTION_SUBTITLES[section]}</p>
+          {section !== "institution" ? (
+            <>
+              <h2 className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</h2>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">{SECTION_SUBTITLES[section]}</p>
+            </>
+          ) : null}
         </div>
 
         {section === "results" ? <ResultScoreReportsPanel resetKey={section} /> : null}
         {section === "analytics" ? <PerformanceAnalyticsPanel resetKey={section} /> : null}
-        {section === "institution" ? <InstitutionDashboardPanel resetKey={section} /> : null}
+        {section === "institution" ? <InstitutionDashboardPanel /> : null}
       </div>
     </DashboardShell>
   );

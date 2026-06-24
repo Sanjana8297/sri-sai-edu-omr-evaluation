@@ -7,6 +7,7 @@ import { DashboardShell } from "@/components/DashboardShell";
 import { adminNavItems } from "@/lib/dashboard-nav";
 import { displayLoginId } from "@/lib/user-login-id";
 import {
+  describePaperAccessChanges,
   getPaperAccessForTeacher,
   pushAuditTrail,
   readPaperAccess,
@@ -74,11 +75,14 @@ function TeacherPaperAccessContent() {
   function updateAccess(patch: Partial<PaperAccess>) {
     if (!teacherId || !access) return;
     const nextAccess = { ...access, ...patch };
+    const changes = describePaperAccessChanges(access, nextAccess, patch);
+    if (changes.length === 0) return;
     const store = readPaperAccess();
     store[teacherId] = nextAccess;
     writePaperAccess(store);
     setAccess(nextAccess);
-    pushAuditTrail("PERMISSION_UPDATE", `Paper access updated for ${teacher?.name ?? teacherId}`);
+    const staffName = teacher?.name ?? teacherId;
+    pushAuditTrail("PERMISSION_UPDATE", `${staffName} — ${changes.join("; ")}`);
   }
 
   return (
