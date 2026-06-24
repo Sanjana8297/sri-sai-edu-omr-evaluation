@@ -12,8 +12,6 @@ import {
 } from "@/lib/user-login-id";
 import { parseStudentYear } from "@/lib/student-year";
 
-type CredentialRole = "STUDENT" | "TEACHER" | "ADMIN";
-
 function parseOptionalEmail(raw: unknown): { value: string | null | undefined; error: string | null } {
   if (raw === undefined) return { value: undefined, error: null };
   if (raw === null || (typeof raw === "string" && !raw.trim())) return { value: null, error: null };
@@ -38,7 +36,7 @@ function parseOptionalUsername(raw: unknown): { value: string | null | undefined
 }
 
 export async function PATCH(request: Request) {
-  const { response } = await requireRoles(["ADMIN"]);
+  const { session, response } = await requireRoles(["TEACHER"]);
   if (response) return response;
 
   let body: {
@@ -55,13 +53,13 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const role = body.role as CredentialRole | undefined;
+  if (body.role && body.role !== "STUDENT") {
+    return NextResponse.json({ error: "Teachers can only update student credentials" }, { status: 403 });
+  }
+
   const userId = body.userId?.trim();
   const password = body.password?.trim();
 
-  if (!role || (role !== "STUDENT" && role !== "TEACHER" && role !== "ADMIN")) {
-    return NextResponse.json({ error: "Role must be STUDENT, TEACHER, or ADMIN" }, { status: 400 });
-  }
   if (!userId) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
@@ -72,8 +70,7 @@ export async function PATCH(request: Request) {
   const usernameParsed = parseOptionalUsername(body.username);
   if (usernameParsed.error) return NextResponse.json({ error: usernameParsed.error }, { status: 400 });
 
-  const yearParsed =
-    role === "STUDENT" ? parseStudentYear(body.year) : { value: undefined, error: null };
+  const yearParsed = parseStudentYear(body.year);
   if (yearParsed.error) return NextResponse.json({ error: yearParsed.error }, { status: 400 });
 
   if (
@@ -88,92 +85,12 @@ export async function PATCH(request: Request) {
     );
   }
 
-  if (role === "ADMIN") {
-    const admin = await prisma.admin.findUnique({ where: { id: userId } });
-    if (!admin) return NextResponse.json({ error: "Admin not found" }, { status: 404 });
-
-    const nextEmail = emailParsed.value === undefined ? admin.email : emailParsed.value;
-    const nextUsername = usernameParsed.value === undefined ? admin.username : usernameParsed.value;
-
-    if (!nextEmail && !nextUsername) {
-      return NextResponse.json({ error: "Admin must have an email or username" }, { status: 400 });
-    }
-
-    const ids: AccountIdentifiers = { email: nextEmail, username: nextUsername };
-    if (await isLoginIdTakenExcept(ids, { role: "ADMIN", id: admin.id })) {
-      return NextResponse.json({ error: "Email or username already in use" }, { status: 409 });
-    }
-
-    const data: { email?: string | null; username?: string | null; passwordHash?: string } = {};
-    if (emailParsed.value !== undefined && emailParsed.value !== admin.email) {
-      data.email = nextEmail;
-    }
-    if (usernameParsed.value !== undefined && usernameParsed.value !== admin.username) {
-      data.username = nextUsername;
-    }
-    if (password) {
-      if (password.length < 6) {
-        return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
-      }
-      data.passwordHash = await bcrypt.hash(password, 10);
-    }
-
-    if (Object.keys(data).length === 0) {
-      return NextResponse.json({ error: "No changes to save" }, { status: 400 });
-    }
-
-    const updated = await prisma.admin.update({
-      where: { id: admin.id },
-      data,
-      select: { id: true, name: true, email: true, username: true },
-    });
-    return NextResponse.json({ user: { ...updated, role: "ADMIN" as const } });
+  const student = await prisma.student.findFirst({
+    where: { id: userId, teacherId: session.sub },
+  });
+  if (!student) {
+    return NextResponse.json({ error: "Student not found under your account" }, { status: 404 });
   }
-
-  if (role === "TEACHER") {
-    const teacher = await prisma.teacher.findUnique({ where: { id: userId } });
-    if (!teacher) return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
-
-    const nextEmail = emailParsed.value === undefined ? teacher.email : emailParsed.value;
-    const nextUsername = usernameParsed.value === undefined ? teacher.username : usernameParsed.value;
-
-    if (!nextEmail && !nextUsername) {
-      return NextResponse.json({ error: "Teacher must have an email or username" }, { status: 400 });
-    }
-
-    const ids: AccountIdentifiers = { email: nextEmail, username: nextUsername };
-    if (await isLoginIdTakenExcept(ids, { role: "TEACHER", id: teacher.id })) {
-      return NextResponse.json({ error: "Email or username already in use" }, { status: 409 });
-    }
-
-    const data: { email?: string | null; username?: string | null; passwordHash?: string } = {};
-    if (emailParsed.value !== undefined && emailParsed.value !== teacher.email) {
-      data.email = nextEmail;
-    }
-    if (usernameParsed.value !== undefined && usernameParsed.value !== teacher.username) {
-      data.username = nextUsername;
-    }
-    if (password) {
-      if (password.length < 6) {
-        return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
-      }
-      data.passwordHash = await bcrypt.hash(password, 10);
-    }
-
-    if (Object.keys(data).length === 0) {
-      return NextResponse.json({ error: "No changes to save" }, { status: 400 });
-    }
-
-    const updated = await prisma.teacher.update({
-      where: { id: teacher.id },
-      data,
-      select: { id: true, name: true, email: true, username: true, category: true },
-    });
-    return NextResponse.json({ user: { ...updated, role: "TEACHER" as const } });
-  }
-
-  const student = await prisma.student.findUnique({ where: { id: userId } });
-  if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
   const nextEmail = emailParsed.value === undefined ? student.email : emailParsed.value;
   const nextUsername = usernameParsed.value === undefined ? student.username : usernameParsed.value;

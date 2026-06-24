@@ -2,8 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import {
+  ResetCredentialsForm,
+  type CredentialAccount,
+} from "@/components/ResetCredentialsForm";
 import { displayLoginId } from "@/lib/user-login-id";
 import { pushAuditTrail } from "@/lib/admin-staff-storage";
+import { useAutoClearMessage } from "@/hooks/use-auto-clear-message";
 
 type TeacherRow = {
   id: string;
@@ -22,271 +27,6 @@ type StudentRow = {
   createdAt: string;
   teacher: { name: string } | null;
 };
-
-type CredentialRole = "STUDENT" | "TEACHER" | "ADMIN";
-
-type CredentialAccount = {
-  id: string;
-  name: string;
-  role: CredentialRole;
-  email: string | null;
-  username?: string | null;
-  category?: string | null;
-};
-
-function ResetCredentialsForm({
-  accounts,
-  fixedAccount,
-  onUpdated,
-  onCancel,
-}: {
-  accounts: CredentialAccount[];
-  fixedAccount?: CredentialAccount | null;
-  onUpdated?: () => void | Promise<void>;
-  onCancel?: () => void;
-}) {
-  const [selectedKey, setSelectedKey] = useState(
-    fixedAccount ? `${fixedAccount.role}:${fixedAccount.id}` : ""
-  );
-  const [newEmail, setNewEmail] = useState("");
-  const [newUsername, setNewUsername] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [clearEmail, setClearEmail] = useState(false);
-  const [clearUsername, setClearUsername] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  const selected = useMemo(() => {
-    if (fixedAccount) return fixedAccount;
-    if (!selectedKey) return null;
-    const [role, id] = selectedKey.split(":");
-    return accounts.find((a) => a.role === role && a.id === id) ?? null;
-  }, [accounts, fixedAccount, selectedKey]);
-
-  const canClearEmail = Boolean(selected?.username || newUsername.trim());
-  const canClearUsername = Boolean(selected?.email || newEmail.trim());
-
-  function clearInputs() {
-    setNewEmail("");
-    setNewUsername("");
-    setNewPassword("");
-    setClearEmail(false);
-    setClearUsername(false);
-  }
-
-  function resetFormFields() {
-    clearInputs();
-    setError(null);
-    setSuccess(null);
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selected) {
-      setSuccess(null);
-      setError("Select an account first.");
-      return;
-    }
-
-    const payload: {
-      role: CredentialRole;
-      userId: string;
-      email?: string | null;
-      username?: string | null;
-      password?: string;
-    } = {
-      role: selected.role,
-      userId: selected.id,
-    };
-
-    if (clearEmail) payload.email = null;
-    else if (newEmail.trim()) payload.email = newEmail.trim();
-
-    if (clearUsername) payload.username = null;
-    else if (newUsername.trim()) payload.username = newUsername.trim();
-
-    if (newPassword.trim()) payload.password = newPassword.trim();
-
-    const hasChange =
-      payload.email !== undefined ||
-      payload.username !== undefined ||
-      Boolean(payload.password);
-
-    if (!hasChange) {
-      setSuccess(null);
-      setError("Enter a new email, username, and/or password.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const res = await fetch("/api/admin/users/credentials", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(typeof j.error === "string" ? j.error : "Failed to reset credentials. Please try again.");
-        return;
-      }
-      clearInputs();
-      const updatedUser = j.user as { email?: string | null; username?: string | null } | undefined;
-      const loginHint = updatedUser
-        ? displayLoginId(updatedUser)
-        : displayLoginId(selected);
-      setSuccess(`Credentials reset successfully for ${selected.name}. New login ID: ${loginHint}.`);
-      await onUpdated?.();
-    } catch {
-      setError("Could not reach the server. Check your connection and try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <form className="space-y-3" onSubmit={submit}>
-      {success ? (
-        <div
-          role="status"
-          className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
-        >
-          {success}
-        </div>
-      ) : null}
-      {error ? (
-        <div
-          role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
-        >
-          {error}
-        </div>
-      ) : null}
-      {!fixedAccount ? (
-        <select
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-          value={selectedKey}
-          onChange={(e) => {
-            setSelectedKey(e.target.value);
-            resetFormFields();
-          }}
-        >
-          <option value="">Select account</option>
-          {accounts.map((a) => (
-            <option key={`${a.role}:${a.id}`} value={`${a.role}:${a.id}`}>
-              {a.name}
-              {a.category ? ` (${a.category})` : ""} · {a.role === "ADMIN" ? "Admin" : a.role === "TEACHER" ? "Teacher" : "Student"} ·{" "}
-              {displayLoginId(a)}
-            </option>
-          ))}
-        </select>
-      ) : null}
-
-      {selected ? (
-        <p className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)]">
-          Current login: <strong className="text-[var(--foreground)]">{displayLoginId(selected)}</strong>
-          {selected.email ? (
-            <>
-              {" "}
-              · email: <span className="font-mono">{selected.email}</span>
-            </>
-          ) : null}
-          {selected.username ? (
-            <>
-              {" "}
-              · username: <span className="font-mono">{selected.username}</span>
-            </>
-          ) : null}
-        </p>
-      ) : null}
-
-      <input
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-        type="email"
-        placeholder="New email (leave blank to keep)"
-        value={newEmail}
-        onChange={(e) => {
-          setNewEmail(e.target.value);
-          if (e.target.value.trim()) setClearEmail(false);
-        }}
-        disabled={!selected || clearEmail}
-      />
-
-      <input
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-        placeholder="New username (leave blank to keep)"
-        value={newUsername}
-        onChange={(e) => {
-          setNewUsername(e.target.value);
-          if (e.target.value.trim()) setClearUsername(false);
-        }}
-        disabled={!selected || clearUsername}
-      />
-      <div className="flex flex-wrap gap-4 text-xs">
-        {selected?.email || newEmail.trim() ? (
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={clearUsername}
-              onChange={(e) => {
-                setClearUsername(e.target.checked);
-                if (e.target.checked) setNewUsername("");
-              }}
-              disabled={!canClearUsername}
-            />
-            Remove username
-          </label>
-        ) : null}
-        {selected?.username || newUsername.trim() ? (
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={clearEmail}
-              onChange={(e) => {
-                setClearEmail(e.target.checked);
-                if (e.target.checked) setNewEmail("");
-              }}
-              disabled={!canClearEmail}
-            />
-            Remove email
-          </label>
-        ) : null}
-      </div>
-
-      <input
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-        type="password"
-        placeholder="New password (leave blank to keep)"
-        value={newPassword}
-        onChange={(e) => setNewPassword(e.target.value)}
-        disabled={!selected}
-        autoComplete="new-password"
-      />
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="submit"
-          disabled={!selected || loading}
-          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-        >
-          {loading ? "Saving…" : "Update credentials"}
-        </button>
-        {onCancel ? (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium"
-          >
-            Cancel
-          </button>
-        ) : null}
-      </div>
-    </form>
-  );
-}
 
 function DeleteIcon() {
   return (
@@ -372,6 +112,8 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
   const [modal, setModal] = useState<"bulk" | "single" | "edit" | null>(null);
   const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useAutoClearMessage(success, setSuccess);
 
   const load = useCallback(async () => {
     const [t, o] = await Promise.all([
@@ -565,6 +307,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
             email: editStudent.email,
             username: editStudent.username,
             category: editStudent.category,
+            year: editStudent.year,
           }
         : null,
     [editStudent]
@@ -904,6 +647,8 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
   const [createRole, setCreateRole] = useState<"TEACHER" | "ADMIN">("TEACHER");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  useAutoClearMessage(success, setSuccess);
 
   const load = useCallback(async () => {
     const [t, a] = await Promise.all([

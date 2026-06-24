@@ -18,6 +18,9 @@ export async function GET(request: Request) {
       ...(scheduledOnly ? { exams: { some: {} } } : {}),
     },
     orderBy: { createdAt: "desc" },
+    include: {
+      _count: { select: { exams: true } },
+    },
   });
   return NextResponse.json({ papers });
 }

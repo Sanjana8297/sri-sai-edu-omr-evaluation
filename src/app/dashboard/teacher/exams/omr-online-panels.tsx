@@ -173,7 +173,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       const paper = json.paper as { title: string; questionContent: string; keyContent?: string | null; questionPaperUrl?: string | null };
       if (!paper.questionContent?.trim() && paper.questionPaperUrl) {
         setBundleErr(
-          "This paper is stored as an uploaded file only. Add question text in the paper editor to include it in the bundle, or download the file from Completed Exam Papers."
+          "This paper is stored as an uploaded file only. Add question text in the paper editor to include it in the bundle, or download the file from Archived Question Papers."
         );
         return;
       }

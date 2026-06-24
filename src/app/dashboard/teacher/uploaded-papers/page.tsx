@@ -62,7 +62,7 @@ export default function TeacherUploadedPapersPage() {
   return (
     <DashboardShell
       badge="Teacher"
-      title="Completed Exam Papers"
+      title="Archived Question Papers"
       subtitle="Question papers and answer keys for exams you have already scheduled."
       navItems={teacherNavItems}
     >

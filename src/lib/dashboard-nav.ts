@@ -50,8 +50,9 @@ export function buildTeacherNavItems(track: TeacherTrack): NavItem[] {
         { href: "/dashboard/teacher/exams?section=online", label: "Online Exam Module" },
       ],
     },
-    { href: "/dashboard/teacher/uploaded-papers", label: "Completed Exam Papers" },
-    { href: "/dashboard/teacher/students", label: "User Management" },
+    { href: "/dashboard/teacher/all-question-papers", label: "All Question Papers" },
+    { href: "/dashboard/teacher/uploaded-papers", label: "Archived Question Papers" },
+    { href: "/dashboard/teacher/students", label: "Student Management" },
     { href: "/dashboard/teacher/help", label: "Help" },
   ];
 }
