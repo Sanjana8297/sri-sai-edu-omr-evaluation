@@ -153,12 +153,11 @@ export function TeacherResultScoreReportsPanel() {
   function exportAllExcel() {
     if (!data) return;
     downloadCsv("all-attempts.csv", [
-      ["Student", "Exam", "Track", "Date", "Score", "Max", "Percent"],
+      ["Student", "Exam", "Track", "Score", "Max", "Percent"],
       ...data.performance.map((p: AttemptRow) => [
         p.studentName,
         p.title,
         p.category,
-        new Date(p.examDate).toLocaleDateString(),
         String(p.marksObtained),
         String(p.maxMarks),
         String(p.percentage),
