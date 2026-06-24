@@ -1,6 +1,5 @@
 import Image from "next/image";
 import type { OmrExamPreset } from "@/lib/omr-template";
-import { JEE_MAINS_SECTION_COPY } from "@/lib/omr-pdf";
 import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   JEE_ADVANCE_OVERALL_INSTRUCTION_LINES,
@@ -124,35 +123,6 @@ function SectionWiseInstructionsBlock({
   examPreset: OmrExamPreset;
   advanceSubjects: JeeAdvanceSubjectConfig[];
 }) {
-  if (examPreset === "JEE_MAINS") {
-    return (
-      <div className="space-y-3">
-        <div>
-          <div className="border-y border-black py-2 text-center">
-            <p className="font-bold">{JEE_MAINS_SECTION_COPY.section1.title}</p>
-            <p className="font-bold">{JEE_MAINS_SECTION_COPY.section1.subtitle}</p>
-          </div>
-          {JEE_MAINS_SECTION_COPY.section1.lines.map((line) => (
-            <p key={line} className="mt-2 leading-5">
-              {line}
-            </p>
-          ))}
-        </div>
-        <div>
-          <div className="border-y border-black py-2 text-center">
-            <p className="font-bold">{JEE_MAINS_SECTION_COPY.section2.title}</p>
-            <p className="font-bold">{JEE_MAINS_SECTION_COPY.section2.subtitle}</p>
-          </div>
-          {JEE_MAINS_SECTION_COPY.section2.lines.map((line) => (
-            <p key={line} className="mt-2 leading-5">
-              {line}
-            </p>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   if (examPreset === "JEE_ADVANCE" && advanceSubjects.length > 0) {
     return (
       <div className="space-y-3">
@@ -202,7 +172,7 @@ export function OmrTemplatePreview({
         ? JEE_MAINS_EXAM_DURATION_HOURS
         : JEE_ADVANCE_EXAM_DURATION_HOURS;
 
-  const hasSectionWise = examPreset === "JEE_MAINS" || examPreset === "JEE_ADVANCE";
+  const hasSectionWise = examPreset === "JEE_ADVANCE";
 
   return (
     <div className="rounded-lg border-2 border-black bg-white p-4 text-[11px] text-black shadow-sm">

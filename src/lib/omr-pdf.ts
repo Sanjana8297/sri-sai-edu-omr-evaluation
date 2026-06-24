@@ -10,11 +10,13 @@ import {
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 import type { OmrTemplateSettings } from "@/lib/omr-template";
 import {
+  NEET_EXAM_DURATION_HOURS,
   NEET_INSTRUCTION_LINES,
   NEET_INSTRUCTIONS_TITLE,
   NEET_MAX_MARKS,
 } from "@/lib/neet-exam-structure";
 import {
+  JEE_MAINS_EXAM_DURATION_HOURS,
   JEE_MAINS_INSTRUCTION_LINES,
   JEE_MAINS_INSTRUCTIONS_TITLE,
   JEE_MAINS_MAX_MARKS,
@@ -88,7 +90,195 @@ function slugify(name: string): string {
 }
 
 function drawBubble(doc: jsPDF, cx: number, cy: number, radius: number) {
+  doc.setLineWidth(0.75);
   doc.circle(cx, cy, radius, "S");
+}
+
+const OMR_OPTION_LABELS = ["(A)", "(B)", "(C)", "(D)"] as const;
+
+function drawCenteredLabel(doc: jsPDF, text: string, cx: number, y: number, fontSize: number) {
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(fontSize);
+  const w = doc.getTextWidth(text);
+  doc.text(text, cx - w / 2, y);
+}
+
+type OmrResponseMetrics = {
+  bubbleRadius: number;
+  bubblePitch: number;
+  labelFontSize: number;
+  qNumColWidth: number;
+  firstBubbleCx: number;
+  labelBaselineY: number;
+  bubbleCy: number;
+  rowHeight: number;
+};
+
+function getOmrResponseMetrics(blockW: number): OmrResponseMetrics {
+  const tight = blockW < 140;
+  const bubbleRadius = tight ? 4.5 : 5;
+  const bubblePitch = tight ? 22 : 26;
+  const labelFontSize = tight ? 6 : 6.5;
+  const qNumColWidth = tight ? 26 : 30;
+  const gapAfterQNum = tight ? 10 : 12;
+  const firstBubbleCx = qNumColWidth + gapAfterQNum + bubbleRadius;
+  const labelArea = 8;
+  const rowHeight = labelArea + bubbleRadius * 2 + 10;
+  const labelBaselineY = labelArea - 2;
+  const bubbleCy = labelArea + bubbleRadius;
+  return {
+    bubbleRadius,
+    bubblePitch,
+    labelFontSize,
+    qNumColWidth,
+    firstBubbleCx,
+    labelBaselineY,
+    bubbleCy,
+    rowHeight,
+  };
+}
+
+/** Labels sit above empty bubbles — avoids unreliable in-circle text positioning in jsPDF. */
+function drawOmrResponseRow(
+  doc: jsPDF,
+  x0: number,
+  rowTop: number,
+  qNum: number,
+  metrics: OmrResponseMetrics
+) {
+  const labelY = rowTop + metrics.labelBaselineY;
+  const bubbleCy = rowTop + metrics.bubbleCy;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(String(qNum), x0 + metrics.qNumColWidth, bubbleCy + 2, { align: "right" });
+
+  for (let o = 0; o < 4; o++) {
+    const cx = x0 + metrics.firstBubbleCx + o * metrics.bubblePitch;
+    drawCenteredLabel(doc, OMR_OPTION_LABELS[o], cx, labelY, metrics.labelFontSize);
+    drawBubble(doc, cx, bubbleCy, metrics.bubbleRadius);
+  }
+}
+
+const OMR_CANVAS_SCALE = 2;
+
+function drawOmrResponseRowCanvas(
+  ctx: CanvasRenderingContext2D,
+  x0Pt: number,
+  rowTopPt: number,
+  qNum: number,
+  metrics: OmrResponseMetrics,
+  scale: number
+) {
+  const x0 = x0Pt * scale;
+  const rowTop = rowTopPt * scale;
+  const labelY = rowTop + metrics.labelBaselineY * scale;
+  const bubbleCy = rowTop + metrics.bubbleCy * scale;
+  const r = metrics.bubbleRadius * scale;
+
+  ctx.fillStyle = "#000000";
+  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 0.75 * scale;
+
+  ctx.font = `${8 * scale}px Helvetica, Arial, sans-serif`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(qNum), x0 + metrics.qNumColWidth * scale, bubbleCy);
+
+  ctx.font = `${metrics.labelFontSize * scale}px Helvetica, Arial, sans-serif`;
+  for (let o = 0; o < 4; o++) {
+    const cx = x0 + (metrics.firstBubbleCx + o * metrics.bubblePitch) * scale;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(OMR_OPTION_LABELS[o], cx, labelY);
+    ctx.beginPath();
+    ctx.arc(cx, bubbleCy, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function renderOmrResponsePageCanvas(
+  visualRows: Array<Array<{ qNum: number; col: number }>>,
+  blockW: number,
+  metrics: OmrResponseMetrics,
+  gridWidth: number
+): HTMLCanvasElement {
+  const scale = OMR_CANVAS_SCALE;
+  const height = visualRows.length * metrics.rowHeight;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(gridWidth * scale);
+  canvas.height = Math.ceil(height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not create OMR canvas");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let rowIdx = 0; rowIdx < visualRows.length; rowIdx++) {
+    const rowTop = rowIdx * metrics.rowHeight;
+    for (const { qNum, col } of visualRows[rowIdx]) {
+      drawOmrResponseRowCanvas(ctx, col * blockW, rowTop, qNum, metrics, scale);
+    }
+  }
+
+  return canvas;
+}
+
+function drawOmrResponseGrid(
+  doc: jsPDF,
+  questionCount: number,
+  cols: number,
+  margin: number,
+  pageW: number,
+  pageH: number,
+  startY: number
+): void {
+  const blockW = (pageW - 2 * margin) / cols;
+  const gridWidth = pageW - 2 * margin;
+  const metrics = getOmrResponseMetrics(blockW);
+  const totalVisualRows = Math.ceil(questionCount / cols);
+  const useCanvas = typeof document !== "undefined";
+
+  let y = startY;
+  let pageVisualRows: Array<Array<{ qNum: number; col: number }>> = [];
+  let pageRowStartY = y;
+
+  const flushCanvasPage = () => {
+    if (!useCanvas || pageVisualRows.length === 0) return;
+    const canvas = renderOmrResponsePageCanvas(pageVisualRows, blockW, metrics, gridWidth);
+    const chunkHeight = pageVisualRows.length * metrics.rowHeight;
+    doc.addImage(canvas, "PNG", margin, pageRowStartY, gridWidth, chunkHeight);
+    pageVisualRows = [];
+  };
+
+  for (let visualRow = 0; visualRow < totalVisualRows; visualRow++) {
+    if (y + metrics.rowHeight > pageH - margin) {
+      flushCanvasPage();
+      doc.addPage();
+      y = margin;
+      pageRowStartY = y;
+    }
+
+    const rowQuestions: Array<{ qNum: number; col: number }> = [];
+    for (let c = 0; c < cols; c++) {
+      const qNum = visualRow * cols + c + 1;
+      if (qNum > questionCount) break;
+      rowQuestions.push({ qNum, col: c });
+    }
+
+    if (useCanvas) {
+      pageVisualRows.push(rowQuestions);
+    } else {
+      const rowTop = y;
+      for (const { qNum, col } of rowQuestions) {
+        drawOmrResponseRow(doc, margin + col * blockW, rowTop, qNum, metrics);
+      }
+    }
+
+    y += metrics.rowHeight;
+  }
+
+  flushCanvasPage();
 }
 
 function writeWrappedText(
@@ -117,6 +307,12 @@ function drawRule(doc: jsPDF, x1: number, y: number, x2: number): void {
   doc.line(x1, y, x2, y);
 }
 
+function drawSubjectEndRule(doc: jsPDF, margin: number, y: number, pageWidth: number): number {
+  y += 4;
+  drawRule(doc, margin, y, pageWidth - margin);
+  return y + 12;
+}
+
 function loadBrowserImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -137,6 +333,63 @@ async function addInstituteLogo(doc: jsPDF, x: number, y: number, maxWidth: numb
   } catch {
     return 0;
   }
+}
+
+type ExamHeaderMeta = {
+  examTitle: string;
+  maxMarks: number;
+  durationHours: number;
+  rollDigits?: number;
+};
+
+/** Header layout aligned with `OmrTemplatePreview` — logo left, exam meta right, dynamic box height. */
+async function drawPreviewStyleHeader(
+  doc: jsPDF,
+  meta: ExamHeaderMeta,
+  margin: number,
+  pageWidth: number
+): Promise<number> {
+  const padding = 12;
+  const startY = margin;
+  const contentY = startY + padding;
+  const boxWidth = pageWidth - margin * 2;
+
+  const logoHeight = await addInstituteLogo(doc, margin + padding, contentY, 230, 78);
+
+  const rightX = pageWidth - margin - padding;
+  doc.setFont("times", "bold");
+  doc.setFontSize(12);
+  let metaY = contentY + 14;
+  doc.text(meta.examTitle, rightX, metaY, { align: "right" });
+  metaY += 16;
+  doc.text(`Time: ${meta.durationHours.toFixed(2)} Hrs`, rightX, metaY, { align: "right" });
+  metaY += 16;
+  doc.text(`Max. Marks: ${meta.maxMarks}`, rightX, metaY, { align: "right" });
+  if (meta.rollDigits != null) {
+    metaY += 16;
+    doc.setFont("times", "normal");
+    doc.setFontSize(10);
+    doc.text(`Roll grid: ${meta.rollDigits} columns`, rightX, metaY, { align: "right" });
+  }
+
+  const boxHeight = Math.max(logoHeight + padding * 2, metaY - startY + padding);
+  doc.setLineWidth(1.2);
+  doc.rect(margin, startY, boxWidth, boxHeight);
+
+  return startY + boxHeight + 16;
+}
+
+function drawCenteredSectionLabel(
+  doc: jsPDF,
+  label: string,
+  x: number,
+  y: number,
+  width: number
+): number {
+  doc.setFont("times", "bold");
+  doc.setFontSize(9);
+  doc.text(label.toUpperCase(), x + width / 2, y, { align: "center" });
+  return y + 14;
 }
 
 function drawInstructionBlock(
@@ -228,45 +481,30 @@ async function addJeeAdvanceTemplateTopBlock(
   const subjects = opts.advance?.subjects ?? [];
   const maxMarks = subjects.length > 0 ? totalExamMarksFromSubjects(subjects) : 198;
   const hours = opts.advance?.examDurationHours ?? JEE_ADVANCE_EXAM_DURATION_HOURS;
+  const contentWidth = pageWidth - margin * 2;
 
-  let y = margin;
-  const boxX = margin - 8;
-  const boxWidth = pageWidth - margin * 2 + 16;
-  doc.setLineWidth(1.2);
-  doc.rect(boxX, margin - 8, boxWidth, 100);
+  let y = await drawPreviewStyleHeader(
+    doc,
+    { examTitle: "JEE ADVANCE MODEL", maxMarks, durationHours: hours },
+    margin,
+    pageWidth
+  );
 
-  const logoHeight = await addInstituteLogo(doc, margin, y, 230, 78);
-  const textTop = y + 8;
-
+  y = drawCenteredSectionLabel(doc, "Overall instructions", margin, y, contentWidth);
   doc.setFont("times", "bold");
-  doc.setFontSize(12);
-  doc.text(`Time: ${hours.toFixed(2)} Hrs`, margin, textTop + 62);
-
-  doc.setFontSize(14);
-  doc.text("JEE ADVANCE MODEL", pageWidth / 2, textTop + 72, { align: "center" });
-
-  doc.setFontSize(12);
-  doc.text("Sri Sai Educational Institutions", pageWidth - margin, textTop + 62, { align: "right" });
-  doc.text(`Max. Marks: ${maxMarks}`, pageWidth - margin, textTop + 82, { align: "right" });
-
-  y += Math.max(logoHeight, 88);
-  drawRule(doc, margin, y, pageWidth - margin);
-  y += 16;
-
-  doc.setFont("times", "bold");
-  doc.setFontSize(12);
-  doc.text("IMPORTANT INSTRUCTIONS", margin, y);
-  y += 14;
+  doc.setFontSize(11);
+  y = writeWrappedText(doc, "IMPORTANT INSTRUCTIONS", margin, y, contentWidth, 11, "bold", 13);
+  y += 6;
 
   doc.setFont("times", "normal");
   doc.setFontSize(9.5);
   const intro = `Each subject has exactly ${JEE_ADVANCE_QUESTIONS_PER_SUBJECT} questions in three sections. Marks per question are fixed; total exam marks depend on section question counts.`;
-  y = writeWrappedText(doc, intro, margin, y, pageWidth - margin * 2, 9.5, "normal", 11);
-  y += 6;
+  y = writeWrappedText(doc, intro, margin, y, contentWidth, 9.5, "normal", 11);
+  y += 8;
 
   for (const subject of subjects) {
     for (const line of advanceInstructionLines(subject)) {
-      y = writeWrappedText(doc, line, margin, y, pageWidth - margin * 2, 9, "normal", 10);
+      y = writeWrappedText(doc, line, margin, y, contentWidth, 9, "normal", 10);
     }
     y += 4;
   }
@@ -280,39 +518,29 @@ async function addJeeTemplateTopBlock(
   margin: number,
   pageWidth: number
 ): Promise<number> {
-  let y = margin;
-  const boxX = margin - 8;
-  const boxWidth = pageWidth - margin * 2 + 16;
-  doc.setLineWidth(1.2);
-  doc.rect(boxX, margin - 8, boxWidth, 112);
+  const contentWidth = pageWidth - margin * 2;
+  const pageBottom = () => doc.internal.pageSize.getHeight() - margin - 40;
 
-  const logoHeight = await addInstituteLogo(doc, margin, y, 230, 78);
-  const textTop = y + 8;
+  let y = await drawPreviewStyleHeader(
+    doc,
+    {
+      examTitle: "JEE MAIN MODEL",
+      maxMarks: JEE_MAINS_MAX_MARKS,
+      durationHours: JEE_MAINS_EXAM_DURATION_HOURS,
+    },
+    margin,
+    pageWidth
+  );
 
-  doc.setFont("times", "bold");
-  doc.setFontSize(12);
-  doc.text("Time: 3.00 Hrs", margin, textTop + 62);
-
-  doc.setFontSize(14);
-  doc.text("JEE MAIN MODEL", pageWidth / 2, textTop + 72, { align: "center" });
-
-  doc.setFontSize(12);
-  doc.text("Sri Sai Educational Institutions", pageWidth - margin, textTop + 62, { align: "right" });
-  doc.text(`Max. Marks: ${JEE_MAINS_MAX_MARKS}`, pageWidth - margin, textTop + 82, { align: "right" });
-
-  y += Math.max(logoHeight, 92);
-  drawRule(doc, margin, y, pageWidth - margin);
-  y += 16;
-
+  y = drawCenteredSectionLabel(doc, "Overall instructions", margin, y, contentWidth);
   doc.setFont("times", "bold");
   doc.setFontSize(11);
-  y = writeWrappedText(doc, JEE_MAINS_INSTRUCTIONS_TITLE, margin, y, pageWidth - margin * 2, 11, "bold", 13);
+  y = writeWrappedText(doc, JEE_MAINS_INSTRUCTIONS_TITLE, margin, y, contentWidth, 11, "bold", 13);
   y += 8;
 
   doc.setFont("times", "normal");
   doc.setFontSize(9);
 
-  const pageBottom = () => doc.internal.pageSize.getHeight() - margin - 40;
   const ensureSpace = (needed: number) => {
     if (y + needed > pageBottom()) {
       doc.addPage();
@@ -327,7 +555,7 @@ async function addJeeTemplateTopBlock(
       `${i + 1}. ${JEE_MAINS_INSTRUCTION_LINES[i]}`,
       margin,
       y,
-      pageWidth - margin * 2,
+      contentWidth,
       9,
       "normal",
       11
@@ -341,7 +569,7 @@ async function addJeeTemplateTopBlock(
     `5. ${JEE_MAINS_INSTRUCTION_LINES[4]}`,
     margin,
     y,
-    pageWidth - margin * 2,
+    contentWidth,
     9,
     "normal",
     11
@@ -350,19 +578,64 @@ async function addJeeTemplateTopBlock(
 
   for (const section of JEE_MAINS_SECTION_INSTRUCTIONS) {
     ensureSpace(20);
-    y = writeWrappedText(doc, section.label, margin + 12, y, pageWidth - margin * 2 - 12, 9, "bold", 11);
+    y = writeWrappedText(doc, section.label, margin + 12, y, contentWidth - 12, 9, "bold", 11);
     y += 2;
     for (const line of section.lines) {
       ensureSpace(16);
-      y = writeWrappedText(doc, line, margin + 20, y, pageWidth - margin * 2 - 20, 9, "normal", 11);
+      y = writeWrappedText(doc, line, margin + 20, y, contentWidth - 20, 9, "normal", 11);
       y += 2;
     }
     y += 2;
   }
 
-  y += 6;
-  drawRule(doc, margin, y, pageWidth - margin);
-  return y + 12;
+  drawRule(doc, margin, y + 6, pageWidth - margin);
+  return y + 18;
+}
+
+async function addOmrSheetHeader(
+  doc: jsPDF,
+  opts: OmrPdfOptions,
+  margin: number,
+  pageWidth: number
+): Promise<number> {
+  if (isJeeAdvanceTrack(opts.track)) {
+    const subjects = opts.advance?.subjects ?? [];
+    const maxMarks = subjects.length > 0 ? totalExamMarksFromSubjects(subjects) : 198;
+    const hours = opts.advance?.examDurationHours ?? JEE_ADVANCE_EXAM_DURATION_HOURS;
+    return drawPreviewStyleHeader(
+      doc,
+      { examTitle: "JEE ADVANCE MODEL", maxMarks, durationHours: hours, rollDigits: opts.rollDigits },
+      margin,
+      pageWidth
+    );
+  }
+  if (isJeeMainsTrack(opts.track)) {
+    return drawPreviewStyleHeader(
+      doc,
+      {
+        examTitle: "JEE MAIN MODEL",
+        maxMarks: JEE_MAINS_MAX_MARKS,
+        durationHours: JEE_MAINS_EXAM_DURATION_HOURS,
+        rollDigits: opts.rollDigits,
+      },
+      margin,
+      pageWidth
+    );
+  }
+  if (isNeetTrack(opts.track)) {
+    return drawPreviewStyleHeader(
+      doc,
+      {
+        examTitle: "NEET (UG) MODEL",
+        maxMarks: NEET_MAX_MARKS,
+        durationHours: NEET_EXAM_DURATION_HOURS,
+        rollDigits: opts.rollDigits,
+      },
+      margin,
+      pageWidth
+    );
+  }
+  return margin;
 }
 
 async function addNeetTemplateTopBlock(
@@ -371,33 +644,23 @@ async function addNeetTemplateTopBlock(
   margin: number,
   pageWidth: number
 ): Promise<number> {
-  let y = margin;
-  const boxX = margin - 8;
-  const boxWidth = pageWidth - margin * 2 + 16;
-  doc.setLineWidth(1.2);
-  doc.rect(boxX, margin - 8, boxWidth, 112);
+  const contentWidth = pageWidth - margin * 2;
 
-  const logoHeight = await addInstituteLogo(doc, margin, y, 230, 78);
-  const textTop = y + 8;
+  let y = await drawPreviewStyleHeader(
+    doc,
+    {
+      examTitle: "NEET (UG) MODEL",
+      maxMarks: NEET_MAX_MARKS,
+      durationHours: NEET_EXAM_DURATION_HOURS,
+    },
+    margin,
+    pageWidth
+  );
 
-  doc.setFont("times", "bold");
-  doc.setFontSize(12);
-  doc.text("Time: 3.00 Hrs", margin, textTop + 62);
-
-  doc.setFontSize(14);
-  doc.text("NEET (UG) MODEL", pageWidth / 2, textTop + 72, { align: "center" });
-
-  doc.setFontSize(12);
-  doc.text("Sri Sai Educational Institutions", pageWidth - margin, textTop + 62, { align: "right" });
-  doc.text(`Max. Marks: ${NEET_MAX_MARKS}`, pageWidth - margin, textTop + 82, { align: "right" });
-
-  y += Math.max(logoHeight, 92);
-  drawRule(doc, margin, y, pageWidth - margin);
-  y += 16;
-
+  y = drawCenteredSectionLabel(doc, "Overall instructions", margin, y, contentWidth);
   doc.setFont("times", "bold");
   doc.setFontSize(11);
-  y = writeWrappedText(doc, NEET_INSTRUCTIONS_TITLE, margin, y, pageWidth - margin * 2, 11, "bold", 13);
+  y = writeWrappedText(doc, NEET_INSTRUCTIONS_TITLE, margin, y, contentWidth, 11, "bold", 13);
   y += 8;
 
   doc.setFont("times", "normal");
@@ -408,7 +671,7 @@ async function addNeetTemplateTopBlock(
       `${i + 1}. ${NEET_INSTRUCTION_LINES[i]}`,
       margin,
       y,
-      pageWidth - margin * 2,
+      contentWidth,
       9,
       "normal",
       11
@@ -420,9 +683,8 @@ async function addNeetTemplateTopBlock(
     }
   }
 
-  y += 6;
-  drawRule(doc, margin, y, pageWidth - margin);
-  return y + 12;
+  drawRule(doc, margin, y + 6, pageWidth - margin);
+  return y + 18;
 }
 
 async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependNewPage?: boolean }): Promise<void> {
@@ -441,12 +703,8 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
 
     let y = margin;
 
-    if (isJeeAdvanceTrack(opts.track)) {
-      y = await addJeeAdvanceTemplateTopBlock(doc, opts, margin, pageW);
-    } else if (isJeeMainsTrack(opts.track)) {
-      y = await addJeeTemplateTopBlock(doc, opts, margin, pageW);
-    } else if (isNeetTrack(opts.track)) {
-      y = await addNeetTemplateTopBlock(doc, opts, margin, pageW);
+    if (isJeeAdvanceTrack(opts.track) || isJeeMainsTrack(opts.track) || isNeetTrack(opts.track)) {
+      y = await addOmrSheetHeader(doc, opts, margin, pageW);
     } else {
       const heading =
         copies > 1 ? `${opts.paperTitle} - OMR (${copy + 1}/${copies})` : `${opts.paperTitle} - OMR Sheet`;
@@ -470,8 +728,8 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
 
     const gridLeft = margin;
     const colW = 22;
-    const rowH = 14;
-    const bubbleR = 4;
+    const rowH = 16;
+    const bubbleR = 4.5;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
@@ -479,13 +737,14 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
       const x = gridLeft + col * colW + colW / 2;
       doc.text(String(col + 1), x, y, { align: "center" });
     }
-    y += 8;
+    y += 10;
 
     for (let digit = 0; digit <= 9; digit++) {
-      doc.text(String(digit), gridLeft - 10, y + 4);
+      const rowCenterY = y + bubbleR;
+      doc.text(String(digit), gridLeft - 12, rowCenterY + 2, { align: "right" });
       for (let col = 0; col < rollDigits; col++) {
         const cx = gridLeft + col * colW + colW / 2;
-        drawBubble(doc, cx, y, bubbleR);
+        drawBubble(doc, cx, rowCenterY, bubbleR);
       }
       y += rowH;
     }
@@ -498,33 +757,10 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
       margin,
       y
     );
-    y += 12;
+    y += 14;
 
     const cols = opts.track === "NEET" ? 4 : 3;
-    const blockW = (pageW - 2 * margin) / cols;
-    const qRowH = 11;
-    const optLabels = ["A", "B", "C", "D"];
-    const optGap = 14;
-    const colYs = Array.from({ length: cols }, () => y);
-
-    for (let qNum = 1; qNum <= questionCount; qNum++) {
-      const col = (qNum - 1) % cols;
-      const x0 = margin + col * blockW;
-      if (colYs[col] + qRowH > pageH - margin) {
-        doc.addPage();
-        for (let i = 0; i < cols; i++) colYs[i] = margin;
-      }
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      const qLabel = String(qNum).padStart(3, " ");
-      doc.text(qLabel, x0, colYs[col] + 3);
-      for (let o = 0; o < 4; o++) {
-        const cx = x0 + 28 + o * optGap;
-        drawBubble(doc, cx, colYs[col], 3);
-        doc.text(optLabels[o], cx - 2, colYs[col] + 3, { align: "center" });
-      }
-      colYs[col] += qRowH;
-    }
+    drawOmrResponseGrid(doc, questionCount, cols, margin, pageW, pageH, y);
   }
 }
 
@@ -633,7 +869,8 @@ async function addQuestionPaperPages(
         }
         y += 4;
       }
-      y += 6;
+      needSpace(16);
+      y = drawSubjectEndRule(doc, margin, y, pageW);
     }
     return;
   }
@@ -690,7 +927,8 @@ async function addQuestionPaperPages(
           }
           y += 4;
         }
-        y += 6;
+        needSpace(16);
+        y = drawSubjectEndRule(doc, margin, y, pageW);
       }
     }
     return;
@@ -713,6 +951,8 @@ async function addQuestionPaperPages(
       }
       y += 4;
     }
+    needSpace(16);
+    y = drawSubjectEndRule(doc, margin, y, pageW);
   }
 }
 
