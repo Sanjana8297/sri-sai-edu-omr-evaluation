@@ -496,247 +496,328 @@ export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
 export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
   const { data, loading } = useAdminOverview();
   const { subjectScores, subjectScoresLoading } = useSubjectScores();
-  const [weakTrackFilter, setWeakTrackFilter] = useState<TeacherTrack>("JEE");
-  const [trendStudentId, setTrendStudentId] = useState("");
-  const [proximityStudentId, setProximityStudentId] = useState("");
-
-  const weakSubjects = useMemo(() => {
-    if (!subjectScores) return [];
-    const aggregate = subjectScores.trackAggregates[weakTrackFilter];
-    return SUBJECTS_BY_TRACK[weakTrackFilter]
-      .map((subject) => {
-        const row = aggregate.subjects.find((s) => s.subject === subject);
-        return {
-          subject,
-          avg: row?.avg ?? null,
-          examCount: row?.examCount ?? 0,
-        };
-      })
-      .sort((a, b) => {
-        if (a.avg == null && b.avg == null) return 0;
-        if (a.avg == null) return 1;
-        if (b.avg == null) return -1;
-        return a.avg - b.avg;
-      });
-  }, [subjectScores, weakTrackFilter]);
-
-  const trendAttempts = useMemo(() => {
-    if (!trendStudentId || !data) return [];
-    return data.performance
-      .filter((p) => p.studentId === trendStudentId)
-      .sort((a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime());
-  }, [data, trendStudentId]);
-
-  const trendDelta =
-    trendAttempts.length >= 2
-      ? trendAttempts[trendAttempts.length - 1].percentage - trendAttempts[0].percentage
-      : null;
-
-  const proximityStudent = data?.students.find((s) => s.id === proximityStudentId);
-  const latestPct = useMemo(() => {
-    if (!proximityStudentId || !data) return null;
-    const rows = data.performance.filter((p) => p.studentId === proximityStudentId);
-    if (rows.length === 0) return null;
-    return rows.sort((a, b) => new Date(b.examDate).getTime() - new Date(a.examDate).getTime())[0].percentage;
-  }, [data, proximityStudentId]);
-
-  const cutoff = proximityStudent ? CUTOFF_PCT[proximityStudent.category] ?? 50 : 50;
-
-  const difficultyAnalysis = useMemo(() => {
-    if (!data) return [];
-    const buckets = [
-      { label: "Easy", match: (t: string) => /mock|practice|easy/i.test(t) },
-      { label: "Medium", match: (t: string) => !/mock|practice|easy|full|grand/i.test(t) },
-      { label: "Hard", match: (t: string) => /full|grand|final/i.test(t) },
-    ];
-    return buckets.map((b) => {
-      const rows = data.performance.filter((p) => b.match(p.title));
-      const avg =
-        rows.length > 0 ? rows.reduce((s, r) => s + r.percentage, 0) / rows.length : 0;
-      return {
-        label: b.label,
-        avg: Math.round(avg * 10) / 10,
-        responseRate: rows.length > 0 ? Math.min(100, Math.round(avg)) : 0,
-        count: rows.length,
-      };
-    });
-  }, [data]);
-
   const hasPerformance = (data?.performance.length ?? 0) > 0;
   const hasSubjectScores =
     subjectScores != null &&
     (subjectScores.trackAggregates.JEE.allAttempts > 0 ||
       subjectScores.trackAggregates.NEET.allAttempts > 0);
 
+  const weakSubjectsByTrack = useMemo(() => {
+    if (!subjectScores) return [];
+    return (["JEE", "NEET"] as const).map((track) => {
+      const subjects = SUBJECTS_BY_TRACK[track].map((subject) => {
+        const row = subjectScores.trackAggregates[track].subjects.find((s) => s.subject === subject);
+        return {
+          subject,
+          track,
+          label: `${subject} (${track})`,
+          avg: row?.avg ?? null,
+          examCount: row?.examCount ?? 0,
+        };
+      });
+      return {
+        track,
+        subjects: subjects.sort((a, b) => (a.avg ?? 100) - (b.avg ?? 100)),
+      };
+    });
+  }, [subjectScores]);
+
+  const trendSummary = useMemo(() => {
+    const empty = { avgImprovement: null as number | null, upwardPct: null as number | null, sparkline: [] as number[] };
+    if (!data) return { JEE: empty, NEET: empty };
+
+    const buildTrack = (track: "JEE" | "NEET") => {
+      const rows = data.performance.filter((p) => (track === "NEET" ? p.category === "NEET" : p.category !== "NEET"));
+      const byStudent = new Map<string, AttemptRow[]>();
+      for (const row of rows) {
+        const list = byStudent.get(row.studentId) ?? [];
+        list.push(row);
+        byStudent.set(row.studentId, list);
+      }
+
+      const deltas: number[] = [];
+      let upward = 0;
+      let totalComparable = 0;
+
+      for (const attempts of byStudent.values()) {
+        const sorted = [...attempts].sort(
+          (a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime()
+        );
+        const recent = sorted.slice(-4);
+        if (recent.length >= 2) {
+          const delta = recent[recent.length - 1]!.percentage - recent[0]!.percentage;
+          deltas.push(delta);
+          totalComparable += 1;
+          if (delta > 0) upward += 1;
+        }
+      }
+
+      const allSorted = [...rows].sort(
+        (a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime()
+      );
+      const sparkline = allSorted.slice(-6).map((a) => Math.round(a.percentage));
+
+      return {
+        avgImprovement:
+          deltas.length > 0
+            ? Math.round((deltas.reduce((sum, d) => sum + d, 0) / deltas.length) * 10) / 10
+            : null,
+        upwardPct:
+          totalComparable > 0 ? Math.round((upward / totalComparable) * 100) : null,
+        sparkline,
+      };
+    };
+
+    return { JEE: buildTrack("JEE"), NEET: buildTrack("NEET") };
+  }, [data]);
+
+  const cutoffSummary = useMemo(() => {
+    if (!data) {
+      return {
+        NEET: { latestAvg: null as number | null, above: 0, below: 0 },
+        JEE: { latestAvg: null as number | null, above: 0, below: 0 },
+        aiPrediction: 0,
+      };
+    }
+
+    const latestByStudent = new Map<string, AttemptRow>();
+    for (const row of data.performance) {
+      const prev = latestByStudent.get(row.studentId);
+      if (!prev || new Date(row.examDate).getTime() > new Date(prev.examDate).getTime()) {
+        latestByStudent.set(row.studentId, row);
+      }
+    }
+
+    const byTrack: Record<"JEE" | "NEET", AttemptRow[]> = { JEE: [], NEET: [] };
+    for (const row of latestByStudent.values()) {
+      const track = row.category === "NEET" ? "NEET" : "JEE";
+      byTrack[track].push(row);
+    }
+
+    const build = (track: "JEE" | "NEET") => {
+      const rows = byTrack[track];
+      const cutoff = CUTOFF_PCT[track];
+      const above = rows.filter((r) => r.percentage >= cutoff).length;
+      const below = rows.length - above;
+      const latestAvg =
+        rows.length > 0
+          ? Math.round((rows.reduce((sum, r) => sum + r.percentage, 0) / rows.length) * 10) / 10
+          : null;
+      return { latestAvg, above, below };
+    };
+
+    const aiPrediction = byTrack.JEE.filter(
+      (r) => r.percentage < CUTOFF_PCT.JEE && r.percentage >= CUTOFF_PCT.JEE - 12
+    ).length;
+
+    return { NEET: build("NEET"), JEE: build("JEE"), aiPrediction };
+  }, [data]);
+
+  const difficultyAnalysis = useMemo(() => {
+    if (!data) return [];
+    const buckets = [
+      { label: "Easy", match: (t: string) => /mock|practice|easy/i.test(t), color: "bg-lime-500" },
+      {
+        label: "Medium",
+        match: (t: string) => !/mock|practice|easy|full|grand/i.test(t),
+        color: "bg-amber-500",
+      },
+      { label: "Hard", match: (t: string) => /full|grand|final/i.test(t), color: "bg-orange-500" },
+    ];
+    return buckets.map((b) => {
+      const rows = data.performance.filter((p) => b.match(p.title));
+      const avg = rows.length > 0 ? rows.reduce((s, r) => s + r.percentage, 0) / rows.length : 0;
+      return {
+        label: b.label,
+        avg: Math.round(avg * 10) / 10,
+        responseRate: rows.length > 0 ? Math.min(100, Math.round(avg)) : 0,
+        count: rows.length,
+        color: b.color,
+      };
+    });
+  }, [data]);
+
+  const difficultyNotes = useMemo(() => {
+    if (!subjectScores) return { missed: "—", best: "—" };
+    const allSubjects = (["JEE", "NEET"] as const).flatMap((track) =>
+      subjectScores.trackAggregates[track].subjects.map((s) => ({ ...s, track }))
+    );
+    const withData = allSubjects.filter((s) => s.avg != null);
+    if (withData.length === 0) return { missed: "—", best: "—" };
+    const worst = withData.reduce((a, b) => ((a.avg ?? 100) < (b.avg ?? 100) ? a : b));
+    const best = withData.reduce((a, b) => ((a.avg ?? 0) > (b.avg ?? 0) ? a : b));
+    return {
+      missed: `${worst.subject} (${worst.track})`,
+      best: `${best.subject} (${best.track})`,
+    };
+  }, [subjectScores]);
+
   if (loading) return <PanelLoading />;
+  if (subjectScoresLoading) return <PanelLoading />;
+  if (!hasPerformance || !hasSubjectScores) return <NoExamDataNote />;
+
+  const severityFor = (value: number | null) => {
+    if (value == null) return { label: "No data", tone: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200" };
+    if (value < 35) return { label: "Critical", tone: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" };
+    if (value < 50) return { label: "Weak", tone: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" };
+    return { label: "Fair", tone: "bg-lime-100 text-lime-700 dark:bg-lime-950/40 dark:text-lime-300" };
+  };
+
+  const maxSpark = (sparkline: number[]) => Math.max(...sparkline, 1);
 
   return (
-    <FeatureActivityHub
-      features={ANALYTICS_ACTIVITIES}
-      resetKey={resetKey}
-      renderFeature={(id) => {
-        switch (id) {
-          case "weak-chapters":
-            return subjectScoresLoading ? (
-              <PanelLoading />
-            ) : !hasSubjectScores ? (
-              <NoExamDataNote />
-            ) : (
-          <>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {(["JEE", "NEET"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                  weakTrackFilter === t ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"
-                }`}
-                onClick={() => setWeakTrackFilter(t)}
-              >
-                Track: {t}
-              </button>
+    <div key={resetKey} className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-2xl font-semibold tracking-tight">Performance analytics</h3>
+          <p className="text-sm text-[var(--muted)]">AI-driven insights · Updated today</p>
+        </div>
+        <span className="inline-flex items-center rounded-full bg-violet-100 px-3 py-1 text-sm font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+          Powered by AI
+        </span>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+          <div className="mb-4 flex items-start justify-between">
+            <div>
+              <h4 className="text-xl font-semibold">Weak chapter identification</h4>
+              <p className="text-sm text-[var(--muted)]">Lowest average performance areas</p>
+            </div>
+            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+              AI
+            </span>
+          </div>
+          <p className="mb-3 text-sm text-[var(--muted)]">Weakest chapters across JEE and NEET batches</p>
+          <div className="space-y-3">
+            {weakSubjectsByTrack.map((bucket) => (
+              <div key={bucket.track}>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  {bucket.track}
+                </p>
+                <ul className="space-y-2">
+                  {bucket.subjects.map((w) => {
+                    const severity = severityFor(w.avg);
+                    return (
+                      <li key={w.label} className="flex items-center gap-3">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">{w.subject}</span>
+                        <div className="h-2 w-28 shrink-0 overflow-hidden rounded-full bg-[var(--background)]">
+                          <div
+                            className="h-full rounded-full bg-amber-500"
+                            style={{ width: `${Math.min(100, w.avg ?? 0)}%` }}
+                          />
+                        </div>
+                        <span className="w-12 text-right text-sm">{w.avg != null ? `${w.avg}%` : "—"}</span>
+                        <span
+                          className={`w-16 rounded-full px-2 py-0.5 text-center text-xs font-semibold ${severity.tone}`}
+                        >
+                          {severity.label}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             ))}
           </div>
-          <p className="mb-3 text-sm text-[var(--muted)]">
-            Target {weakTrackFilter} · All subjects ranked weakest first ·{" "}
-            {subjectScores?.trackAggregates[weakTrackFilter].allAttempts ?? 0} exam attempts considered
-          </p>
-          <ul className="space-y-2">
-            {weakSubjects.map((w, index) => (
-              <li
-                key={w.subject}
-                className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-                  index === 0 && w.avg != null
-                    ? "border-amber-200 bg-amber-50 text-amber-900"
-                    : "border-[var(--border)]"
-                }`}
-              >
-                <span className="font-medium">{w.subject}</span>
-                <span>
-                  <span className="font-semibold">{w.avg != null ? `${w.avg}%` : "—"}</span>
-                  <span className="ml-2 text-xs text-[var(--muted)]">
-                    {w.examCount > 0
-                      ? `${w.examCount} test${w.examCount === 1 ? "" : "s"}`
-                      : "No attempts"}
-                  </span>
-                </span>
+        </article>
+
+        <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+          <h4 className="text-xl font-semibold">Improvement trend across attempts</h4>
+          <p className="text-sm text-[var(--muted)]">Chronological score progression</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {(["JEE", "NEET"] as const).map((track) => (
+              <div key={track} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{track}</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-2xl font-semibold">
+                      {trendSummary[track].avgImprovement == null
+                        ? "—"
+                        : `${trendSummary[track].avgImprovement >= 0 ? "+" : ""}${trendSummary[track].avgImprovement}%`}
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">Avg improvement</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-semibold">
+                      {trendSummary[track].upwardPct == null ? "—" : `${trendSummary[track].upwardPct}%`}
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">Upward trend</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-[var(--muted)]">Last 6 attempts</p>
+                <div className="mt-1 flex h-16 items-end gap-1.5">
+                  {trendSummary[track].sparkline.map((value, idx) => (
+                    <div
+                      key={`${track}-${idx}-${value}`}
+                      className="flex-1 rounded-t bg-emerald-500/80"
+                      style={{ height: `${Math.max(10, (value / maxSpark(trendSummary[track].sparkline)) * 100)}%` }}
+                      title={`${value}%`}
+                    />
+                  ))}
+                </div>
+                <div className="mt-1 flex gap-1.5">
+                  {trendSummary[track].sparkline.map((value, idx) => (
+                    <span
+                      key={`${track}-label-${idx}-${value}`}
+                      className="flex-1 text-center text-[10px] text-[var(--muted)]"
+                    >
+                      {value}%
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+          <h4 className="text-xl font-semibold">NEET / JEE cut-off proximity meter</h4>
+          <p className="text-sm text-[var(--muted)]">Latest score vs qualifying benchmark</p>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-lg bg-[var(--background)] p-3">
+              <p className="text-xs text-[var(--muted)]">NEET cut-off</p>
+              <p className="text-3xl font-semibold">{cutoffSummary.NEET.latestAvg ?? "—"}</p>
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">Above cutoff: {cutoffSummary.NEET.above}</p>
+              <p className="text-xs text-red-600 dark:text-red-400">Below cutoff: {cutoffSummary.NEET.below}</p>
+            </div>
+            <div className="rounded-lg bg-[var(--background)] p-3">
+              <p className="text-xs text-[var(--muted)]">JEE Mains cut-off</p>
+              <p className="text-3xl font-semibold">{cutoffSummary.JEE.latestAvg ?? "—"}</p>
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">Above cutoff: {cutoffSummary.JEE.above}</p>
+              <p className="text-xs text-red-600 dark:text-red-400">Below cutoff: {cutoffSummary.JEE.below}</p>
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg bg-violet-100 px-3 py-2 text-sm text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
+            AI predicts {cutoffSummary.aiPrediction} students could cross JEE cutoff with 3 more full-length tests.
+          </div>
+        </article>
+
+        <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+          <h4 className="text-xl font-semibold">Question difficulty vs response analysis</h4>
+          <p className="text-sm text-[var(--muted)]">Performance by inferred paper difficulty</p>
+          <p className="mt-4 text-sm text-[var(--muted)]">Accuracy rate by difficulty tier</p>
+          <ul className="mt-2 space-y-2">
+            {difficultyAnalysis.map((d) => (
+              <li key={d.label} className="flex items-center gap-3">
+                <span className="w-16 text-sm font-medium">{d.label}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
+                  <div className={`h-full rounded-full ${d.color}`} style={{ width: `${d.responseRate}%` }} />
+                </div>
+                <span className="w-12 text-right text-sm">{d.avg}%</span>
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-[var(--muted)]">
-            Uses the same subject scoring as the report card (paper sections, single-subject tests, and overall
-            scores for full mocks).
-          </p>
-          </>
-            );
-          case "trend":
-            return (
-          <>
-          <select
-            className="mb-3 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            value={trendStudentId}
-            onChange={(e) => setTrendStudentId(e.target.value)}
-          >
-            <option value="">Select student</option>
-            {data?.students.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          {trendAttempts.length > 0 ? (
-            <>
-              <div className="flex items-end gap-1 h-24">
-                {trendAttempts.map((a) => (
-                  <div
-                    key={a.id}
-                    className="flex-1 rounded-t bg-[var(--accent)]"
-                    style={{ height: `${Math.max(8, a.percentage)}%` }}
-                    title={`${a.title}: ${a.percentage}%`}
-                  />
-                ))}
-              </div>
-              <p className="mt-2 text-sm">
-                Trend:{" "}
-                <strong className={trendDelta != null && trendDelta >= 0 ? "text-green-700" : "text-red-600"}>
-                  {trendDelta == null ? "—" : `${trendDelta >= 0 ? "+" : ""}${Math.round(trendDelta * 10) / 10}%`}
-                </strong>{" "}
-                from first to latest attempt
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-[var(--muted)]">Select a student with multiple attempts.</p>
-          )}
-          </>
-            );
-          case "cutoff":
-            return (
-          <>
-          <select
-            className="mb-3 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            value={proximityStudentId}
-            onChange={(e) => setProximityStudentId(e.target.value)}
-          >
-            <option value="">Select student</option>
-            {data?.students.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.category})
-              </option>
-            ))}
-          </select>
-          {latestPct != null && proximityStudent ? (
-            <div>
-              <p className="text-sm">
-                {proximityStudent.name} · Target {proximityStudent.category} · Cut-off reference {cutoff}%
-              </p>
-              <div className="mt-3 h-4 overflow-hidden rounded-full bg-[var(--background)]">
-                <div
-                  className={`h-full rounded-full ${latestPct >= cutoff ? "bg-emerald-600" : "bg-amber-500"}`}
-                  style={{ width: `${Math.min(100, latestPct)}%` }}
-                />
-              </div>
-              <p className="mt-2 text-lg font-semibold">
-                {latestPct}% {latestPct >= cutoff ? "— above cut-off zone" : "— below cut-off zone"}
-              </p>
-            </div>
-          ) : (
-            <p className="text-sm text-[var(--muted)]">Select a student with at least one attempt.</p>
-          )}
-          </>
-            );
-          case "difficulty":
-            return !hasPerformance ? (
-              <NoExamDataNote />
-            ) : (
-          <table className="min-w-full text-left text-sm">
-            <thead className="text-[var(--muted)]">
-              <tr>
-                <th className="py-2">Difficulty</th>
-                <th className="py-2">Attempts</th>
-                <th className="py-2">Avg score</th>
-                <th className="py-2">Response strength</th>
-              </tr>
-            </thead>
-            <tbody>
-              {difficultyAnalysis.map((d) => (
-                <tr key={d.label} className="border-t border-[var(--border)]">
-                  <td className="py-2 font-medium">{d.label}</td>
-                  <td className="py-2">{d.count}</td>
-                  <td className="py-2">{d.avg}%</td>
-                  <td className="py-2">
-                    <div className="h-2 w-24 overflow-hidden rounded-full bg-[var(--background)]">
-                      <div className="h-full bg-[var(--accent)]" style={{ width: `${d.responseRate}%` }} />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-            );
-          default:
-            return null;
-        }
-      }}
-    />
+          <div className="mt-4 space-y-2">
+            <p className="rounded-full border border-[var(--border)] px-3 py-1 text-sm">
+              Most missed: {difficultyNotes.missed}
+            </p>
+            <p className="rounded-full border border-[var(--border)] px-3 py-1 text-sm">
+              Best accuracy: {difficultyNotes.best}
+            </p>
+          </div>
+        </article>
+      </div>
+    </div>
   );
 }
