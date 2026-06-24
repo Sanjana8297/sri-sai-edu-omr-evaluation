@@ -17,6 +17,12 @@ import {
   getJeeAdvanceTotalQuestions,
   type AdvancePaperSlotItem,
 } from "@/lib/jee-advance-paper-builder";
+import {
+  buildJeeMainsPaperContent,
+  getJeeMainsTotalQuestions,
+  JEE_MAINS_SLOT_ORDER_HINT,
+  type JeeMainsPaperSlotItem,
+} from "@/lib/jee-mains-paper-builder";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 import { ensureFourOptionsForQuestion, parseLetterAnswer } from "@/lib/question-bank-display";
 import { prepareQuestionForPaperBlock } from "@/lib/exam-paper-parser";
@@ -77,7 +83,15 @@ function resolveSlotOptions(
   };
 }
 
-type WorkflowStep = 0 | 1 | 2 | 3;
+type WorkflowStep = 0 | 1 | 2;
+
+type SectionLayout = "neet_abc" | "jee_mains_ab" | "jee_adv_abc";
+
+const SECTION_LAYOUT_LABELS: Record<SectionLayout, string> = {
+  neet_abc: "NEET-style A / B / C",
+  jee_mains_ab: "JEE Mains (Section I/II per Subject)",
+  jee_adv_abc: "JEE Advance (Section I / II / III per subject)",
+};
 
 function CorrectAnswerBlock({
   correctAnswer,
@@ -154,8 +168,7 @@ function TeacherManualBuilderPage() {
   useEffect(() => {
     const stepParam = searchParams.get("step");
     if (stepParam === "1") setWorkflowStep(1);
-    else if (stepParam === "2") setWorkflowStep(2);
-    else if (stepParam === "3") setWorkflowStep(3);
+    else if (stepParam === "2" || stepParam === "3") setWorkflowStep(2);
     else router.replace("/dashboard/teacher/manual-builder?step=1");
   }, [searchParams, router]);
   const [track, setTrack] = useState<"JEE" | "NEET">("JEE");
@@ -197,10 +210,10 @@ function TeacherManualBuilderPage() {
   const [section1Tab, setSection1Tab] = useState<"bank" | "typed">("bank");
   const [paperPreviewReady, setPaperPreviewReady] = useState(false);
 
-  /** After a successful save, used to show what was stored in section 3. */
+  /** After a successful save, shown in the paper composer. */
   const [postSaveSnapshot, setPostSaveSnapshot] = useState<PostSaveSnapshot | null>(null);
 
-  const [sectionLayout, setSectionLayout] = useState<"single" | "neet_abc" | "jee_adv_abc">("single");
+  const [sectionLayout, setSectionLayout] = useState<SectionLayout>("jee_mains_ab");
   const [advanceSubjects, setAdvanceSubjects] = useState<JeeAdvanceSubjectConfig[]>(
     buildDefaultAdvanceSubjects
   );
@@ -241,6 +254,13 @@ function TeacherManualBuilderPage() {
   useEffect(() => {
     void loadMe();
   }, [loadMe]);
+
+  useEffect(() => {
+    if (track === "NEET") setSectionLayout("neet_abc");
+    else if (track === "JEE") {
+      setSectionLayout((prev) => (prev === "neet_abc" ? "jee_mains_ab" : prev));
+    }
+  }, [track]);
 
   useEffect(() => {
     if (track === "JEE" && sectionLayout === "jee_adv_abc") {
@@ -310,13 +330,13 @@ function TeacherManualBuilderPage() {
   }, [loadQuestionBank]);
 
   useEffect(() => {
-    if (workflowStep !== 3 || paperSlots.length === 0) return;
+    if (workflowStep !== 2 || paperSlots.length === 0 || !paperPreviewReady) return;
     const missingBank = paperSlots.filter(
       (s): s is { kind: "bank"; id: number } => s.kind === "bank" && !selectionDetails.has(s.id)
     );
     if (missingBank.length > 0) return;
     setKeyContent(buildContentFromSelected().keyContent);
-  }, [workflowStep, paperSlots, selectionDetails]);
+  }, [workflowStep, paperSlots, selectionDetails, paperPreviewReady]);
 
   useEffect(() => {
     setBankPage(1);
@@ -543,12 +563,17 @@ function TeacherManualBuilderPage() {
   }
 
   const isJeeAdvanceLayout = track === "JEE" && sectionLayout === "jee_adv_abc";
+  const isJeeMainsLayout = track === "JEE" && sectionLayout === "jee_mains_ab";
   const jeeAdvanceExpectedCount = getJeeAdvanceTotalQuestions(advanceSubjects);
+  const jeeMainsExpectedCount = getJeeMainsTotalQuestions();
   const jeeAdvanceTotalMarks = totalExamMarksFromSubjects(advanceSubjects);
 
   function buildContentFromSelected(): { questionContent: string; keyContent: string; error?: string } {
     if (isJeeAdvanceLayout) {
       return buildJeeAdvancePaperContent(collectSlotItems(), advanceSubjects, formatOptionsBlock);
+    }
+    if (isJeeMainsLayout) {
+      return buildJeeMainsPaperContent(collectSlotItems() as JeeMainsPaperSlotItem[], formatOptionsBlock);
     }
     const questionBlocks: string[] = [];
     const keyBlocks: string[] = [];
@@ -613,7 +638,9 @@ function TeacherManualBuilderPage() {
     setMsg(
       isJeeAdvanceLayout
         ? `JEE Advance paper generated (${jeeAdvanceExpectedCount} questions, ${jeeAdvanceTotalMarks} marks). Review the preview below.`
-        : `Question paper generated with ${paperSlots.length} question(s). Review the preview below.`
+        : isJeeMainsLayout
+          ? `JEE Mains paper generated (${jeeMainsExpectedCount} questions, ${JEE_MAINS_MAX_MARKS} marks). Review the preview below.`
+          : `Question paper generated with ${paperSlots.length} question(s). Review the preview below.`
     );
     return true;
   }
@@ -633,7 +660,7 @@ function TeacherManualBuilderPage() {
       .filter(Boolean)
       .join(", ");
     const composerLines = [
-      sectionLayout !== "single" ? `Section layout: ${sectionLayout}` : null,
+      `Section layout: ${SECTION_LAYOUT_LABELS[sectionLayout]}`,
       isJeeAdvanceLayout
         ? `JEE Advance structure: ${JSON.stringify(advanceSubjects.map((s) => ({ subject: s.subject, sections: s.sectionCounts })))}`
         : null,
@@ -696,7 +723,6 @@ function TeacherManualBuilderPage() {
       paperId,
     });
     setKeyContent(finalKeyContent);
-    goToWorkflowStep(3);
 
     setTitle(title.trim());
     setQuestionContent(bodyCore);
@@ -718,13 +744,7 @@ function TeacherManualBuilderPage() {
       badge="Teacher"
       title="Manual Question Paper Generator"
       subtitle={
-        workflowStep === 1
-          ? "Select from question bank"
-          : workflowStep === 2
-            ? "Paper composer"
-            : workflowStep === 3
-              ? "Answer key & solutions"
-              : undefined
+        workflowStep === 1 ? "Select from question bank" : workflowStep === 2 ? "Paper composer" : undefined
       }
       navItems={teacherNavItems}
       fullWidthContent={fullPageSection}
@@ -742,7 +762,7 @@ function TeacherManualBuilderPage() {
         ) : (
           <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-[var(--border)] pb-4">
             <span className="text-sm text-[var(--muted)]">
-              {workflowStep === 1 ? "Section 1 · Questions" : workflowStep === 2 ? "Section 2 · Paper composer" : "Section 3 · Answer key & solutions"}
+              {workflowStep === 1 ? "Section 1 · Questions" : "Section 2 · Paper composer"}
             </span>
             <span className="text-xs text-[var(--muted)]">Use the sidebar to switch sections.</span>
           </div>
@@ -1209,7 +1229,7 @@ function TeacherManualBuilderPage() {
         ) : null}
 
         {workflowStep === 2 ? (
-          <section className="mb-8 space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4" aria-labelledby="step2-heading">
+          <form className="mb-8 space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4" onSubmit={submit} aria-labelledby="step2-heading">
             <h2 id="step2-heading" className="text-sm font-semibold">
               2) Paper composer
             </h2>
@@ -1229,12 +1249,14 @@ function TeacherManualBuilderPage() {
                 <select
                   className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
                   value={sectionLayout}
-                  onChange={(e) => setSectionLayout(e.target.value as typeof sectionLayout)}
+                  onChange={(e) => setSectionLayout(e.target.value as SectionLayout)}
                 >
-                  <option value="single">Single section (default)</option>
                   {track === "NEET" ? <option value="neet_abc">NEET-style A / B / C</option> : null}
                   {track === "JEE" ? (
-                    <option value="jee_adv_abc">JEE Advance (Section I / II / III per subject)</option>
+                    <>
+                      <option value="jee_mains_ab">JEE Mains (Section I/II per Subject)</option>
+                      <option value="jee_adv_abc">JEE Advance (Section I / II / III per subject)</option>
+                    </>
                   ) : null}
                 </select>
               </label>
@@ -1286,6 +1308,13 @@ function TeacherManualBuilderPage() {
                   <JeeMainsInstructionsPanel showSummary />
                 </div>
               </div>
+            ) : null}
+
+            {isJeeMainsLayout ? (
+              <p className="text-xs text-[var(--muted)]">
+                Add exactly <strong>{jeeMainsExpectedCount}</strong> questions in section 1, in exam order:{" "}
+                {JEE_MAINS_SLOT_ORDER_HINT} Current selection: <strong>{paperSlots.length}</strong>.
+              </p>
             ) : null}
 
             {isJeeAdvanceLayout ? (
@@ -1347,8 +1376,24 @@ function TeacherManualBuilderPage() {
             </label>
 
             <RoadmapNote>
-              Section layout, timing, languages, header blocks, and set codes are saved with your paper metadata. Questions come from section 1—use Generate Question Paper below before continuing.
+              Section layout, timing, languages, header blocks, and set codes are saved with your paper metadata. Questions come from section 1—generate the paper below, then save when ready.
             </RoadmapNote>
+
+            {postSaveSnapshot ? (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] px-3 py-2 text-sm">
+                <p className="font-medium text-[var(--foreground)]">Last saved on this page</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Title: <span className="text-[var(--foreground)]">{postSaveSnapshot.title}</span>
+                  {postSaveSnapshot.paperId ? (
+                    <span className="ml-2 font-mono text-[var(--muted)]">({postSaveSnapshot.paperId})</span>
+                  ) : null}
+                </p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Questions:{" "}
+                  {postSaveSnapshot.expectedQuestionCount > 0 ? postSaveSnapshot.expectedQuestionCount : "—"}
+                </p>
+              </div>
+            ) : null}
 
             {paperSlots.length > 0 ? (
               <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
@@ -1358,6 +1403,7 @@ function TeacherManualBuilderPage() {
                   placeholder="e.g. Physics Unit Test — March 2026"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
+                  required
                 />
                 <p className="mt-2 text-xs text-[var(--muted)]">
                   {paperSlots.length} question(s) from section 1
@@ -1400,6 +1446,18 @@ function TeacherManualBuilderPage() {
               </div>
             ) : null}
 
+            {paperPreviewReady ? (
+              <label className="block text-sm text-[var(--muted)]">
+                Solutions / worked steps (optional, appended to saved key)
+                <textarea
+                  className="mt-1 min-h-[100px] w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
+                  placeholder="Optional step-by-step solutions…"
+                  value={solutionNotes}
+                  onChange={(e) => setSolutionNotes(e.target.value)}
+                />
+              </label>
+            ) : null}
+
             <div className="flex flex-wrap gap-2">
               <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => goToWorkflowStep(1)}>
                 Back
@@ -1413,141 +1471,23 @@ function TeacherManualBuilderPage() {
                 Generate Question Paper
               </button>
               <button
-                type="button"
-                className="rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] disabled:opacity-50"
-                disabled={paperSlots.length === 0 || !paperPreviewReady}
-                onClick={() => goToWorkflowStep(3)}
+                type="submit"
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                disabled={paperSlots.length === 0 || !paperPreviewReady || !title.trim()}
               >
-                Next: Answer key & solutions
+                Save paper
               </button>
               <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm opacity-60" disabled title="Coming soon">
                 Export PDF
               </button>
             </div>
-          </section>
+          </form>
         ) : null}
 
-        {workflowStep !== 0 ? (
-        <form className="space-y-4" onSubmit={submit}>
-          {workflowStep === 2 || workflowStep === 3 ? (
-            <>
-              {workflowStep === 3 ? (
-                <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4" aria-labelledby="step3-heading">
-                  <h2 id="step3-heading" className="text-sm font-semibold">
-                    3) Answer key & solutions
-                  </h2>
-                  <ul className="list-inside list-disc text-xs text-[var(--muted)]">
-                    <li>Answer key is built automatically from your selected questions</li>
-                    <li>Add optional worked solutions before saving</li>
-                  </ul>
-
-                  {postSaveSnapshot ? (
-                    <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] px-3 py-2 text-sm">
-                      <p className="font-medium text-[var(--foreground)]">Last saved on this page</p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        Title: <span className="text-[var(--foreground)]">{postSaveSnapshot.title}</span>
-                        {postSaveSnapshot.paperId ? (
-                          <span className="ml-2 font-mono text-[var(--muted)]">({postSaveSnapshot.paperId})</span>
-                        ) : null}
-                      </p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        Questions:{" "}
-                        {postSaveSnapshot.expectedQuestionCount > 0 ? postSaveSnapshot.expectedQuestionCount : "—"}
-                      </p>
-                    </div>
-                  ) : null}
-
-                  {paperPreviewReady && keyContent.trim() ? (
-                    <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
-                      <p className="text-sm font-medium">Auto-generated answer key</p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        One line per question from bank answers ({paperSlots.length} question{paperSlots.length === 1 ? "" : "s"})
-                      </p>
-                      <div className="mt-2 max-h-48 overflow-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
-                        <pre className="whitespace-pre-wrap font-mono text-xs">{keyContent}</pre>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-amber-800 dark:text-amber-200">
-                      Generate the question paper in section 2 first—the answer key will appear here automatically.
-                    </p>
-                  )}
-
-                  <label className="block text-sm text-[var(--muted)]">
-                    Solutions / worked steps (appended to saved key block)
-                    <textarea className="mt-1 min-h-[140px] w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2" placeholder="Optional step-by-step solutions…" value={solutionNotes} onChange={(e) => setSolutionNotes(e.target.value)} />
-                  </label>
-
-                  <RoadmapNote>
-                    The answer key is generated from correct answers stored with each bank question. Questions without an answer are marked N/A in the key.
-                  </RoadmapNote>
-
-                  <label className="block text-sm font-medium text-[var(--foreground)]">
-                    Paper title (required to save)
-                    <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2" placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-                  </label>
-                  {paperPreviewReady && questionContent.trim() ? (
-                    <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
-                      <p className="text-xs font-medium text-[var(--foreground)]">Question paper ({paperSlots.length} questions)</p>
-                      <div className="mt-2 max-h-48 overflow-auto rounded border border-[var(--border)] bg-[var(--background)] p-2">
-                        <pre className="whitespace-pre-wrap text-xs">
-                          {formatQuestionTextForDisplay(questionContent)}
-                        </pre>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-amber-800 dark:text-amber-200">
-                      Generate the paper in section 2 first ({paperSlots.length} question(s) selected).
-                      <button type="button" className="ml-1 text-[var(--accent)] underline" onClick={() => goToWorkflowStep(1)}>
-                        Go to section 1
-                      </button>
-                    </p>
-                  )}
-                  <button type="button" className="mt-1 text-xs text-[var(--accent)] underline" onClick={() => goToWorkflowStep(2)}>
-                    Open paper composer
-                  </button>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => goToWorkflowStep(2)}>
-                      Back: Paper composer
-                    </button>
-                    <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => goToWorkflowStep(1)}>
-                      Bank
-                    </button>
-                  </div>
-                </section>
-              ) : null}
-
-              {workflowStep === 2 ? (
-                <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
-                  <button type="button" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm" onClick={() => goToWorkflowStep(1)}>
-                    Back: Question bank
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                    disabled={paperSlots.length === 0 || !paperPreviewReady}
-                    onClick={() => goToWorkflowStep(3)}
-                  >
-                    Continue to answer key
-                  </button>
-                </div>
-              ) : null}
-
-              {workflowStep === 3 ? (
-                <button className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" type="submit">
-                  Save paper
-                </button>
-              ) : null}
-            </>
-          ) : null}
-
-          {workflowStep === 1 ? (
-            <p className="text-xs text-[var(--muted)]">
-              Add questions in section 1, then use <strong>Generate Question Paper</strong> in <strong>Paper composer</strong> before saving in <strong>Answer key & solutions</strong>.
-            </p>
-          ) : null}
-        </form>
+        {workflowStep === 1 ? (
+          <p className="text-xs text-[var(--muted)]">
+            Add questions in section 1, then use <strong>Generate Question Paper</strong> and <strong>Save paper</strong> in <strong>Paper composer</strong>.
+          </p>
         ) : null}
 
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}

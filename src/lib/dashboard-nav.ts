@@ -32,7 +32,6 @@ export function buildTeacherNavItems(track: TeacherTrack): NavItem[] {
       children: [
         { href: "/dashboard/teacher/manual-builder?step=1", label: "Select from question bank" },
         { href: "/dashboard/teacher/manual-builder?step=2", label: "Paper composer" },
-        { href: "/dashboard/teacher/manual-builder?step=3", label: "Answer key & solutions" },
       ],
     },
     { href: "/dashboard/teacher/ai-builder", label: "AI Question Paper Generator" },
