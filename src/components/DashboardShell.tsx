@@ -1,12 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { LogoutButton } from "@/components/LogoutButton";
 import { InstituteBrand } from "@/components/InstituteBrand";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { PrefetchNavLink } from "@/components/dashboard/PrefetchNavLink";
+import { useDashboardPageMeta } from "@/components/dashboard/DashboardPageContext";
+import { useMeQuery } from "@/hooks/data/use-me";
 import {
   buildTeacherNavItems,
   navHrefIsActive,
@@ -18,7 +20,6 @@ import { DASHBOARD_SURFACE } from "@/lib/dashboard-ui";
 
 const SIDEBAR_COLLAPSED_KEY = "dashboard-sidebar-collapsed";
 
-/** Top-level nav items — accent text when active; no filled background. */
 function navMainClass(active: boolean) {
   const base = "block rounded-lg px-3 py-2 text-sm transition-colors duration-150 bg-transparent";
   if (active) {
@@ -27,7 +28,6 @@ function navMainClass(active: boolean) {
   return `${base} text-[var(--nav-inactive-text)] hover:text-[var(--nav-hover-text)]`;
 }
 
-/** Expandable parent row — accent text when a child is active; no filled background. */
 function navParentClass(active: boolean, expanded: boolean) {
   const base =
     "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150 bg-transparent";
@@ -40,7 +40,6 @@ function navParentClass(active: boolean, expanded: boolean) {
   return `${base} text-[var(--nav-inactive-text)] hover:text-[var(--nav-hover-text)]`;
 }
 
-/** Sub-module links — hover-style background only (including when selected). */
 function navChildClass(active: boolean) {
   const base = "block rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150";
   if (active) {
@@ -50,31 +49,32 @@ function navChildClass(active: boolean) {
 }
 
 function DashboardShellInner({
-  title,
-  subtitle,
   badge,
   navItems = [],
   children,
-  fullWidthContent = false,
 }: {
-  title: string;
-  subtitle?: string;
-  badge?: string;
+  badge: string;
   navItems?: NavItem[];
   children: ReactNode;
-  fullWidthContent?: boolean;
 }) {
+  const { title, subtitle, fullWidthContent = false } = useDashboardPageMeta();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const search = searchParams.toString() ? `?${searchParams.toString()}` : "";
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [expandedHrefs, setExpandedHrefs] = useState<Set<string>>(() => new Set());
-  const [teacherTrack, setTeacherTrack] = useState<TeacherTrack | null>(null);
+
+  const { data: meData } = useMeQuery();
+  const teacherTrack: TeacherTrack =
+    badge === "Teacher" &&
+    (meData?.user?.category === "JEE" || meData?.user?.category === "NEET")
+      ? meData.user.category
+      : "JEE";
 
   const resolvedNavItems = useMemo(() => {
     if (badge === "Teacher") {
-      return buildTeacherNavItems(teacherTrack ?? "JEE");
+      return buildTeacherNavItems(teacherTrack);
     }
     return navItems;
   }, [badge, teacherTrack, navItems]);
@@ -86,28 +86,6 @@ function DashboardShellInner({
       /* ignore */
     }
   }, []);
-
-  useEffect(() => {
-    if (badge !== "Teacher") return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/me");
-        const json = await res.json();
-        if (cancelled) return;
-        if (json.user?.category === "JEE" || json.user?.category === "NEET") {
-          setTeacherTrack(json.user.category);
-        } else {
-          setTeacherTrack("JEE");
-        }
-      } catch {
-        if (!cancelled) setTeacherTrack("JEE");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [badge]);
 
   useEffect(() => {
     setExpandedHrefs((prev) => {
@@ -151,50 +129,47 @@ function DashboardShellInner({
           className={`flex flex-wrap items-center justify-between gap-4 px-4 py-3 transition-[padding] duration-200 sm:px-6 sm:py-4 ${mainOffsetLg ? "lg:pl-[290px]" : ""}`}
         >
           <div className="flex min-w-0 flex-1 items-start gap-4">
-            <InstituteBrand
-              compact
-              className={`shrink-0 ${hasNav ? "lg:hidden" : ""}`}
-            />
+            <InstituteBrand compact className={`shrink-0 ${hasNav ? "lg:hidden" : ""}`} />
             <div className="min-w-0">
-            {hasNav ? (
-              <button
-                type="button"
-                className="mb-2 rounded-md border border-[var(--border)] px-3 py-1 text-xs font-medium lg:hidden"
-                onClick={() => setMenuOpen(true)}
-              >
-                Menu
-              </button>
-            ) : null}
-            {hasNav && sidebarCollapsed ? (
-              <button
-                type="button"
-                className="mb-2 hidden items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--accent-soft)] lg:inline-flex"
-                onClick={() => persistSidebarCollapsed(false)}
-                aria-controls="dashboard-nav-sidebar"
-                aria-expanded={false}
-                title="Open sidebar"
-              >
-                <span aria-hidden className="select-none">
-                  »
-                </span>
-                Open sidebar
-              </button>
-            ) : null}
-            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{badge}</p>
-            <h1 className="text-xl font-semibold">{title}</h1>
-            {subtitle ? <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p> : null}
+              {hasNav ? (
+                <button
+                  type="button"
+                  className="mb-2 rounded-md border border-[var(--border)] px-3 py-1 text-xs font-medium lg:hidden"
+                  onClick={() => setMenuOpen(true)}
+                >
+                  Menu
+                </button>
+              ) : null}
+              {hasNav && sidebarCollapsed ? (
+                <button
+                  type="button"
+                  className="mb-2 hidden items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--accent-soft)] lg:inline-flex"
+                  onClick={() => persistSidebarCollapsed(false)}
+                  aria-controls="dashboard-nav-sidebar"
+                  aria-expanded={false}
+                  title="Open sidebar"
+                >
+                  <span aria-hidden className="select-none">
+                    »
+                  </span>
+                  Open sidebar
+                </button>
+              ) : null}
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{badge}</p>
+              <h1 className="text-xl font-semibold">{title}</h1>
+              {subtitle ? <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p> : null}
             </div>
           </div>
           <div className="flex items-center gap-2">
             {badge === "Teacher" ? (
-              <Link
+              <PrefetchNavLink
                 href="/dashboard/teacher/fetch-new-question-using-ai"
                 className="inline-flex items-center gap-1 rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm"
                 title="AI Question Fetch"
               >
                 <span aria-hidden>✨</span>
                 <span>AI</span>
-              </Link>
+              </PrefetchNavLink>
             ) : null}
             <ThemeToggle />
             <LogoutButton />
@@ -285,13 +260,13 @@ function DashboardShellInner({
                                 const childActive = navHrefIsActive(pathname, search, child.href);
                                 return (
                                   <li key={child.href}>
-                                    <Link
+                                    <PrefetchNavLink
                                       href={child.href}
                                       onClick={() => setMenuOpen(false)}
                                       className={navChildClass(childActive)}
                                     >
                                       {child.label}
-                                    </Link>
+                                    </PrefetchNavLink>
                                   </li>
                                 );
                               })}
@@ -302,14 +277,14 @@ function DashboardShellInner({
                     }
 
                     return (
-                      <Link
+                      <PrefetchNavLink
                         key={item.href}
                         href={item.href}
                         onClick={() => setMenuOpen(false)}
                         className={navMainClass(navHrefIsActive(pathname, search, item.href))}
                       >
                         {item.label}
-                      </Link>
+                      </PrefetchNavLink>
                     );
                   })}
                 </nav>
@@ -331,13 +306,14 @@ function DashboardShellInner({
   );
 }
 
-export function DashboardShell(props: {
-  title: string;
-  subtitle?: string;
-  badge?: string;
+export function DashboardShell({
+  badge,
+  navItems = [],
+  children,
+}: {
+  badge: string;
   navItems?: NavItem[];
   children: ReactNode;
-  fullWidthContent?: boolean;
 }) {
   return (
     <Suspense
@@ -347,7 +323,9 @@ export function DashboardShell(props: {
         </div>
       }
     >
-      <DashboardShellInner {...props} />
+      <DashboardShellInner badge={badge} navItems={navItems}>
+        {children}
+      </DashboardShellInner>
     </Suspense>
   );
 }

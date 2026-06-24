@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   ResetCredentialsForm,
@@ -9,6 +10,12 @@ import {
 import { displayLoginId } from "@/lib/user-login-id";
 import { pushAuditTrail } from "@/lib/admin-staff-storage";
 import { useAutoClearMessage } from "@/hooks/use-auto-clear-message";
+import {
+  useAdminAdminsQuery,
+  useAdminOverviewQuery,
+  useAdminTeachersQuery,
+} from "@/hooks/data/use-admin-queries";
+import { dataKeys } from "@/hooks/data/keys";
 
 type TeacherRow = {
   id: string;
@@ -92,8 +99,11 @@ function rollNumberFor(student: StudentRow, index: number): string {
 
 export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: string }) {
   const router = useRouter();
-  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
-  const [students, setStudents] = useState<StudentRow[]>([]);
+  const queryClient = useQueryClient();
+  const { data: teachersData } = useAdminTeachersQuery();
+  const { data: overviewData, refetch: refetchOverview } = useAdminOverviewQuery();
+  const teachers = teachersData?.teachers ?? [];
+  const students = overviewData?.students ?? [];
   const [query, setQuery] = useState("");
   const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
   const [yearFilter, setYearFilter] = useState<"ALL" | "1" | "2">("ALL");
@@ -116,17 +126,12 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
   useAutoClearMessage(success, setSuccess);
 
   const load = useCallback(async () => {
-    const [t, o] = await Promise.all([
-      fetch("/api/admin/teachers").then((r) => r.json()),
-      fetch("/api/admin/overview").then((r) => r.json()),
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dataKeys.adminTeachers }),
+      queryClient.invalidateQueries({ queryKey: dataKeys.adminOverview }),
     ]);
-    if (t.teachers) setTeachers(t.teachers);
-    if (o.students) setStudents(o.students);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    await refetchOverview();
+  }, [queryClient, refetchOverview]);
 
   const filteredTeachers = teachers.filter((t) => t.category === category);
 
@@ -630,10 +635,12 @@ type StaffRow = {
 
 export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }) {
   const router = useRouter();
-  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
-  const [admins, setAdmins] = useState<
-    Array<{ id: string; name: string; email: string | null; username: string | null }>
-  >([]);
+  const queryClient = useQueryClient();
+  const { data: teachersData } = useAdminTeachersQuery();
+  const { data: adminsData } = useAdminAdminsQuery();
+  const teachers = teachersData?.teachers ?? [];
+  const admins = adminsData?.admins ?? [];
+
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<"create" | "edit" | null>(null);
@@ -651,17 +658,11 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
   useAutoClearMessage(success, setSuccess);
 
   const load = useCallback(async () => {
-    const [t, a] = await Promise.all([
-      fetch("/api/admin/teachers").then((r) => r.json()),
-      fetch("/api/admin/admins").then((r) => r.json()),
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dataKeys.adminTeachers }),
+      queryClient.invalidateQueries({ queryKey: dataKeys.adminAdmins }),
     ]);
-    if (t.teachers) setTeachers(t.teachers);
-    if (a.admins) setAdmins(a.admins);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  }, [queryClient]);
 
   function closeModal() {
     setModal(null);

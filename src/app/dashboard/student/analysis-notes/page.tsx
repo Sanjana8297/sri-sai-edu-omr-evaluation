@@ -1,42 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { DashboardShell } from "@/components/DashboardShell";
-import { studentNavItems } from "@/lib/dashboard-nav";
-
-type Exam = {
-  id: string;
-  examId: string;
-  title: string;
-  category: string;
-  examDate: string;
-  marksObtained: number;
-  maxMarks: number;
-  percentage: number;
-  status: "SUBMITTED" | "AUTO_SUBMITTED";
-};
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { CardListSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { useStudentExamsQuery } from "@/hooks/data/use-student-exams";
 
 export default function StudentAnalysisNotesPage() {
-  const [exams, setExams] = useState<Exam[]>([]);
+  useSetDashboardPage({
+    title: "Analysis Notes",
+    subtitle: "Detailed notes from teacher feedback.",
+  });
 
-  const load = useCallback(async () => {
-    const res = await fetch("/api/student/exams");
-    const j = await res.json();
-    if (j.exams) setExams(j.exams);
-  }, []);
+  const { data, isLoading } = useStudentExamsQuery();
+  const exams = data?.exams ?? [];
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  if (isLoading && !data) return <CardListSkeleton count={3} />;
 
   return (
-    <DashboardShell
-      badge="Student"
-      title="Analysis Notes"
-      subtitle="Detailed notes from teacher feedback."
-      navItems={studentNavItems}
-    >
       <div className="space-y-4">
         {exams.map((exam) => {
           return (
@@ -58,6 +38,5 @@ export default function StudentAnalysisNotesPage() {
           );
         })}
       </div>
-    </DashboardShell>
   );
 }

@@ -2,8 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { DashboardShell } from "@/components/DashboardShell";
-import { teacherNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { OnlineExamModulePanel, OmrSheetManagementPanel } from "./omr-online-panels";
 
 type DeliverySection = "omr" | "online";
@@ -36,14 +35,13 @@ function TeacherExamsPageContent() {
     }
   }, [searchParams, router]);
 
+  useSetDashboardPage({
+    title: "OMR & Exam Delivery",
+    subtitle: SECTION_SUBTITLES[section],
+    fullWidthContent: true,
+  });
+
   return (
-    <DashboardShell
-      badge="Teacher"
-      title="OMR & Exam Delivery"
-      subtitle={SECTION_SUBTITLES[section]}
-      navItems={teacherNavItems}
-      fullWidthContent
-    >
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="mb-6 border-b border-[var(--border)] pb-4">
           <h2 className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</h2>
@@ -53,7 +51,6 @@ function TeacherExamsPageContent() {
         {section === "omr" ? <OmrSheetManagementPanel resetKey={section} /> : null}
         {section === "online" ? <OnlineExamModulePanel resetKey={section} /> : null}
       </div>
-    </DashboardShell>
   );
 }
 

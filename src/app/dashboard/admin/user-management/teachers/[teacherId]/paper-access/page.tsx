@@ -3,8 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { DashboardShell } from "@/components/DashboardShell";
-import { adminNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { displayLoginId } from "@/lib/user-login-id";
 import {
   describePaperAccessChanges,
@@ -85,14 +84,14 @@ function TeacherPaperAccessContent() {
     pushAuditTrail("PERMISSION_UPDATE", `${staffName} — ${changes.join("; ")}`);
   }
 
+  useSetDashboardPage({
+    title: "Paper access permission control",
+    subtitle: teacher ? teacher.name : "Per-teacher question paper rights",
+    fullWidthContent: true,
+  });
+
   return (
-    <DashboardShell
-      badge="Administrator"
-      title="Paper access permission control"
-      subtitle={teacher ? teacher.name : "Per-teacher question paper rights"}
-      navItems={adminNavItems}
-      fullWidthContent
-    >
+    <>
       <div className="mb-6">
         <Link
           href="/dashboard/admin/user-management?section=roles"
@@ -136,7 +135,7 @@ function TeacherPaperAccessContent() {
           </p>
         </div>
       ) : null}
-    </DashboardShell>
+    </>
   );
 }
 

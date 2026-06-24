@@ -1,0 +1,17 @@
+export const dataKeys = {
+  me: ["me"] as const,
+  teacherStudents: ["teacher", "students"] as const,
+  teacherQuestionPapers: ["teacher", "question-papers"] as const,
+  teacherQuestionPapersArchived: ["teacher", "question-papers", "scheduled-only"] as const,
+  teacherOmrTemplate: ["teacher", "omr-template"] as const,
+  teacherCbtSettings: ["teacher", "cbt-settings"] as const,
+  studentExamsAvailable: ["student", "exams", "available"] as const,
+  studentExams: ["student", "exams"] as const,
+  adminLlmSettings: ["admin", "llm-settings"] as const,
+  adminTeachers: ["admin", "teachers"] as const,
+  adminAdmins: ["admin", "admins"] as const,
+  adminOverview: ["admin", "overview"] as const,
+  adminReportsOverview: (path: string) => ["admin", "reports", "overview", path] as const,
+  adminInstitutionDashboard: ["admin", "institution-dashboard"] as const,
+  adminSubjectScores: ["admin", "subject-scores"] as const,
+};

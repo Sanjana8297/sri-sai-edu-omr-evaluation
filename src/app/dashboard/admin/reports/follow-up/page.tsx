@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { DashboardShell } from "@/components/DashboardShell";
-import { adminNavItems } from "@/lib/dashboard-nav";
+import { useEffect, useMemo, useState } from "react";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { StatsRowSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { useInstitutionDashboardQuery } from "@/hooks/data/use-admin-queries";
+import { useSubjectScoresApi } from "@/app/dashboard/admin/reports/reports-analytics-panels";
 import type { SubjectScoresPayload } from "@/lib/subject-score-breakdown";
 
 type FollowUpStudent = {
@@ -20,36 +22,27 @@ type InstitutionDashboardData = {
 };
 
 export default function FollowUpPage() {
-  const [institutionData, setInstitutionData] = useState<InstitutionDashboardData | null>(null);
-  const [subjectScores, setSubjectScores] = useState<SubjectScoresPayload | null>(null);
+  useSetDashboardPage({
+    title: "Students Needing Follow-up",
+    subtitle: "Low performers with subject-wise score breakdown",
+    fullWidthContent: true,
+  });
+
+  const { data: instRaw, isLoading: instLoading } = useInstitutionDashboardQuery();
+  const { subjectScores, subjectScoresLoading } = useSubjectScoresApi(
+    "/api/admin/reports/subject-scores"
+  );
+  const institutionData = instRaw?.lowPerformerList
+    ? (instRaw as InstitutionDashboardData)
+    : null;
   const [selectedStudentId, setSelectedStudentId] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [instRes, subjectRes] = await Promise.all([
-        fetch("/api/admin/institution-dashboard"),
-        fetch("/api/admin/reports/subject-scores"),
-      ]);
-
-      const instJson = await instRes.json();
-      const subjectJson = await subjectRes.json();
-
-      if (instJson.lowPerformerList) {
-        setInstitutionData(instJson as InstitutionDashboardData);
-        const firstId = instJson.lowPerformerList[0]?.id ?? "";
-        setSelectedStudentId(firstId);
-      }
-      if (subjectJson.byStudent) setSubjectScores(subjectJson as SubjectScoresPayload);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loading = instLoading || subjectScoresLoading;
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (institutionData?.lowPerformerList[0]?.id && !selectedStudentId) {
+      setSelectedStudentId(institutionData.lowPerformerList[0].id);
+    }
+  }, [institutionData, selectedStudentId]);
 
   const selectedStudent = useMemo(
     () => institutionData?.lowPerformerList.find((s) => s.id === selectedStudentId) ?? null,
@@ -59,13 +52,7 @@ export default function FollowUpPage() {
   const selectedBreakdown = selectedStudentId ? subjectScores?.byStudent[selectedStudentId] : null;
 
   return (
-    <DashboardShell
-      badge="Administrator"
-      title="Students Needing Follow-up"
-      subtitle="Low performers with subject-wise score breakdown"
-      navItems={adminNavItems}
-      fullWidthContent
-    >
+    <>
       <div className="mb-4">
         <Link
           href="/dashboard/admin/reports?section=institution"
@@ -155,6 +142,6 @@ export default function FollowUpPage() {
           </section>
         </div>
       )}
-    </DashboardShell>
+    </>
   );
 }

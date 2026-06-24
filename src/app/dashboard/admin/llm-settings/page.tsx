@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { DashboardShell } from "@/components/DashboardShell";
-import { adminNavItems } from "@/lib/dashboard-nav";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { TableSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { useAdminLlmSettingsQuery } from "@/hooks/data/use-admin-llm-settings";
+import { dataKeys } from "@/hooks/data/keys";
 import { DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL } from "@/lib/openai-runtime";
 
 const MODEL_PRESETS = [
@@ -29,7 +32,13 @@ type SettingsResponse = {
 };
 
 export default function AdminLlmSettingsPage() {
-  const [loading, setLoading] = useState(true);
+  useSetDashboardPage({
+    title: "LLM Settings",
+    subtitle: "API key and model for AI question generation across the app",
+  });
+
+  const queryClient = useQueryClient();
+  const { data: settingsData, isLoading: loading, refetch } = useAdminLlmSettingsQuery();
   const [saving, setSaving] = useState(false);
   const [model, setModel] = useState(DEFAULT_LLM_MODEL);
   const [baseUrl, setBaseUrl] = useState(DEFAULT_LLM_BASE_URL);
@@ -46,44 +55,35 @@ export default function AdminLlmSettingsPage() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  const loadSettings = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await fetch("/api/admin/llm-settings");
-      const json = (await res.json()) as SettingsResponse & { error?: string };
-      if (!res.ok) {
-        setErr(json.error ?? "Could not load LLM settings");
-        return;
-      }
-      setModel(json.model || DEFAULT_LLM_MODEL);
-      setBaseUrl(json.baseUrl || DEFAULT_LLM_BASE_URL);
-      setMasked(json.apiKeyMasked);
-      setUsingEnv(json.usingEnvApiKey);
-      setUpdatedAt(json.updatedAt);
-      setTableReady(json.tableReady !== false);
-      setAiReady(json.aiReady === true);
-      setStatusMessage(json.statusMessage ?? null);
-      setTestResult(null);
-      setApiKey("");
-      setClearApiKey(false);
-      if (json.tableReady === false) {
-        setErr(
-          "Database table not created yet. Run: npx prisma migrate deploy — then redeploy Vercel."
-        );
-      } else if (json.aiReady !== true && json.statusMessage) {
-        setErr(json.statusMessage);
-      }
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Network error while loading settings.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void loadSettings();
-  }, [loadSettings]);
+    const json = settingsData;
+    if (!json) return;
+    setModel(json.model || DEFAULT_LLM_MODEL);
+    setBaseUrl(json.baseUrl || DEFAULT_LLM_BASE_URL);
+    setMasked(json.apiKeyMasked);
+    setUsingEnv(json.usingEnvApiKey);
+    setUpdatedAt(json.updatedAt);
+    setTableReady(json.tableReady !== false);
+    setAiReady(json.aiReady === true);
+    setStatusMessage(json.statusMessage ?? null);
+    setTestResult(null);
+    setApiKey("");
+    setClearApiKey(false);
+    if (json.tableReady === false) {
+      setErr(
+        "Database table not created yet. Run: npx prisma migrate deploy — then redeploy Vercel."
+      );
+    } else if (json.aiReady !== true && json.statusMessage) {
+      setErr(json.statusMessage);
+    } else {
+      setErr(null);
+    }
+  }, [settingsData]);
+
+  const loadSettings = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: dataKeys.adminLlmSettings });
+    await refetch();
+  }, [queryClient, refetch]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -143,12 +143,6 @@ export default function AdminLlmSettingsPage() {
   }
 
   return (
-    <DashboardShell
-      badge="Administrator"
-      title="LLM Settings"
-      subtitle="API key and model for AI question generation across the app"
-      navItems={adminNavItems}
-    >
       <div className="mx-auto max-w-2xl space-y-4">
         {!loading && statusMessage ? (
           <div
@@ -161,8 +155,8 @@ export default function AdminLlmSettingsPage() {
             <p className="font-medium">{aiReady ? "Status: Ready" : "Status: Not ready for teachers"}</p>
             <p className="mt-1">{statusMessage}</p>
             <p className="mt-2 text-xs opacity-80">
-              Configure this page on your live Vercel URL (not localhost). Saving only model/URL without
-              pasting an API key does not enable AI.
+              Saving only model/URL without pasting an API key does not enable AI.
+              
             </p>
           </div>
         ) : null}
@@ -285,6 +279,5 @@ export default function AdminLlmSettingsPage() {
         )}
       </div>
       </div>
-    </DashboardShell>
   );
 }

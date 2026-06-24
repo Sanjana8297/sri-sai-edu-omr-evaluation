@@ -1,79 +1,14 @@
-"use client";
+import { getAdminReportsOverviewServer } from "@/lib/server/dashboard-data";
+import type { fetchReportsOverview } from "@/lib/data/fetchers";
+import { AdminReportsClient } from "./admin-reports-client";
 
-import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { DashboardShell } from "@/components/DashboardShell";
-import { adminNavItems } from "@/lib/dashboard-nav";
-import {
-  PerformanceAnalyticsPanel,
-  ResultScoreReportsPanel,
-} from "./reports-analytics-panels";
-import { InstitutionDashboardPanel } from "./institution-dashboard-panel";
-
-type ReportsSection = "results" | "analytics" | "institution";
-
-const SECTION_LABELS: Record<ReportsSection, string> = {
-  results: "Result & Score Reports",
-  analytics: "Performance Analytics",
-  institution: "Institution Dashboard",
-};
-
-const SECTION_SUBTITLES: Record<ReportsSection, string> = {
-  results: "Instant and aggregate",
-  analytics: "AI-driven insights",
-  institution: "Centre-level overview",
-};
-
-function AdminReportsContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [section, setSection] = useState<ReportsSection>("results");
-
-  useEffect(() => {
-    const param = searchParams.get("section");
-    if (param === "results" || param === "analytics" || param === "institution") {
-      setSection(param);
-    } else {
-      router.replace("/dashboard/admin/reports?section=results");
-    }
-  }, [searchParams, router]);
-
+export default async function AdminReportsPage() {
+  const initialOverview = await getAdminReportsOverviewServer();
   return (
-    <DashboardShell
-      badge="Administrator"
-      title="Reports & Analytics"
-      subtitle={SECTION_SUBTITLES[section]}
-      navItems={adminNavItems}
-      fullWidthContent
-    >
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="mb-6 border-b border-[var(--border)] pb-4">
-          {section !== "institution" ? (
-            <>
-              <h2 className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</h2>
-              <p className="mt-0.5 text-xs text-[var(--muted)]">{SECTION_SUBTITLES[section]}</p>
-            </>
-          ) : null}
-        </div>
-
-        {section === "results" ? <ResultScoreReportsPanel resetKey={section} /> : null}
-        {section === "analytics" ? <PerformanceAnalyticsPanel resetKey={section} /> : null}
-        {section === "institution" ? <InstitutionDashboardPanel /> : null}
-      </div>
-    </DashboardShell>
-  );
-}
-
-export default function AdminReportsPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[40vh] items-center justify-center text-sm text-[var(--muted)]">
-          Loading…
-        </div>
+    <AdminReportsClient
+      initialOverview={
+        (initialOverview ?? undefined) as Awaited<ReturnType<typeof fetchReportsOverview>> | undefined
       }
-    >
-      <AdminReportsContent />
-    </Suspense>
+    />
   );
 }

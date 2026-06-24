@@ -3,8 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { DashboardShell } from "@/components/DashboardShell";
-import { adminNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { displayLoginId } from "@/lib/user-login-id";
 
 type AttemptRow = {
@@ -58,14 +57,14 @@ function StudentAttemptHistoryContent() {
     void load();
   }, [load]);
 
+  useSetDashboardPage({
+    title: "Attempt history timeline",
+    subtitle: student ? student.name : "Student exam attempts",
+    fullWidthContent: true,
+  });
+
   return (
-    <DashboardShell
-      badge="Administrator"
-      title="Attempt history timeline"
-      subtitle={student ? student.name : "Student exam attempts"}
-      navItems={adminNavItems}
-      fullWidthContent
-    >
+    <>
       <div className="mb-6">
         <Link
           href="/dashboard/admin/user-management?section=profiles"
@@ -108,7 +107,7 @@ function StudentAttemptHistoryContent() {
           </ul>
         )
       ) : null}
-    </DashboardShell>
+    </>
   );
 }
 

@@ -1,17 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { DashboardShell } from "@/components/DashboardShell";
-import { teacherNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 
 export default function TeacherAnswerSheetPage() {
+  useSetDashboardPage({
+    title: "Upload Answer Key",
+    subtitle: "This workflow is turned off.",
+  });
+
   return (
-    <DashboardShell
-      badge="Teacher"
-      title="Upload Answer Key"
-      subtitle="This workflow is turned off."
-      navItems={teacherNavItems}
-    >
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
         <p className="text-sm text-[var(--muted)]">
           Uploading answer keys from this page is disabled. Add the answer key when you create or save a question paper (for example in the{" "}
@@ -21,6 +19,5 @@ export default function TeacherAnswerSheetPage() {
           ), or use the AI paper generator where the key is included with the paper.
         </p>
       </div>
-    </DashboardShell>
   );
 }

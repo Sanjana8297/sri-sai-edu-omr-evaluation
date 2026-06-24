@@ -1,5 +1,6 @@
-import { DashboardShell } from "@/components/DashboardShell";
-import { teacherNavItems } from "@/lib/dashboard-nav";
+"use client";
+
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 
 type HelpModule = {
   title: string;
@@ -276,13 +277,12 @@ const sections: HelpSection[] = [
 ];
 
 export default function TeacherHelpPage() {
+  useSetDashboardPage({
+    title: "Help",
+    subtitle: "Static reference for platform modules and sub-modules.",
+  });
+
   return (
-    <DashboardShell
-      badge="Teacher"
-      title="Help"
-      subtitle="Static reference for platform modules and sub-modules."
-      navItems={teacherNavItems}
-    >
       <div className="space-y-6">
         {sections.map((section) => (
           <section key={section.heading} className="space-y-3">
@@ -303,6 +303,5 @@ export default function TeacherHelpPage() {
           </section>
         ))}
       </div>
-    </DashboardShell>
   );
 }

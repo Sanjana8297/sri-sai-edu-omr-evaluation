@@ -2,8 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { DashboardShell } from "@/components/DashboardShell";
-import { adminNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { StudentProfilesPanel, TeacherRolesPanel } from "./admin-user-panels";
 
 type ManagementSection = "profiles" | "roles";
@@ -32,14 +31,13 @@ function AdminUserManagementContent() {
     }
   }, [searchParams, router]);
 
+  useSetDashboardPage({
+    title: "Student & User Management",
+    subtitle: SECTION_SUBTITLES[section],
+    fullWidthContent: true,
+  });
+
   return (
-    <DashboardShell
-      badge="Administrator"
-      title="Student & User Management"
-      subtitle={SECTION_SUBTITLES[section]}
-      navItems={adminNavItems}
-      fullWidthContent
-    >
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="mb-6 border-b border-[var(--border)] pb-4">
           <h2 className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</h2>
@@ -49,7 +47,6 @@ function AdminUserManagementContent() {
         {section === "profiles" ? <StudentProfilesPanel resetKey={section} /> : null}
         {section === "roles" ? <TeacherRolesPanel resetKey={section} /> : null}
       </div>
-    </DashboardShell>
   );
 }
 

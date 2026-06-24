@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
+import { useMeQuery } from "@/hooks/data/use-me";
+import { useTeacherQuestionPapersQuery } from "@/hooks/data/use-teacher-question-papers";
+import {
+  useTeacherCbtSettingsQuery,
+  useTeacherOmrTemplateQuery,
+} from "@/hooks/data/use-admin-queries";
 import { DEFAULT_CBT_SETTINGS, type CbtSettings } from "@/lib/cbt-settings";
 import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
 import { OmrTemplatePreview } from "@/components/omr/OmrTemplatePreview";
@@ -95,7 +101,18 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     buildDefaultAdvanceSubjects
   );
   const [bundlePaper, setBundlePaper] = useState("");
-  const [papers, setPapers] = useState<Paper[]>([]);
+  const { data: papersData } = useTeacherQuestionPapersQuery();
+  const papers: Paper[] = useMemo(
+    () =>
+      (papersData?.papers ?? []).map((p) => ({
+        id: p.id,
+        title: p.title,
+        category: p.category,
+      })),
+    [papersData?.papers]
+  );
+  const { data: meData } = useMeQuery();
+  const { data: templateData, isLoading: templateQueryLoading } = useTeacherOmrTemplateQuery();
   const [scanName, setScanName] = useState<string | null>(null);
   const [sensitivity, setSensitivity] = useState(72);
   const [flagSmudge, setFlagSmudge] = useState(true);
@@ -195,56 +212,38 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
   }, [bundlePaper, buildOmrOpts]);
 
   useEffect(() => {
-    void fetch("/api/teacher/question-papers")
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.papers) setPapers(json.papers);
-      });
-  }, []);
-
-  useEffect(() => {
-    void (async () => {
+    if (templateQueryLoading) {
       setTemplateLoading(true);
-      setTemplateErr(null);
-      try {
-        const [meRes, templateRes] = await Promise.all([
-          fetch("/api/me"),
-          fetch("/api/teacher/omr-template"),
-        ]);
-        const meJson = await meRes.json();
-        const json = await templateRes.json();
-
-        let track: TeacherTrack | null = null;
-        const category = meJson.user?.category;
-        if (category === "JEE" || category === "NEET") {
-          track = category;
-          setTeacherTrack(category);
-        }
-
-        if (!templateRes.ok) {
-          setTemplateErr(json.error ?? "Could not load saved template");
-          return;
-        }
-        const s = json.settings as {
-          track?: string;
-          rollDigits?: number;
-          examPreset?: ExamPreset;
-          advance?: { subjects?: JeeAdvanceSubjectConfig[] };
-        };
-        setExamPreset(clampPresetToTeacher(trackToPreset(s.examPreset ?? s.track), track));
-        if (typeof s.rollDigits === "number" && !Number.isNaN(s.rollDigits)) {
-          setRollDigits(Math.min(12, Math.max(6, s.rollDigits)));
-        }
-        if (Array.isArray(s.advance?.subjects) && s.advance.subjects.length > 0) {
-          setAdvanceSubjects(s.advance.subjects);
-        }
-      } catch {
-        setTemplateErr("Could not load saved template.");
-      } finally {
-        setTemplateLoading(false);
+      return;
+    }
+    setTemplateLoading(false);
+    setTemplateErr(null);
+    try {
+      let track: TeacherTrack | null = null;
+      const category = meData?.user?.category;
+      if (category === "JEE" || category === "NEET") {
+        track = category;
+        setTeacherTrack(category);
       }
-    })();
-  }, []);
+      const json = templateData as { settings?: {
+        track?: string;
+        rollDigits?: number;
+        examPreset?: ExamPreset;
+        advance?: { subjects?: JeeAdvanceSubjectConfig[] };
+      } } | undefined;
+      if (!json?.settings) return;
+      const s = json.settings;
+      setExamPreset(clampPresetToTeacher(trackToPreset(s.examPreset ?? s.track), track));
+      if (typeof s.rollDigits === "number" && !Number.isNaN(s.rollDigits)) {
+        setRollDigits(Math.min(12, Math.max(6, s.rollDigits)));
+      }
+      if (Array.isArray(s.advance?.subjects) && s.advance.subjects.length > 0) {
+        setAdvanceSubjects(s.advance.subjects);
+      }
+    } catch {
+      setTemplateErr("Could not load saved template.");
+    }
+  }, [templateData, templateQueryLoading, meData?.user?.category]);
 
   const saveOmrTemplate = useCallback(async () => {
     setTemplateSaving(true);
@@ -518,6 +517,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
 }
 
 export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: string }) {
+  const { data: cbtData, isLoading: cbtLoading } = useTeacherCbtSettingsQuery();
   const [settings, setSettings] = useState<CbtSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<CbtSettings | null>(null);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -525,27 +525,18 @@ export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: stri
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch("/api/teacher/cbt-settings");
-        const text = await res.text();
-        if (!text) {
-          const defaults = { ...DEFAULT_CBT_SETTINGS };
-          setSettings(defaults);
-          setSavedSettings(defaults);
-          return;
-        }
-        const json = JSON.parse(text) as { settings?: CbtSettings };
-        const loaded = json.settings ?? { ...DEFAULT_CBT_SETTINGS };
-        setSettings(loaded);
-        setSavedSettings(loaded);
-      } catch {
-        const defaults = { ...DEFAULT_CBT_SETTINGS };
-        setSettings(defaults);
-        setSavedSettings(defaults);
-      }
-    })();
-  }, []);
+    if (cbtLoading) return;
+    try {
+      const json = cbtData as { settings?: CbtSettings } | undefined;
+      const loaded = json?.settings ?? { ...DEFAULT_CBT_SETTINGS };
+      setSettings(loaded);
+      setSavedSettings(loaded);
+    } catch {
+      const defaults = { ...DEFAULT_CBT_SETTINGS };
+      setSettings(defaults);
+      setSavedSettings(defaults);
+    }
+  }, [cbtData, cbtLoading]);
 
   const hasUnsavedChanges =
     settings !== null &&

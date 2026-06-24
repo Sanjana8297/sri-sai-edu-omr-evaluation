@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { StatsRowSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { StatBlock } from "@/components/reports/StatBlock";
+import { useInstitutionDashboardQuery } from "@/hooks/data/use-admin-queries";
 
 type InstitutionDashboardData = {
   academicYear: string;
@@ -48,40 +51,6 @@ type InstitutionDashboardData = {
     }>;
   };
 };
-
-function MetricCard({
-  icon,
-  iconBg,
-  title,
-  value,
-  detail,
-  detailTone,
-}: {
-  icon: ReactNode;
-  iconBg: string;
-  title: string;
-  value: string | number;
-  detail: string;
-  detailTone?: "positive" | "negative" | "neutral";
-}) {
-  const detailClass =
-    detailTone === "positive"
-      ? "text-emerald-600 dark:text-emerald-400"
-      : detailTone === "negative"
-        ? "text-red-600 dark:text-red-400"
-        : "text-[var(--muted)]";
-
-  return (
-    <article className="dash-static rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-      <div className={`mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
-        {icon}
-      </div>
-      <p className="text-xs font-medium text-[var(--muted)]">{title}</p>
-      <p className="mt-1 text-2xl font-bold tracking-tight">{value}</p>
-      <p className={`mt-2 text-xs ${detailClass}`}>{detail}</p>
-    </article>
-  );
-}
 
 function SectionCard({
   icon,
@@ -206,29 +175,14 @@ function NetworkIcon() {
 }
 
 export function InstitutionDashboardPanel() {
-  const [data, setData] = useState<InstitutionDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/institution-dashboard");
-      const json = await res.json();
-      if (json.summary) setData(json as InstitutionDashboardData);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const { data: rawData, isLoading: loading } = useInstitutionDashboardQuery();
+  const dashboardData = rawData?.summary ? (rawData as InstitutionDashboardData) : null;
 
   if (loading) {
-    return <p className="text-sm text-[var(--muted)]">Loading institution dashboard…</p>;
+    return <StatsRowSkeleton />;
   }
 
-  if (!data) {
+  if (!dashboardData) {
     return (
       <p className="rounded-lg border border-dashed border-[var(--border)] px-4 py-6 text-sm text-[var(--muted)]">
         Could not load dashboard data. Please refresh the page.
@@ -236,11 +190,11 @@ export function InstitutionDashboardPanel() {
     );
   }
 
-  const { summary } = data;
+  const { summary } = dashboardData;
   const growthLabel = `${summary.studentGrowthPositive ? "↑" : "↓"} ${Math.abs(summary.studentGrowthPct)}% vs prior month`;
   const examDeltaLabel = `${summary.examsMonthDeltaPositive ? "↑" : "↓"} ${Math.abs(summary.examsMonthDelta)} more than last month`;
-  const topJeeBatches = data.allBatches.filter((b) => b.track === "JEE").slice(0, 2);
-  const topNeetBatches = data.allBatches.filter((b) => b.track === "NEET").slice(0, 2);
+  const topJeeBatches = dashboardData.allBatches.filter((b) => b.track === "JEE").slice(0, 2);
+  const topNeetBatches = dashboardData.allBatches.filter((b) => b.track === "NEET").slice(0, 2);
 
   return (
     <div className="space-y-8">
@@ -248,7 +202,7 @@ export function InstitutionDashboardPanel() {
         <div>
           <h2 className="text-xl font-bold tracking-tight">Institution dashboard</h2>
           <p className="mt-0.5 text-sm text-[var(--muted)]">
-            Centre-level overview · {data.academicYear}
+            Centre-level overview · {dashboardData.academicYear}
           </p>
         </div>
         <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
@@ -257,7 +211,7 @@ export function InstitutionDashboardPanel() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
+        <StatBlock
           icon={<UsersIcon />}
           iconBg="bg-violet-600"
           title="Total students"
@@ -265,14 +219,14 @@ export function InstitutionDashboardPanel() {
           detail={growthLabel}
           detailTone={summary.studentGrowthPositive ? "positive" : "negative"}
         />
-        <MetricCard
+        <StatBlock
           icon={<FolderIcon />}
           iconBg="bg-teal-600"
           title="Active batches"
           value={summary.activeBatches}
           detail={`JEE: ${summary.jeeBatches} · NEET: ${summary.neetBatches}`}
         />
-        <MetricCard
+        <StatBlock
           icon={<AlertIcon />}
           iconBg="bg-amber-500"
           title="Low performers"
@@ -280,11 +234,11 @@ export function InstitutionDashboardPanel() {
           detail={
             summary.lowPerformersNewThisWeek > 0
               ? `${summary.lowPerformersNewThisWeek} active this week`
-              : `Below ${data.lowPerformerThreshold}% average`
+              : `Below ${dashboardData.lowPerformerThreshold}% average`
           }
           detailTone={summary.lowPerformersNewThisWeek > 0 ? "negative" : "neutral"}
         />
-        <MetricCard
+        <StatBlock
           icon={<DocIcon />}
           iconBg="bg-blue-600"
           title="Exams this month"
@@ -306,7 +260,7 @@ export function InstitutionDashboardPanel() {
             subtitle="Average % by mentor batch and track"
           >
             <p className="mb-3 text-xs font-medium text-[var(--muted)]">Top batches this month</p>
-            {data.allBatches.length === 0 ? (
+            {dashboardData.allBatches.length === 0 ? (
               <p className="text-sm text-[var(--muted)]">No batch scores recorded yet.</p>
             ) : (
               <div className="space-y-3">
@@ -360,7 +314,7 @@ export function InstitutionDashboardPanel() {
             icon={<AlertIcon />}
             iconBg="bg-rose-500"
             title="Low-performer alert & follow-up"
-            subtitle={`Students below ${data.lowPerformerThreshold}% score threshold`}
+            subtitle={`Students below ${dashboardData.lowPerformerThreshold}% score threshold`}
             footer={{ label: "View students & follow up", href: "/dashboard/admin/reports/follow-up" }}
             footerClass="text-rose-600 dark:text-rose-400"
           >
@@ -368,11 +322,11 @@ export function InstitutionDashboardPanel() {
               <span aria-hidden>⚠</span>
               {summary.lowPerformers} student{summary.lowPerformers === 1 ? "" : "s"} need attention
             </div>
-            {data.lowPerformerSubjects.length === 0 ? (
+            {dashboardData.lowPerformerSubjects.length === 0 ? (
               <p className="text-sm text-[var(--muted)]">No subject breakdown available yet.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {data.lowPerformerSubjects.map((s) => (
+                {dashboardData.lowPerformerSubjects.map((s) => (
                   <span
                     key={s.subject}
                     className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1 text-xs font-medium"
@@ -398,16 +352,16 @@ export function InstitutionDashboardPanel() {
             subtitle="Attempts logged per month"
           >
             <p className="mb-3 text-xs font-medium text-[var(--muted)]">Monthly attempts — last 4 months</p>
-            {data.monthlyAttempts.every((m) => m.count === 0) ? (
+            {dashboardData.monthlyAttempts.every((m) => m.count === 0) ? (
               <p className="text-sm text-[var(--muted)]">No attempts logged yet.</p>
             ) : (
               <ul className="space-y-2">
-                {data.monthlyAttempts.map((m) => (
+                {dashboardData.monthlyAttempts.map((m) => (
                   <ProgressRow
                     key={m.month}
                     label={m.label}
                     value={m.count}
-                    max={data.maxMonthlyAttempts}
+                    max={dashboardData.maxMonthlyAttempts}
                     barClass="bg-teal-500"
                   />
                 ))}
@@ -424,11 +378,11 @@ export function InstitutionDashboardPanel() {
             <div className="mb-3 grid grid-cols-2 gap-3">
               <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                 <p className="text-xs text-[var(--muted)]">Overall ratio</p>
-                <p className="mt-1 text-lg font-bold">{data.staffing.overallRatio}</p>
+                <p className="mt-1 text-lg font-bold">{dashboardData.staffing.overallRatio}</p>
               </div>
               <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                 <p className="text-xs text-[var(--muted)]">Understaffed batches</p>
-                <p className="mt-1 text-lg font-bold">{data.staffing.understaffedBatches}</p>
+                <p className="mt-1 text-lg font-bold">{dashboardData.staffing.understaffedBatches}</p>
               </div>
             </div>
             <div className="max-h-44 overflow-auto rounded-lg border border-[var(--border)]">
@@ -442,7 +396,7 @@ export function InstitutionDashboardPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.staffing.teachers.map((t) => (
+                  {dashboardData.staffing.teachers.map((t) => (
                     <tr key={t.id} className="border-t border-[var(--border)]">
                       <td className="px-2 py-2">{t.name}</td>
                       <td className="px-2 py-2">{t.track}</td>

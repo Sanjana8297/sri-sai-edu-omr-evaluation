@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { DashboardShell } from "@/components/DashboardShell";
-import { studentNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { parseQuestionPaperContentWithOptions, normalizeOptionAnswerToLetter } from "@/lib/exam-paper-parser";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 
@@ -77,13 +76,12 @@ export default function StudentAnalysisNoteDetailPage() {
     [detail]
   );
 
+  useSetDashboardPage({
+    title: "Analysis Notes",
+    subtitle: "Question-wise review of your submitted exam",
+  });
+
   return (
-    <DashboardShell
-      badge="Student"
-      title="Analysis Notes"
-      subtitle="Question-wise review of your submitted exam"
-      navItems={studentNavItems}
-    >
       <div className="space-y-4">
         <button
           type="button"
@@ -181,7 +179,6 @@ export default function StudentAnalysisNoteDetailPage() {
           </div>
         ) : null}
       </div>
-    </DashboardShell>
   );
 }
 

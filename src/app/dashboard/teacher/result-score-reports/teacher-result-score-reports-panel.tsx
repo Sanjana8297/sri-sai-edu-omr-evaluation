@@ -7,6 +7,7 @@ import {
   useSubjectScoresApi,
   type AttemptRow,
 } from "@/app/dashboard/admin/reports/reports-analytics-panels";
+import { RankListTable } from "@/components/reports/RankListTable";
 
 function downloadCsv(filename: string, rows: string[][]) {
   const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -250,42 +251,11 @@ export function TeacherResultScoreReportsPanel() {
                 </button>
               ))}
             </div>
-            <div className="max-h-80 overflow-y-auto rounded-lg border border-[var(--border)]">
-              <table className="min-w-full text-left text-sm">
-                <thead className="sticky top-0 bg-[var(--card)] text-[var(--muted)]">
-                  <tr>
-                    <th className="px-3 py-2">Rank</th>
-                    <th className="px-3 py-2">Student</th>
-                    <th className="px-3 py-2">Avg %</th>
-                    <th className="px-3 py-2">Latest Exam Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRanks.map((r) => (
-                    <tr
-                      key={r.studentId}
-                      className={`cursor-pointer border-t border-[var(--border)] transition-colors hover:bg-[var(--background)] ${
-                        selectedStudentId === r.studentId ? "bg-[var(--accent-soft)]" : ""
-                      }`}
-                      onClick={() =>
-                        setSelectedStudentId((current) => (current === r.studentId ? "" : r.studentId))
-                      }
-                    >
-                      <td className="px-3 py-2 font-medium">#{r.rank}</td>
-                      <td className="px-3 py-2">
-                        {r.name}
-                        <span className="ml-1 text-xs text-[var(--muted)]">({r.category})</span>
-                      </td>
-                      <td className="px-3 py-2">{r.avgPct}%</td>
-                      <td className="px-3 py-2">
-                        {r.latestExamScore}
-                        <span className="mt-0.5 block text-xs text-[var(--muted)]">{r.latestExamTitle}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <RankListTable
+              rows={filteredRanks}
+              selectedStudentId={selectedStudentId}
+              onSelectStudent={setSelectedStudentId}
+            />
           </section>
 
           {selectedStudentId ? (

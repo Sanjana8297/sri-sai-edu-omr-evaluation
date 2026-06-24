@@ -1,41 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { DashboardShell } from "@/components/DashboardShell";
-import { studentNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { StatsRowSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { useMeQuery } from "@/hooks/data/use-me";
+import { useStudentExamsQuery } from "@/hooks/data/use-student-exams";
 import { dashGrid } from "@/lib/dashboard-ui";
 
-type Exam = { id: string; title: string; percentage: number };
-
 export default function StudentPerformanceSummaryPage() {
-  const [name, setName] = useState("");
-  const [exams, setExams] = useState<Exam[]>([]);
-
-  const load = useCallback(async () => {
-    const [u, e] = await Promise.all([fetch("/api/me").then((r) => r.json()), fetch("/api/student/exams").then((r) => r.json())]);
-    if (u.user?.name) setName(u.user.name);
-    if (e.exams) setExams(e.exams);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const { data: meData } = useMeQuery();
+  const { data: examsData, isLoading } = useStudentExamsQuery();
+  const name = meData?.user?.name ?? "";
+  const exams = examsData?.exams ?? [];
 
   const avg = exams.length ? Math.round((exams.reduce((s, x) => s + x.percentage, 0) / exams.length) * 10) / 10 : null;
 
+  useSetDashboardPage({
+    title: name ? `Hi, ${name}` : "Performance Summary",
+    subtitle: "Summary from your exam records.",
+  });
+
+  if (isLoading && !examsData) return <StatsRowSkeleton />;
+
   return (
-    <DashboardShell
-      badge="Student"
-      title={name ? `Hi, ${name}` : "Performance Summary"}
-      subtitle="Summary from your exam records."
-      navItems={studentNavItems}
-    >
       <section className={dashGrid}>
         <Card label="Exams recorded" value={String(exams.length)} />
         <Card label="Average score" value={avg != null ? `${avg}%` : "-"} />
         <Card label="Latest exam" value={exams[0]?.title ?? "-"} />
       </section>
-    </DashboardShell>
   );
 }
 

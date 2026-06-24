@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAdminTeachersQuery } from "@/hooks/data/use-admin-queries";
 
 type Paper = { id: string; title: string; category: string };
 type TeacherOption = { id: string; name: string; category: string };
@@ -64,7 +65,8 @@ export function ExamSchedulingPanel({
   const isAdmin = variant === "admin";
   const apiPrefix = isAdmin ? "/api/admin" : "/api/teacher";
 
-  const [teachers, setTeachers] = useState<TeacherOption[]>([]);
+  const { data: teachersData } = useAdminTeachersQuery(isAdmin);
+  const teachers = isAdmin ? (teachersData?.teachers ?? []) : [];
   const [teacherId, setTeacherId] = useState("");
   const [papers, setPapers] = useState<Paper[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
@@ -118,15 +120,6 @@ export function ExamSchedulingPanel({
     },
     [apiPrefix]
   );
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    void fetch("/api/admin/teachers")
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.teachers) setTeachers(json.teachers);
-      });
-  }, [isAdmin]);
 
   useEffect(() => {
     void loadExams();

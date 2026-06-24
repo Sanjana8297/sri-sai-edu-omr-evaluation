@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DashboardShell } from "@/components/DashboardShell";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { useMeQuery } from "@/hooks/data/use-me";
 import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
-import { teacherNavItems } from "@/lib/dashboard-nav";
 import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   buildDefaultAdvanceSubjects,
@@ -55,6 +55,11 @@ type PaperBlueprint = {
 };
 
 export default function TeacherAiBuilderPage() {
+  useSetDashboardPage({
+    title: "AI Question Paper Generator",
+    subtitle: "Generate blueprint, compose paper, validate, and save.",
+  });
+
   const [teacherTrack, setTeacherTrack] = useState<TeacherTrack | null>(null);
   const [aiTrackProfile, setAiTrackProfile] = useState<AiTrackProfile>("JEE");
   const [advanceSubjects, setAdvanceSubjects] = useState<JeeAdvanceSubjectConfig[]>(
@@ -86,9 +91,10 @@ export default function TeacherAiBuilderPage() {
     [teacherTrack]
   );
 
-  const loadMe = useCallback(async () => {
-    const u = await fetch("/api/me").then((r) => r.json());
-    const category = u.user?.category;
+  const { data: meData } = useMeQuery();
+
+  useEffect(() => {
+    const category = meData?.user?.category;
     if (category === "JEE" || category === "NEET") {
       setTeacherTrack(category);
       const options = trackOptionsForTeacher(category);
@@ -96,11 +102,7 @@ export default function TeacherAiBuilderPage() {
         options.some((option) => option.value === prev) ? prev : options[0]?.value ?? "JEE"
       );
     }
-  }, []);
-
-  useEffect(() => {
-    void loadMe();
-  }, [loadMe]);
+  }, [meData?.user?.category]);
 
   const advanceTotalMarks = useMemo(
     () => totalExamMarksFromSubjects(advanceSubjects),
@@ -347,12 +349,6 @@ export default function TeacherAiBuilderPage() {
   }
 
   return (
-    <DashboardShell
-      badge="Teacher"
-      title="AI Question Paper Generator"
-      subtitle="Generate blueprint, compose paper, validate, and save."
-      navItems={teacherNavItems}
-    >
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
         <div className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
           <p className="text-sm font-semibold">AI Paper Configuration</p>
@@ -526,6 +522,5 @@ export default function TeacherAiBuilderPage() {
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="mt-2 text-sm text-green-700">{msg}</p> : null}
       </div>
-    </DashboardShell>
   );
 }

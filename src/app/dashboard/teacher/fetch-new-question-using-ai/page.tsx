@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { DashboardShell } from "@/components/DashboardShell";
-import { teacherNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { useMeQuery } from "@/hooks/data/use-me";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
 
 type Track = "JEE" | "NEET";
@@ -18,6 +18,11 @@ type AiQuestion = {
 };
 
 export default function TeacherFetchNewQuestionUsingAiPage() {
+  useSetDashboardPage({
+    title: "Fetch New Question Using AI",
+    subtitle: "Fetch JEE/NEET-style questions from internet snippets and add them to your question bank.",
+  });
+
   const [track, setTrack] = useState<Track>("JEE");
   const [aiSubject, setAiSubject] = useState("Maths");
   const [aiYear, setAiYear] = useState(new Date().getFullYear());
@@ -30,16 +35,13 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const loadMe = useCallback(async () => {
-    const u = await fetch("/api/me").then((r) => r.json());
-    if (u.user?.category === "JEE" || u.user?.category === "NEET") {
-      setTrack(u.user.category);
-    }
-  }, []);
+  const { data: meData } = useMeQuery();
 
   useEffect(() => {
-    void loadMe();
-  }, [loadMe]);
+    if (meData?.user?.category === "JEE" || meData?.user?.category === "NEET") {
+      setTrack(meData.user.category);
+    }
+  }, [meData]);
 
   const streamSubjects: Record<Track, string[]> = {
     JEE: ["Maths", "Physics", "Chemistry"],
@@ -142,12 +144,6 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
   }
 
   return (
-    <DashboardShell
-      badge="Teacher"
-      title="Fetch New Question Using AI"
-      subtitle="Fetch JEE/NEET-style questions from internet snippets and add them to your question bank."
-      navItems={teacherNavItems}
-    >
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
         <div className="grid gap-2 md:grid-cols-4">
           <label className="text-xs text-[var(--muted)]">
@@ -285,6 +281,5 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
           </div>
         ) : null}
       </div>
-    </DashboardShell>
   );
 }

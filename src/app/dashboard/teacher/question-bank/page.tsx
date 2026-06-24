@@ -4,38 +4,30 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { SUBJECTS_BY_TRACK, type TeacherTrack } from "@/lib/dashboard-nav";
+import { useMeQuery } from "@/hooks/data/use-me";
 
 /** Index route — pick first subject for track and open it (subjects live in the sidebar). */
 export default function TeacherQuestionBankPage() {
   const router = useRouter();
+  const { data, isLoading, isError } = useMeQuery();
   const [message, setMessage] = useState("Opening question bank…");
 
   useEffect(() => {
-    let cancelled = false;
+    if (isLoading) return;
 
-    async function redirectToSubject() {
-      try {
-        const res = await fetch("/api/me");
-        const json = await res.json();
-        const track: TeacherTrack =
-          res.ok && (json.user?.category === "JEE" || json.user?.category === "NEET")
-            ? json.user.category
-            : "JEE";
-        if (cancelled) return;
-        const subject = SUBJECTS_BY_TRACK[track][0];
-        router.replace(`/dashboard/teacher/question-bank/${encodeURIComponent(subject)}`);
-      } catch {
-        if (!cancelled) {
-          setMessage("Could not load your track. Use the sidebar under Question Bank to open a subject.");
-        }
-      }
+    const track: TeacherTrack =
+      data?.user?.category === "JEE" || data?.user?.category === "NEET"
+        ? data.user.category
+        : "JEE";
+
+    if (isError) {
+      setMessage("Could not load your track. Use the sidebar under Question Bank to open a subject.");
+      return;
     }
 
-    void redirectToSubject();
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
+    const subject = SUBJECTS_BY_TRACK[track][0];
+    router.replace(`/dashboard/teacher/question-bank/${encodeURIComponent(subject)}`);
+  }, [data, isError, isLoading, router]);
 
   return (
     <div className="flex min-h-[40vh] items-center justify-center px-6">

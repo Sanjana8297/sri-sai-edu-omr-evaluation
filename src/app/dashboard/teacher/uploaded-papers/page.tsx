@@ -1,36 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { DashboardShell } from "@/components/DashboardShell";
-import { teacherNavItems } from "@/lib/dashboard-nav";
-
-type Paper = {
-  id: string;
-  title: string;
-  category: string;
-  questionContent: string;
-  keyContent: string;
-  isAiGenerated?: boolean;
-  aiPromptVersion?: string | null;
-  questionPaperUrl?: string | null;
-  answerSheetUrl?: string | null;
-};
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { CardListSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { useTeacherQuestionPapersQuery } from "@/hooks/data/use-teacher-question-papers";
+import { dataKeys } from "@/hooks/data/keys";
 
 export default function TeacherUploadedPapersPage() {
-  const [papers, setPapers] = useState<Paper[]>([]);
+  useSetDashboardPage({
+    title: "Archived Question Papers",
+    subtitle: "Question papers and answer keys for exams you have already scheduled.",
+  });
+
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useTeacherQuestionPapersQuery(true);
+  const papers = data?.papers ?? [];
   const [openPaperIds, setOpenPaperIds] = useState<string[]>([]);
   const [deletingPaperId, setDeletingPaperId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const res = await fetch("/api/teacher/question-papers?scheduledOnly=true");
-    const j = await res.json();
-    if (j.papers) setPapers(j.papers);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   function toggleView(paperId: string) {
     setOpenPaperIds((prev) =>
@@ -52,20 +40,17 @@ export default function TeacherUploadedPapersPage() {
         setErr(j.error ?? "Could not delete paper");
         return;
       }
-      setPapers((prev) => prev.filter((p) => p.id !== paperId));
+      await queryClient.invalidateQueries({ queryKey: dataKeys.teacherQuestionPapersArchived });
       setOpenPaperIds((prev) => prev.filter((id) => id !== paperId));
     } finally {
       setDeletingPaperId(null);
     }
   }
 
+  if (isLoading && !data) return <CardListSkeleton count={3} />;
+
   return (
-    <DashboardShell
-      badge="Teacher"
-      title="Archived Question Papers"
-      subtitle="Question papers and answer keys for exams you have already scheduled."
-      navItems={teacherNavItems}
-    >
+    <>
       {err ? <p className="mb-3 text-sm text-red-600">{err}</p> : null}
       {papers.length === 0 ? (
         <p className="text-sm text-[var(--muted)]">
@@ -151,6 +136,6 @@ export default function TeacherUploadedPapersPage() {
           </li>
         ))}
       </ul>
-    </DashboardShell>
+    </>
   );
 }

@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { DashboardShell } from "@/components/DashboardShell";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { QuestionBankFilters, type FilterState } from "@/components/question-bank/QuestionBankFilters";
 import { QuestionBankPageList } from "@/components/question-bank/QuestionBankPageList";
 import { QuestionBankPagination } from "@/components/question-bank/QuestionBankPagination";
-import { SUBJECTS_BY_TRACK, teacherNavItems, type TeacherTrack } from "@/lib/dashboard-nav";
+import { SUBJECTS_BY_TRACK, type TeacherTrack } from "@/lib/dashboard-nav";
 import { parseQuestionBankCsvToObjects } from "@/lib/question-bank-csv";
 import { buildFullBankFilters, exportQuestionsFromServer } from "@/lib/questions/export-client";
 import type { QuestionBankFilters as QuestionBankQueryFilters } from "@/lib/questions/types";
@@ -19,6 +19,7 @@ import {
 } from "@/hooks/questions/use-question-bank-paged";
 import { hasActiveQuestionFilters, questionKeys } from "@/hooks/questions/keys";
 import { useQuestionBankFilteredTotal } from "@/hooks/questions/use-question-bank-total";
+import { useMeQuery } from "@/hooks/data/use-me";
 
 export default function TeacherSubjectQuestionBankPage() {
   const params = useParams<{ subject: string }>();
@@ -99,21 +100,15 @@ export default function TeacherSubjectQuestionBankPage() {
     listTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const loadMe = useCallback(async () => {
-    try {
-      const res = await fetch("/api/me");
-      const json = await res.json();
-      if (res.ok && (json.user?.category === "JEE" || json.user?.category === "NEET")) {
-        setTrack(json.user.category);
-      }
-    } finally {
-      setTrackLoaded(true);
-    }
-  }, []);
+  const { data: meData, isLoading: meLoading } = useMeQuery();
 
   useEffect(() => {
-    void loadMe();
-  }, [loadMe]);
+    if (meLoading) return;
+    if (meData?.user?.category === "JEE" || meData?.user?.category === "NEET") {
+      setTrack(meData.user.category);
+    }
+    setTrackLoaded(true);
+  }, [meData, meLoading]);
 
   const invalidateList = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: questionKeys.lists() });
@@ -230,13 +225,12 @@ export default function TeacherSubjectQuestionBankPage() {
     [runBulkImport]
   );
 
+  useSetDashboardPage({
+    title: `${subjectFromUrl || "Subject"} Question Bank`,
+    subtitle: "Browse questions 25 per page with filters and export.",
+  });
+
   return (
-    <DashboardShell
-      badge="Teacher"
-      title={`${subjectFromUrl || "Subject"} Question Bank`}
-      subtitle="Browse questions 25 per page with filters and export."
-      navItems={teacherNavItems}
-    >
       <div className="space-y-4">
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -375,6 +369,5 @@ export default function TeacherSubjectQuestionBankPage() {
           </>
         ) : null}
       </div>
-    </DashboardShell>
   );
 }

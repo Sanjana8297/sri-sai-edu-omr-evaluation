@@ -2,10 +2,10 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { DashboardShell } from "@/components/DashboardShell";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { useMeQuery } from "@/hooks/data/use-me";
 import { QuestionBankPagination } from "@/components/question-bank/QuestionBankPagination";
 import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
-import { teacherNavItems } from "@/lib/dashboard-nav";
 import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   buildDefaultAdvanceSubjects,
@@ -239,14 +239,12 @@ function TeacherManualBuilderPage() {
     });
   }, [bankItems, paperSlots]);
 
-  const loadMe = useCallback(async () => {
-    const u = await fetch("/api/me").then((r) => r.json());
-    if (u.user?.category) setTrack(u.user.category);
-  }, []);
+  const { data: meData } = useMeQuery();
 
   useEffect(() => {
-    void loadMe();
-  }, [loadMe]);
+    const category = meData?.user?.category;
+    if (category === "JEE" || category === "NEET") setTrack(category);
+  }, [meData]);
 
   useEffect(() => {
     if (track === "NEET") setSectionLayout("neet_abc");
@@ -722,16 +720,14 @@ function TeacherManualBuilderPage() {
 
   const fullPageSection = workflowStep >= 1;
 
+  useSetDashboardPage({
+    title: "Manual Question Paper Generator",
+    subtitle:
+      workflowStep === 1 ? "Select from question bank" : workflowStep === 2 ? "Paper composer" : undefined,
+    fullWidthContent: fullPageSection,
+  });
+
   return (
-    <DashboardShell
-      badge="Teacher"
-      title="Manual Question Paper Generator"
-      subtitle={
-        workflowStep === 1 ? "Select from question bank" : workflowStep === 2 ? "Paper composer" : undefined
-      }
-      navItems={teacherNavItems}
-      fullWidthContent={fullPageSection}
-    >
       <div
         className={
           fullPageSection
@@ -1426,7 +1422,6 @@ function TeacherManualBuilderPage() {
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="mt-2 text-sm text-green-700">{msg}</p> : null}
       </div>
-    </DashboardShell>
   );
 }
 

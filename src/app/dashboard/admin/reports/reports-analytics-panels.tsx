@@ -1,10 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
 import type { TeacherTrack } from "@/lib/dashboard-nav";
 import { SUBJECTS_BY_TRACK } from "@/lib/dashboard-nav";
 import type { SubjectScoresPayload } from "@/lib/subject-score-breakdown";
+import { useReportsOverviewQuery } from "@/hooks/data/use-admin-queries";
+import { fetchSubjectScores } from "@/lib/data/fetchers";
+import { RankListTable } from "@/components/reports/RankListTable";
+import type { RankListRowData } from "@/components/reports/RankListRow";
 
 export type AttemptRow = {
   id: string;
@@ -19,17 +24,9 @@ export type AttemptRow = {
   percentage: number;
 };
 
-export type RankListRow = {
-  studentId: string;
-  name: string;
-  category: string;
-  avgPct: number;
-  rank: number;
-  latestExamTitle: string;
-  latestExamScore: string;
-};
+export type RankListRow = RankListRowData;
 
-export function buildRankListFromPerformance(performance: AttemptRow[]): RankListRow[] {
+export function buildRankListFromPerformance(performance: AttemptRow[]): RankListRowData[] {
   if (performance.length === 0) return [];
 
   const byStudent = new Map<
@@ -126,49 +123,28 @@ function downloadCsv(filename: string, rows: string[][]) {
 
 const ALL_STUDENTS_SUBJECT_VALUE = "__all__";
 
-export function useReportsOverview(overviewPath: string) {
-  const [data, setData] = useState<OverviewData | null>(null);
-  const [loading, setLoading] = useState(true);
+export function useReportsOverview(
+  overviewPath: string,
+  initialData?: Awaited<ReturnType<typeof import("@/lib/data/fetchers").fetchReportsOverview>>
+) {
+  const q = useReportsOverviewQuery(overviewPath, initialData);
+  return { data: q.data ?? null, loading: q.isLoading, reload: () => void q.refetch() };
+}
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const res = await fetch(overviewPath);
-    const json = await res.json();
-    if (json.counts) setData(json as OverviewData);
-    setLoading(false);
-  }, [overviewPath]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  return { data, loading, reload: load };
+export function useSubjectScoresApi(subjectScoresPath: string) {
+  const q = useQuery({
+    queryKey: ["subject-scores", subjectScoresPath] as const,
+    queryFn: () => fetchSubjectScores(subjectScoresPath),
+    staleTime: 5 * 60_000,
+  });
+  return {
+    subjectScores: q.data?.byStudent ? q.data : null,
+    subjectScoresLoading: q.isLoading,
+  };
 }
 
 export function useAdminOverview() {
   return useReportsOverview("/api/admin/overview");
-}
-
-export function useSubjectScoresApi(subjectScoresPath: string) {
-  const [subjectScores, setSubjectScores] = useState<SubjectScoresPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(subjectScoresPath);
-      const json = await res.json();
-      if (json.byStudent) setSubjectScores(json as SubjectScoresPayload);
-    } finally {
-      setLoading(false);
-    }
-  }, [subjectScoresPath]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  return { subjectScores, subjectScoresLoading: loading };
 }
 
 function useSubjectScores() {
@@ -187,8 +163,14 @@ function NoExamDataNote() {
   );
 }
 
-export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
-  const { data, loading } = useReportsOverview("/api/admin/overview");
+export function ResultScoreReportsPanel({
+  resetKey,
+  initialOverview,
+}: {
+  resetKey?: string;
+  initialOverview?: Awaited<ReturnType<typeof import("@/lib/data/fetchers").fetchReportsOverview>>;
+}) {
+  const { data, loading } = useReportsOverview("/api/admin/overview", initialOverview);
   const { subjectScores, subjectScoresLoading } = useSubjectScoresApi("/api/admin/reports/subject-scores");
   const [reportStudentId, setReportStudentId] = useState("");
   const [subjectStudentId, setSubjectStudentId] = useState("");
@@ -308,34 +290,7 @@ export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
                       </button>
                     ))}
                   </div>
-                  <div className="max-h-64 overflow-y-auto rounded-lg border border-[var(--border)]">
-                    <table className="min-w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-[var(--card)] text-[var(--muted)]">
-                        <tr>
-                          <th className="px-3 py-2">Rank</th>
-                          <th className="px-3 py-2">Student</th>
-                          <th className="px-3 py-2">Avg %</th>
-                          <th className="px-3 py-2">Latest Exam Score</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredRanks.map((r) => (
-                          <tr key={r.studentId} className="border-t border-[var(--border)]">
-                            <td className="px-3 py-2 font-medium">#{r.rank}</td>
-                            <td className="px-3 py-2">
-                              {r.name}
-                              <span className="ml-1 text-xs text-[var(--muted)]">({r.category})</span>
-                            </td>
-                            <td className="px-3 py-2">{r.avgPct}%</td>
-                            <td className="px-3 py-2">
-                              {r.latestExamScore}
-                              <span className="mt-0.5 block text-xs text-[var(--muted)]">{r.latestExamTitle}</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <RankListTable rows={filteredRanks} />
                 </>
               );
             case "subject":

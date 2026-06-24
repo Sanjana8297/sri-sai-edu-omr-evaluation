@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DashboardShell } from "@/components/DashboardShell";
-import { adminNavItems } from "@/lib/dashboard-nav";
+import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { readAuditTrail, type AuditEntry } from "@/lib/admin-staff-storage";
 
 function formatActionLabel(action: string): string {
@@ -54,6 +53,12 @@ function AuditEntryCard({ entry }: { entry: AuditEntry }) {
 }
 
 export default function AdminAuditTrailPage() {
+  useSetDashboardPage({
+    title: "Activity / audit trail",
+    subtitle: "Recent admin actions recorded in this browser",
+    fullWidthContent: true,
+  });
+
   const [entries, setEntries] = useState<AuditEntry[]>([]);
 
   useEffect(() => {
@@ -61,13 +66,7 @@ export default function AdminAuditTrailPage() {
   }, []);
 
   return (
-    <DashboardShell
-      badge="Administrator"
-      title="Activity / audit trail"
-      subtitle="Recent admin actions recorded in this browser"
-      navItems={adminNavItems}
-      fullWidthContent
-    >
+    <>
       {entries.length === 0 ? (
         <p className="text-sm text-[var(--muted)]">
           No audit entries yet. Actions such as creating staff, updating permissions, or resetting credentials
@@ -80,6 +79,6 @@ export default function AdminAuditTrailPage() {
           ))}
         </ul>
       )}
-    </DashboardShell>
+    </>
   );
 }
