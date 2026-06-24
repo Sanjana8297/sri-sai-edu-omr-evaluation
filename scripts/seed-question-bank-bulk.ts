@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
+import { tableForSubject } from "./lib/question-bank-subject";
 
 type JeeSubject = "Maths" | "Physics" | "Chemistry";
 type NeetSubject = "Physics" | "Chemistry" | "Botany" | "Zoology";
@@ -276,30 +277,7 @@ function buildQuestion(subject: Subject, kind: QuestionKind, serial: number): Se
 }
 
 async function ensureTable(): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS question_bank (
-      id BIGSERIAL PRIMARY KEY,
-      exam TEXT NOT NULL,
-      subject TEXT NOT NULL,
-      year INTEGER NULL,
-      question_text TEXT NOT NULL,
-      options JSONB NULL,
-      correct_answer TEXT NULL,
-      source_name TEXT NOT NULL,
-      source_url TEXT NOT NULL,
-      chapter TEXT NULL,
-      difficulty TEXT NULL,
-      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
-      content_hash TEXT NOT NULL UNIQUE,
-      repetition_count INTEGER NOT NULL DEFAULT 1,
-      is_repeated BOOLEAN NOT NULL DEFAULT FALSE,
-      is_important BOOLEAN NOT NULL DEFAULT FALSE,
-      exam_type TEXT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-  await prisma.$executeRawUnsafe(`ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS exam_type TEXT NULL;`);
+  /* Subject tables are created by prisma/migrations/20260624120000_question_bank_subject_tables */
 }
 
 async function countByKind(exam: "JEE" | "NEET", subject: Subject): Promise<Record<QuestionKind, number>> {
@@ -318,7 +296,7 @@ async function countByKind(exam: "JEE" | "NEET", subject: Subject): Promise<Reco
         ELSE 'mains_mcq'
       END AS kind,
       COUNT(*)::int AS cnt
-    FROM question_bank
+    FROM ${tableForSubject(subject)}
     WHERE exam = $1 AND subject = $2
     GROUP BY 1
     `,
@@ -368,9 +346,10 @@ async function insertBatch(rows: SeedRow[]): Promise<number> {
     );
   });
 
+  const table = tableForSubject(rows[0].subject);
   const result = await prisma.$executeRawUnsafe(
     `
-    INSERT INTO question_bank (
+    INSERT INTO ${table} (
       exam, exam_type, subject, year, chapter, difficulty, question_text, options, correct_answer,
       source_name, source_url, tags, content_hash, repetition_count, is_repeated, is_important, updated_at
     )
@@ -427,7 +406,7 @@ async function seedSubject(
   }
 
   const finalCount = await prisma.$queryRawUnsafe<Array<{ cnt: number }>>(
-    `SELECT COUNT(*)::int AS cnt FROM question_bank WHERE exam = $1 AND subject = $2`,
+    `SELECT COUNT(*)::int AS cnt FROM ${tableForSubject(subject)} WHERE exam = $1 AND subject = $2`,
     exam,
     subject
   );
@@ -499,7 +478,11 @@ async function main(): Promise<void> {
           ELSE 'advanced_mcq_single'
         END AS kind,
         COUNT(*)::int AS cnt
-      FROM question_bank
+      FROM (
+        SELECT exam, subject, tags, exam_type FROM physics
+        UNION ALL SELECT exam, subject, tags, exam_type FROM chemistry
+        UNION ALL SELECT exam, subject, tags, exam_type FROM maths
+      ) qb
       WHERE exam = 'JEE' AND exam_type = 'advanced'
       GROUP BY subject, kind
       ORDER BY subject, kind
@@ -532,7 +515,13 @@ async function main(): Promise<void> {
   >(
     `
     SELECT exam, subject, exam_type, COUNT(*)::int AS cnt
-    FROM question_bank
+    FROM (
+      SELECT exam, subject, exam_type FROM physics
+      UNION ALL SELECT exam, subject, exam_type FROM chemistry
+      UNION ALL SELECT exam, subject, exam_type FROM maths
+      UNION ALL SELECT exam, subject, exam_type FROM zoology
+      UNION ALL SELECT exam, subject, exam_type FROM botany
+    ) qb
     GROUP BY exam, subject, exam_type
     ORDER BY exam, subject, exam_type NULLS LAST
     `

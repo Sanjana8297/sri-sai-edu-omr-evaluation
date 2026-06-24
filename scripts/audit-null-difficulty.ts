@@ -1,9 +1,14 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { unionAllSubjectsSql } from "./lib/question-bank-subject";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  const fromUnion = `FROM (${unionAllSubjectsSql(
+    "subject, exam_type, difficulty, id, chapter, tags, question_text"
+  )}) qb`;
+
   const rows = await prisma.$queryRawUnsafe<
     Array<{ subject: string; exam_type: string | null; total: number; null_difficulty: number }>
   >(
@@ -13,7 +18,7 @@ async function main() {
         exam_type,
         COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE difficulty IS NULL)::int AS null_difficulty
-      FROM question_bank
+      ${fromUnion}
       GROUP BY subject, exam_type
       ORDER BY subject, exam_type
     `
@@ -30,7 +35,7 @@ async function main() {
         chapter,
         tags::text AS tags,
         LEFT(question_text, 220) AS question_text
-      FROM question_bank
+      ${fromUnion}
       WHERE difficulty IS NULL
       ORDER BY id DESC
       LIMIT 12
@@ -40,7 +45,7 @@ async function main() {
   const byDifficulty = await prisma.$queryRawUnsafe<Array<{ difficulty: string | null; cnt: number }>>(
     `
       SELECT difficulty, COUNT(*)::int AS cnt
-      FROM question_bank
+      ${fromUnion}
       GROUP BY difficulty
       ORDER BY cnt DESC
     `
@@ -51,7 +56,7 @@ async function main() {
   >(
     `
       SELECT id::int, subject, exam_type, difficulty, LEFT(question_text, 220) AS question_text
-      FROM question_bank
+      ${fromUnion}
       WHERE difficulty IS NULL
          OR TRIM(COALESCE(difficulty, '')) = ''
          OR LOWER(TRIM(difficulty)) NOT IN ('easy', 'medium', 'hard')

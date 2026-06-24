@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { contentHashLookupKeys, hashText, sqlContentHashInClause } from "@/lib/question-bank-content-hash";
+import { insertQuestionBankRow } from "@/lib/question-bank-insert";
+import { sqlHashLookupFrom } from "@/lib/question-bank-table";
 
 export type FlexibleTeacherQuestionInput = {
   subject: string;
@@ -64,10 +66,11 @@ export async function insertFlexibleTeacherQuestionRow(
   const scopedHash = `${subject}:${contentHash}`;
   const exam = examCategory === "JEE" ? "JEE" : "NEET";
   const hashKeys = contentHashLookupKeys(exam, subject, questionText);
+  const fromClause = sqlHashLookupFrom(subject);
 
   const preexisting = await prisma.$queryRaw<Array<{ id: number }>>(
     Prisma.sql`
-      SELECT id::int AS id FROM question_bank
+      SELECT id::int AS id ${fromClause}
       WHERE exam = ${examCategory} AND ${sqlContentHashInClause(hashKeys)}
       ORDER BY id DESC
       LIMIT 1
@@ -77,39 +80,36 @@ export async function insertFlexibleTeacherQuestionRow(
     return { ok: true, id: preexisting[0].id, alreadyExisted: true };
   }
 
-  const inserted = await prisma.$queryRaw<Array<{ id: number }>>(
-    Prisma.sql`
-      INSERT INTO question_bank (
-        exam, subject, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
-        content_hash, repetition_count, is_repeated, is_important, updated_at
-      )
-      VALUES (
-        ${examCategory}, ${subject}, ${year}, ${chapter}, ${difficulty ?? null}, ${questionText},
-        ${JSON.stringify(options)}::jsonb,
-        ${correctAnswer},
-        ${sourceName}, ${sourceUrl}, ${JSON.stringify(tags)}::jsonb,
-        ${scopedHash}, 1, false, true, NOW()
-      )
-      ON CONFLICT (content_hash) DO NOTHING
-      RETURNING id::int AS id
-    `
-  );
+  const { id, inserted } = await insertQuestionBankRow(prisma, {
+    exam: examCategory,
+    subject,
+    year,
+    chapter,
+    difficulty: difficulty ?? null,
+    questionText,
+    optionsJson: JSON.stringify(options),
+    correctAnswer,
+    sourceName,
+    sourceUrl,
+    tagsJson: JSON.stringify(tags),
+    contentHash: scopedHash,
+  });
 
-  if (inserted.length === 0) {
-    const existing = await prisma.$queryRaw<Array<{ id: number }>>(
-      Prisma.sql`
-        SELECT id::int AS id FROM question_bank
-        WHERE exam = ${examCategory} AND ${sqlContentHashInClause(hashKeys)}
-        ORDER BY id DESC
-        LIMIT 1
-      `
-    );
-    const existingId = existing[0]?.id;
-    if (existingId == null) {
-      return { ok: false, error: "Could not save or locate this question in the bank", status: 500 };
-    }
-    return { ok: true, id: existingId, alreadyExisted: true };
+  if (inserted && id != null) {
+    return { ok: true, id, alreadyExisted: false };
   }
 
-  return { ok: true, id: inserted[0].id, alreadyExisted: false };
+  const existing = await prisma.$queryRaw<Array<{ id: number }>>(
+    Prisma.sql`
+      SELECT id::int AS id ${fromClause}
+      WHERE exam = ${examCategory} AND ${sqlContentHashInClause(hashKeys)}
+      ORDER BY id DESC
+      LIMIT 1
+    `
+  );
+  const existingId = existing[0]?.id;
+  if (existingId == null) {
+    return { ok: false, error: "Could not save or locate this question in the bank", status: 500 };
+  }
+  return { ok: true, id: existingId, alreadyExisted: true };
 }

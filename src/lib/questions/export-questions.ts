@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeQuestionBankRowForApi } from "@/lib/question-bank-display";
+import { sqlQuestionBankFrom } from "@/lib/question-bank-table";
 import {
   buildFilteredQuestionBankExportCsv,
   type QuestionBankExportRow,
@@ -33,12 +34,13 @@ async function fetchExportBatch(
   offset: number
 ): Promise<FullRowDb[]> {
   const whereClause = buildQuestionBankWhereClause(filters);
+  const fromClause = sqlQuestionBankFrom(filters.exam, filters.subject);
   return prisma.$queryRaw<FullRowDb[]>(
     Prisma.sql`
       SELECT
         id::int AS id, exam, subject, year, chapter, question_text, options, correct_answer,
         source_name, source_url, difficulty, tags, repetition_count, is_repeated, is_important
-      FROM question_bank
+      ${fromClause}
       ${whereClause}
       ${QUESTION_BANK_ORDER_BY}
       LIMIT ${EXPORT_BATCH}

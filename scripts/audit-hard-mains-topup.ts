@@ -7,7 +7,11 @@ async function main() {
   const rows = await prisma.$queryRawUnsafe<Array<{ subject: string; cnt: number }>>(
     `
       SELECT subject, COUNT(*)::int AS cnt
-      FROM question_bank
+      FROM (
+        SELECT subject, exam, exam_type, difficulty, source_name FROM maths
+        UNION ALL SELECT subject, exam, exam_type, difficulty, source_name FROM physics
+        UNION ALL SELECT subject, exam, exam_type, difficulty, source_name FROM chemistry
+      ) qb
       WHERE exam = 'JEE'
         AND exam_type = 'mains'
         AND difficulty = 'hard'

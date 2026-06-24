@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PrismaClient } from "@prisma/client";
+import { tableForSubject } from "./lib/question-bank-subject";
 
 type Subject = "Maths" | "Physics" | "Chemistry" | "Botany" | "Zoology";
 type JeeMainSubject = "Maths" | "Physics" | "Chemistry";
@@ -280,31 +281,7 @@ function inferDifficulty(text: string): "easy" | "medium" | "hard" {
 }
 
 async function ensureTable(): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS question_bank (
-      id BIGSERIAL PRIMARY KEY,
-      exam TEXT NOT NULL,
-      subject TEXT NOT NULL,
-      year INTEGER NULL,
-      question_text TEXT NOT NULL,
-      options JSONB NULL,
-      correct_answer TEXT NULL,
-      source_name TEXT NOT NULL,
-      source_url TEXT NOT NULL,
-      chapter TEXT NULL,
-      difficulty TEXT NULL,
-      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
-      content_hash TEXT NOT NULL UNIQUE,
-      repetition_count INTEGER NOT NULL DEFAULT 1,
-      is_repeated BOOLEAN NOT NULL DEFAULT FALSE,
-      is_important BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-  await prisma.$executeRawUnsafe(`ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS chapter TEXT NULL;`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS difficulty TEXT NULL;`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS exam_type TEXT NULL;`);
+  /* Subject tables: prisma/migrations/20260624120000_question_bank_subject_tables */
 }
 
 function getOpenAiApiKey(): string {
@@ -409,10 +386,12 @@ async function main(): Promise<void> {
   }
 
   await ensureTable();
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM question_bank WHERE subject = ANY($1::text[])`,
-    desiredSubjects
-  );
+  for (const subject of desiredSubjects) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM ${tableForSubject(subject)} WHERE subject = $1`,
+      subject
+    );
+  }
 
   let inserted = 0;
   for (const subject of desiredSubjects) {
@@ -428,10 +407,11 @@ async function main(): Promise<void> {
     const year = base.year ?? extractYear(base.question_text);
     const chapter = extractChapter(base.subject, base.question_text, base.chapter);
     const difficulty = base.difficulty ?? inferDifficulty(base.question_text);
+    const table = tableForSubject(base.subject);
 
     await prisma.$executeRawUnsafe(
       `
-      INSERT INTO question_bank (
+      INSERT INTO ${table} (
         exam, subject, exam_type, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
         content_hash, repetition_count, is_repeated, is_important, updated_at
       )
@@ -440,9 +420,9 @@ async function main(): Promise<void> {
       )
       ON CONFLICT (content_hash)
       DO UPDATE SET
-        exam_type = COALESCE(EXCLUDED.exam_type, question_bank.exam_type),
-        chapter = COALESCE(EXCLUDED.chapter, question_bank.chapter),
-        difficulty = COALESCE(EXCLUDED.difficulty, question_bank.difficulty),
+        exam_type = COALESCE(EXCLUDED.exam_type, ${table}.exam_type),
+        chapter = COALESCE(EXCLUDED.chapter, ${table}.chapter),
+        difficulty = COALESCE(EXCLUDED.difficulty, ${table}.difficulty),
         repetition_count = EXCLUDED.repetition_count,
         is_repeated = EXCLUDED.is_repeated,
         is_important = EXCLUDED.is_important,
@@ -485,8 +465,9 @@ async function main(): Promise<void> {
   };
 
   for (const subject of desiredSubjects) {
+    const table = tableForSubject(subject);
     const rows = await prisma.$queryRawUnsafe<Array<{ content_hash: string }>>(
-      `SELECT content_hash FROM question_bank WHERE subject = $1`,
+      `SELECT content_hash FROM ${table} WHERE subject = $1`,
       subject
     );
     const existingHashes = new Set(rows.map((r) => r.content_hash));
@@ -500,7 +481,7 @@ async function main(): Promise<void> {
 
       await prisma.$executeRawUnsafe(
         `
-        INSERT INTO question_bank (
+        INSERT INTO ${table} (
           exam, subject, exam_type, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
           content_hash, repetition_count, is_repeated, is_important, updated_at
         )
@@ -530,9 +511,10 @@ async function main(): Promise<void> {
   }
 
   for (const subject of desiredSubjects) {
+    const table = tableForSubject(subject);
     await prisma.$executeRawUnsafe(
       `
-      DELETE FROM question_bank
+      DELETE FROM ${table}
       WHERE id IN (
         SELECT id FROM (
           SELECT
@@ -541,7 +523,7 @@ async function main(): Promise<void> {
               PARTITION BY subject
               ORDER BY is_important DESC, repetition_count DESC, id DESC
             ) AS rn
-          FROM question_bank
+          FROM ${table}
           WHERE subject = $1
         ) ranked
         WHERE rn > $2
@@ -552,8 +534,10 @@ async function main(): Promise<void> {
     );
   }
 
-  await prisma.$executeRawUnsafe(`
-    UPDATE question_bank
+  for (const subject of desiredSubjects) {
+    const table = tableForSubject(subject);
+    await prisma.$executeRawUnsafe(`
+    UPDATE ${table}
     SET exam_type = CASE
       WHEN exam <> 'JEE' THEN NULL
       WHEN lower(coalesce(question_text, '')) LIKE '%advanced%'
@@ -568,9 +552,16 @@ async function main(): Promise<void> {
     END
     WHERE subject IN ('Maths', 'Physics', 'Chemistry');
   `);
+  }
 
   const summary = await prisma.$queryRawUnsafe<Array<{ subject: string; cnt: number }>>(
-    `SELECT subject, COUNT(*)::int AS cnt FROM question_bank GROUP BY subject ORDER BY subject;`
+    `SELECT subject, COUNT(*)::int AS cnt FROM (
+      SELECT subject FROM physics
+      UNION ALL SELECT subject FROM chemistry
+      UNION ALL SELECT subject FROM maths
+      UNION ALL SELECT subject FROM zoology
+      UNION ALL SELECT subject FROM botany
+    ) qb GROUP BY subject ORDER BY subject;`
   );
 
   console.log(`Imported/updated ${inserted} unique subject-scoped questions.`);

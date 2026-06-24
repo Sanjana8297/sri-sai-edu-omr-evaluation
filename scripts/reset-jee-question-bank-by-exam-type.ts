@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PrismaClient } from "@prisma/client";
+import { tableForSubject } from "./lib/question-bank-subject";
 import { parse } from "csv-parse/sync";
 import { coerceQuestionOptionsFromDb } from "../src/lib/question-bank-display";
 
@@ -221,30 +222,7 @@ async function fetchJeeAdvancedRows(): Promise<QuestionRow[]> {
 }
 
 async function ensureTableShape(): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS question_bank (
-      id BIGSERIAL PRIMARY KEY,
-      exam TEXT NOT NULL,
-      subject TEXT NOT NULL,
-      year INTEGER NULL,
-      chapter TEXT NULL,
-      difficulty TEXT NULL,
-      question_text TEXT NOT NULL,
-      options JSONB NULL,
-      correct_answer TEXT NULL,
-      source_name TEXT NOT NULL,
-      source_url TEXT NOT NULL,
-      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
-      content_hash TEXT NOT NULL UNIQUE,
-      repetition_count INTEGER NOT NULL DEFAULT 1,
-      is_repeated BOOLEAN NOT NULL DEFAULT FALSE,
-      is_important BOOLEAN NOT NULL DEFAULT FALSE,
-      exam_type TEXT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
-  await prisma.$executeRawUnsafe(`ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS exam_type TEXT NULL;`);
+  /* Subject tables: prisma/migrations/20260624120000_question_bank_subject_tables */
 }
 
 async function main() {
@@ -281,10 +259,12 @@ async function main() {
   }
 
   await ensureTableShape();
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM question_bank WHERE exam = 'JEE' AND subject = ANY($1::text[])`,
-    ["Maths", "Physics", "Chemistry"]
-  );
+  for (const subject of ["Maths", "Physics", "Chemistry"] as const) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM ${tableForSubject(subject)} WHERE exam = 'JEE' AND subject = $1`,
+      subject
+    );
+  }
 
   let inserted = 0;
   for (const [key, value] of grouped.entries()) {
@@ -292,9 +272,10 @@ async function main() {
     const isRepeated = count >= 2;
     const isImportant = true;
 
+    const table = tableForSubject(base.subject);
     await prisma.$executeRawUnsafe(
       `
-      INSERT INTO question_bank (
+      INSERT INTO ${table} (
         exam, exam_type, subject, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
         content_hash, repetition_count, is_repeated, is_important, updated_at
       )
@@ -306,8 +287,8 @@ async function main() {
         exam_type = EXCLUDED.exam_type,
         subject = EXCLUDED.subject,
         year = EXCLUDED.year,
-        chapter = COALESCE(EXCLUDED.chapter, question_bank.chapter),
-        difficulty = COALESCE(EXCLUDED.difficulty, question_bank.difficulty),
+        chapter = COALESCE(EXCLUDED.chapter, ${table}.chapter),
+        difficulty = COALESCE(EXCLUDED.difficulty, ${table}.difficulty),
         question_text = EXCLUDED.question_text,
         options = EXCLUDED.options,
         correct_answer = EXCLUDED.correct_answer,
@@ -345,7 +326,11 @@ async function main() {
   const summary = await prisma.$queryRawUnsafe<Array<{ subject: string; exam_type: string | null; cnt: number }>>(
     `
       SELECT subject, exam_type, COUNT(*)::int AS cnt
-      FROM question_bank
+      FROM (
+        SELECT subject, exam_type, exam FROM maths
+        UNION ALL SELECT subject, exam_type, exam FROM physics
+        UNION ALL SELECT subject, exam_type, exam FROM chemistry
+      ) qb
       WHERE exam = 'JEE' AND subject IN ('Maths', 'Physics', 'Chemistry')
       GROUP BY subject, exam_type
       ORDER BY subject, exam_type

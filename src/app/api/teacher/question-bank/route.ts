@@ -4,6 +4,8 @@ import { requireRoles } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeQuestionBankRowForApi } from "@/lib/question-bank-display";
 import { contentHashLookupKeys, hashText, sqlContentHashInClause } from "@/lib/question-bank-content-hash";
+import { insertQuestionBankRow } from "@/lib/question-bank-insert";
+import { sqlHashLookupFrom } from "@/lib/question-bank-table";
 import { insertFlexibleTeacherQuestionRow } from "@/lib/teacher-question-bank-flexible-insert";
 import { listQuestions } from "@/lib/questions/list-questions";
 import { parseFiltersFromSearchParams } from "@/lib/questions/parse-filters";
@@ -43,6 +45,7 @@ export async function GET(request: Request) {
       matchSubject,
       matchText
     );
+    const fromClause = sqlHashLookupFrom(matchSubject);
     const matchRows = await prisma.$queryRaw<
       Array<{
         id: number;
@@ -66,7 +69,7 @@ export async function GET(request: Request) {
         SELECT
           id::int AS id, exam, subject, year, chapter, question_text, options, correct_answer, source_name, source_url, difficulty,
           tags, repetition_count, is_repeated, is_important
-        FROM question_bank
+        ${fromClause}
         WHERE exam = ${me.category} AND ${sqlContentHashInClause(hashKeys)}
         ORDER BY id DESC
         LIMIT 1
@@ -216,26 +219,24 @@ export async function POST(request: Request) {
   const contentHash = hashText(questionText);
   const scopedHash = `${subject}:${contentHash}`;
 
-  const inserted = await prisma.$queryRaw<Array<{ id: number }>>(
-    Prisma.sql`
-      INSERT INTO question_bank (
-        exam, subject, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
-        content_hash, repetition_count, is_repeated, is_important, updated_at
-      )
-      VALUES (
-        ${me.category}, ${subject}, ${year}, ${chapter}, ${difficulty ?? null}, ${questionText}, ${JSON.stringify(
-      options
-    )}::jsonb, ${correctAnswer}, ${sourceName}, ${sourceUrl}, ${JSON.stringify(tags)}::jsonb,
-        ${scopedHash}, 1, false, true, NOW()
-      )
-      ON CONFLICT (content_hash) DO NOTHING
-      RETURNING id::int AS id
-    `
-  );
+  const { id: insertedId, inserted } = await insertQuestionBankRow(prisma, {
+    exam: me.category,
+    subject,
+    year,
+    chapter,
+    difficulty: difficulty ?? null,
+    questionText,
+    optionsJson: JSON.stringify(options),
+    correctAnswer,
+    sourceName,
+    sourceUrl,
+    tagsJson: JSON.stringify(tags),
+    contentHash: scopedHash,
+  });
 
-  if (inserted.length === 0) {
+  if (!inserted || insertedId == null) {
     return NextResponse.json({ error: "Duplicate question already exists" }, { status: 409 });
   }
 
-  return NextResponse.json({ id: inserted[0].id, ok: true });
+  return NextResponse.json({ id: insertedId, ok: true });
 }

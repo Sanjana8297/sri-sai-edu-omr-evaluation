@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { tableForSubject, unionAllSubjectsSql } from "./lib/question-bank-subject";
 
 type Difficulty = "easy" | "medium" | "hard";
 
@@ -29,19 +30,15 @@ function scoreComplexity(row: QuestionRow): number {
 
   let score = 0;
 
-  // Explicit exam pattern signal
   if (examType === "advanced") score += 2;
-
-  // Question structure / format signals
-  if (row.options_count === 0) score += 1; // integer/numerical style often no options
-  if (answer.length > 1 && /^[a-d]+$/i.test(answer)) score += 2; // multiple-correct
+  if (row.options_count === 0) score += 1;
+  if (answer.length > 1 && /^[a-d]+$/i.test(answer)) score += 2;
   if (tags.includes("mcq(multiple)") || tags.includes("multiple")) score += 2;
   if (tags.includes("integer") || question.includes("integer")) score += 2;
   if (tags.includes("matrix") || question.includes("matrix match")) score += 2;
   if (question.includes("assertion") && question.includes("reason")) score += 2;
   if (question.includes("comprehension") || question.includes("paragraph")) score += 1;
 
-  // Conceptual / computational complexity markers (not based on length)
   const complexPhrases = [
     "prove",
     "derive",
@@ -65,7 +62,6 @@ function scoreComplexity(row: QuestionRow): number {
   if (hits >= 2) score += 1;
   if (hits >= 4) score += 1;
 
-  // Symbol density as complexity proxy (formula-heavy reasoning), independent of length
   const symbolHits =
     (question.match(/\\frac|\\sqrt|\\int|\\sum|\\lim|\\log|\\sin|\\cos|\\tan|\\vec|\\alpha|\\beta|\\gamma/g) ?? [])
       .length;
@@ -82,6 +78,10 @@ function difficultyFromScore(score: number): Difficulty {
 }
 
 async function main() {
+  const fromUnion = `FROM (${unionAllSubjectsSql(
+    "id, subject, exam_type, chapter, tags, question_text, options, correct_answer"
+  )}) qb`;
+
   const rows = await prisma.$queryRawUnsafe<QuestionRow[]>(
     `
       SELECT
@@ -96,7 +96,7 @@ async function main() {
           ELSE 0
         END::int AS options_count,
         correct_answer
-      FROM question_bank
+      ${fromUnion}
       WHERE subject IN ('Maths', 'Physics', 'Chemistry', 'Botany', 'Zoology')
     `
   );
@@ -104,7 +104,8 @@ async function main() {
   let updated = 0;
   for (const row of rows) {
     const difficulty = difficultyFromScore(scoreComplexity(row));
-    await prisma.$executeRawUnsafe(`UPDATE question_bank SET difficulty = $1 WHERE id = $2`, difficulty, row.id);
+    const table = tableForSubject(row.subject);
+    await prisma.$executeRawUnsafe(`UPDATE ${table} SET difficulty = $1 WHERE id = $2`, difficulty, row.id);
     updated += 1;
   }
 
@@ -113,7 +114,7 @@ async function main() {
   >(
     `
       SELECT subject, exam_type, difficulty, COUNT(*)::int AS cnt
-      FROM question_bank
+      FROM (${unionAllSubjectsSql("subject, exam_type, difficulty")}) qb
       GROUP BY subject, exam_type, difficulty
       ORDER BY subject, exam_type, difficulty
     `

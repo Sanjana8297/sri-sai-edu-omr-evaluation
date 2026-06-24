@@ -1,12 +1,14 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeQuestionBankRowForApi } from "@/lib/question-bank-display";
+import { sqlQuestionBankFromForIdLookup } from "@/lib/question-bank-table";
 import type { QuestionDetail } from "./types";
 
 export async function getQuestionById(
   id: number,
   exam: string
 ): Promise<QuestionDetail | null> {
+  const fromClause = sqlQuestionBankFromForIdLookup(exam);
   const rows = await prisma.$queryRaw<
     Array<{
       id: number;
@@ -30,7 +32,7 @@ export async function getQuestionById(
       SELECT
         id::int AS id, exam, subject, year, chapter, question_text, options, correct_answer,
         source_name, source_url, difficulty, tags, repetition_count, is_repeated, is_important
-      FROM question_bank
+      ${fromClause}
       WHERE id = ${id} AND exam = ${exam}
       LIMIT 1
     `

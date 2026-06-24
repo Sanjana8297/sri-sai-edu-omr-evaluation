@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeQuestionBankRowForApi } from "@/lib/question-bank-display";
+import { sqlQuestionBankFrom } from "@/lib/question-bank-table";
 import { buildQuestionBankWhereClause, QUESTION_BANK_ORDER_BY } from "./build-where";
 import type { ListQuestionsInput, ListQuestionsResult, QuestionDetail, QuestionListItem } from "./types";
 
@@ -64,6 +65,7 @@ export async function listQuestions(input: ListQuestionsInput): Promise<ListQues
   const limit = clampLimit(input.limit);
   const offset = Math.max(input.offset ?? 0, 0);
   const whereClause = buildQuestionBankWhereClause(input);
+  const fromClause = sqlQuestionBankFrom(input.exam, input.subject);
 
   if (input.fullRows) {
     const rows = await prisma.$queryRaw<FullRowDb[]>(
@@ -71,7 +73,7 @@ export async function listQuestions(input: ListQuestionsInput): Promise<ListQues
         SELECT
           id::int AS id, exam, subject, year, chapter, question_text, options, correct_answer,
           source_name, source_url, difficulty, tags, repetition_count, is_repeated, is_important
-        FROM question_bank
+        ${fromClause}
         ${whereClause}
         ${QUESTION_BANK_ORDER_BY}
         LIMIT ${limit}
@@ -82,7 +84,7 @@ export async function listQuestions(input: ListQuestionsInput): Promise<ListQues
     let total: number | null = null;
     if (input.includeTotal) {
       const [{ count }] = await prisma.$queryRaw<Array<{ count: bigint }>>(
-        Prisma.sql`SELECT COUNT(*)::bigint AS count FROM question_bank ${whereClause}`
+        Prisma.sql`SELECT COUNT(*)::bigint AS count ${fromClause} ${whereClause}`
       );
       total = Number(count);
     }
@@ -115,7 +117,7 @@ export async function listQuestions(input: ListQuestionsInput): Promise<ListQues
         is_important,
         is_repeated,
         repetition_count
-      FROM question_bank
+      ${fromClause}
       ${whereClause}
       ${QUESTION_BANK_ORDER_BY}
       LIMIT ${limit}
@@ -126,7 +128,7 @@ export async function listQuestions(input: ListQuestionsInput): Promise<ListQues
   let total: number | null = null;
   if (input.includeTotal) {
     const [{ count }] = await prisma.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*)::bigint AS count FROM question_bank ${whereClause}`
+      Prisma.sql`SELECT COUNT(*)::bigint AS count ${fromClause} ${whereClause}`
     );
     total = Number(count);
   }

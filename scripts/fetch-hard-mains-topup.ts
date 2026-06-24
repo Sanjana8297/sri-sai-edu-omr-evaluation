@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
+import { tableForSubject } from "./lib/question-bank-subject";
 
 type Subject = "Maths" | "Physics" | "Chemistry";
 type GeneratedQuestion = {
@@ -126,9 +127,10 @@ async function insertQuestion(subject: Subject, q: GeneratedQuestion): Promise<b
   const correct = q.correct_answer?.trim().toUpperCase();
   if (!["A", "B", "C", "D"].includes(correct)) return false;
 
+  const table = tableForSubject(subject);
   const res = await prisma.$queryRawUnsafe<Array<{ id: number }>>(
     `
-      INSERT INTO question_bank (
+      INSERT INTO ${table} (
         exam, exam_type, subject, year, chapter, difficulty, question_text, options, correct_answer, source_name, source_url, tags,
         content_hash, repetition_count, is_repeated, is_important, updated_at
       )
@@ -178,7 +180,11 @@ async function main() {
   const summary = await prisma.$queryRawUnsafe<Array<{ subject: string; cnt: number }>>(
     `
       SELECT subject, COUNT(*)::int AS cnt
-      FROM question_bank
+      FROM (
+        SELECT subject, exam, exam_type, difficulty, source_name FROM maths
+        UNION ALL SELECT subject, exam, exam_type, difficulty, source_name FROM physics
+        UNION ALL SELECT subject, exam, exam_type, difficulty, source_name FROM chemistry
+      ) qb
       WHERE exam = 'JEE' AND exam_type = 'mains' AND difficulty = 'hard' AND subject IN ('Maths', 'Physics', 'Chemistry')
       GROUP BY subject
       ORDER BY subject
