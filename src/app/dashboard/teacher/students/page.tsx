@@ -85,12 +85,19 @@ function Modal({
 
 export default function TeacherStudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
+  const [teacherCategory, setTeacherCategory] = useState<"JEE" | "NEET" | null>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editStudent, setEditStudent] = useState<Student | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [year, setYear] = useState<"1" | "2">("1");
 
   useAutoClearMessage(success, setSuccess);
 
@@ -98,6 +105,9 @@ export default function TeacherStudentsPage() {
     const res = await fetch("/api/teacher/students");
     const j = await res.json();
     if (j.students) setStudents(j.students);
+    if (j.teacher?.category === "JEE" || j.teacher?.category === "NEET") {
+      setTeacherCategory(j.teacher.category);
+    }
   }, []);
 
   useEffect(() => {
@@ -134,6 +144,45 @@ export default function TeacherStudentsPage() {
     setError(null);
   }
 
+  function closeCreateModal() {
+    setCreateOpen(false);
+    setError(null);
+    setName("");
+    setEmail("");
+    setUsername("");
+    setPassword("");
+    setYear("1");
+  }
+
+  async function createStudent(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    if (!email.trim() && !username.trim()) {
+      setError("Enter an email or username for the student.");
+      return;
+    }
+    const res = await fetch("/api/teacher/students", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        email: email.trim() || undefined,
+        username: username.trim() || undefined,
+        password,
+        year: Number(year),
+      }),
+    });
+    const j = await res.json();
+    if (!res.ok) {
+      setError(typeof j.error === "string" ? j.error : "Could not create student");
+      return;
+    }
+    closeCreateModal();
+    setSuccess(`Student "${j?.user?.name ?? name}" created.`);
+    await load();
+  }
+
   async function deleteStudent(student: Student) {
     const ok = window.confirm(
       `Delete student "${student.name}"? This removes their account and exam sessions. This cannot be undone.`
@@ -164,8 +213,22 @@ export default function TeacherStudentsPage() {
       subtitle="Manage students assigned to your profile."
       navItems={teacherNavItems}
     >
-      {success && !editStudent ? <p className="mb-3 text-sm text-green-700">{success}</p> : null}
-      {error && !editStudent ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+      {success && !editStudent && !createOpen ? <p className="mb-3 text-sm text-green-700">{success}</p> : null}
+      {error && !editStudent && !createOpen ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+
+      <div className="mb-4 flex justify-end">
+        <button
+          type="button"
+          className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-medium hover:bg-[var(--background)]"
+          onClick={() => {
+            setError(null);
+            setSuccess(null);
+            setCreateOpen(true);
+          }}
+        >
+          Create a new Student
+        </button>
+      </div>
 
       <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
         <div className="border-b border-[var(--border)] p-3">
@@ -259,6 +322,60 @@ export default function TeacherStudentsPage() {
           </div>
         </div>
       </div>
+
+      {createOpen ? (
+        <Modal title="Create a new Student" onClose={closeCreateModal}>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={createStudent}>
+            <input
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm sm:col-span-2"
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+            <input
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              type="email"
+              placeholder="Email (optional if username set)"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <input
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              placeholder="Username (optional if email set)"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <input
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm sm:col-span-2"
+              type="password"
+              placeholder="Temporary password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--muted)]">
+              Target: <span className="font-medium text-[var(--foreground)]">{teacherCategory ?? "—"}</span>
+            </div>
+            <select
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              value={year}
+              onChange={(e) => setYear(e.target.value as "1" | "2")}
+              required
+            >
+              <option value="1">Year: 1</option>
+              <option value="2">Year: 2</option>
+            </select>
+            <button
+              type="submit"
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white sm:col-span-2"
+            >
+              Enrol student
+            </button>
+          </form>
+          {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+        </Modal>
+      ) : null}
 
       {editStudent && editCredentialAccount ? (
         <Modal title={`Edit credentials — ${editCredentialAccount.name}`} onClose={closeEditModal}>
