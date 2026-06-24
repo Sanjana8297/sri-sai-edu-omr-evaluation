@@ -133,8 +133,13 @@ export type AdminStudentRow = {
   teacher: { name: string } | null;
 };
 
+export async function fetchAdminStudents() {
+  return jsonFetch<{ students: AdminStudentRow[] }>("/api/admin/students");
+}
+
+/** @deprecated Use fetchAdminStudents for student list only. */
 export async function fetchAdminOverview() {
-  return jsonFetch<{ students: AdminStudentRow[] }>("/api/admin/overview");
+  return fetchAdminStudents();
 }
 
 export type AdminStaffRow = {

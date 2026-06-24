@@ -10,9 +10,10 @@ import {
 import { displayLoginId } from "@/lib/user-login-id";
 import { pushAuditTrail } from "@/lib/admin-staff-storage";
 import { useAutoClearMessage } from "@/hooks/use-auto-clear-message";
+import { TableSkeleton } from "@/components/skeletons/DashboardSkeletons";
 import {
   useAdminAdminsQuery,
-  useAdminOverviewQuery,
+  useAdminStudentsQuery,
   useAdminTeachersQuery,
 } from "@/hooks/data/use-admin-queries";
 import { dataKeys } from "@/hooks/data/keys";
@@ -101,9 +102,9 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: teachersData } = useAdminTeachersQuery();
-  const { data: overviewData, refetch: refetchOverview } = useAdminOverviewQuery();
+  const { data: studentsData, isLoading: studentsLoading, refetch: refetchStudents } = useAdminStudentsQuery();
   const teachers = teachersData?.teachers ?? [];
-  const students = overviewData?.students ?? [];
+  const students = studentsData?.students ?? [];
   const [query, setQuery] = useState("");
   const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
   const [yearFilter, setYearFilter] = useState<"ALL" | "1" | "2">("ALL");
@@ -128,10 +129,10 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
   const load = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: dataKeys.adminTeachers }),
-      queryClient.invalidateQueries({ queryKey: dataKeys.adminOverview }),
+      queryClient.invalidateQueries({ queryKey: dataKeys.adminStudents }),
     ]);
-    await refetchOverview();
-  }, [queryClient, refetchOverview]);
+    await refetchStudents();
+  }, [queryClient, refetchStudents]);
 
   const filteredTeachers = teachers.filter((t) => t.category === category);
 
@@ -320,6 +321,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
 
   return (
     <div className="space-y-4">
+      {studentsLoading && students.length === 0 ? <TableSkeleton rows={8} /> : null}
       {success && !modal ? <p className="text-sm text-green-700">{success}</p> : null}
       {error && !modal ? <p className="text-sm text-red-600">{error}</p> : null}
 

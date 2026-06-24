@@ -131,11 +131,12 @@ export function useReportsOverview(
   return { data: q.data ?? null, loading: q.isLoading, reload: () => void q.refetch() };
 }
 
-export function useSubjectScoresApi(subjectScoresPath: string) {
+export function useSubjectScoresApi(subjectScoresPath: string, enabled = true) {
   const q = useQuery({
     queryKey: ["subject-scores", subjectScoresPath] as const,
     queryFn: () => fetchSubjectScores(subjectScoresPath),
     staleTime: 5 * 60_000,
+    enabled,
   });
   return {
     subjectScores: q.data?.byStudent ? q.data : null,
@@ -163,29 +164,15 @@ function NoExamDataNote() {
   );
 }
 
-export function ResultScoreReportsPanel({
-  resetKey,
-  initialOverview,
-}: {
-  resetKey?: string;
-  initialOverview?: Awaited<ReturnType<typeof import("@/lib/data/fetchers").fetchReportsOverview>>;
-}) {
-  const { data, loading } = useReportsOverview("/api/admin/overview", initialOverview);
-  const { subjectScores, subjectScoresLoading } = useSubjectScoresApi("/api/admin/reports/subject-scores");
-  const [reportStudentId, setReportStudentId] = useState("");
+function AdminSubjectBreakdownFeature({ data }: { data: OverviewData }) {
+  const { subjectScores, subjectScoresLoading } = useSubjectScoresApi(
+    "/api/admin/reports/subject-scores",
+    true
+  );
   const [subjectStudentId, setSubjectStudentId] = useState("");
   const [subjectTrackFilter, setSubjectTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
-  const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
-
-  const rankList = useMemo(
-    () => (data ? buildRankListFromPerformance(data.performance) : []),
-    [data],
-  );
-
-  const filteredRanks = rankList.filter((r) => trackFilter === "ALL" || r.category === trackFilter);
 
   const filteredSubjectStudents = useMemo(() => {
-    if (!data) return [];
     if (subjectTrackFilter === "ALL") return data.students;
     return data.students.filter((s) => s.category === subjectTrackFilter);
   }, [data, subjectTrackFilter]);
@@ -205,7 +192,7 @@ export function ResultScoreReportsPanel({
       };
     }
 
-    const student = data?.students.find((s) => s.id === subjectStudentId);
+    const student = data.students.find((s) => s.id === subjectStudentId);
     const entry = subjectScores.byStudent[subjectStudentId];
     if (!student || !entry) return null;
     return {
@@ -217,20 +204,134 @@ export function ResultScoreReportsPanel({
     };
   }, [data, subjectStudentId, subjectTrackFilter, subjectScores]);
 
+  if (subjectScoresLoading) return <PanelLoading />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {(["ALL", "JEE", "NEET"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={`rounded-full px-3 py-1 text-xs font-medium ${
+              subjectTrackFilter === t
+                ? "bg-[var(--accent)] text-white"
+                : "border border-[var(--border)] text-[var(--muted)]"
+            }`}
+            onClick={() => {
+              setSubjectTrackFilter(t);
+              setSubjectStudentId("");
+            }}
+          >
+            {t === "ALL" ? "All tracks" : `Track: ${t}`}
+          </button>
+        ))}
+      </div>
+      <select
+        className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        value={subjectStudentId}
+        onChange={(e) => setSubjectStudentId(e.target.value)}
+      >
+        <option value="">Select student</option>
+        {subjectTrackFilter !== "ALL" ? (
+          <option value={ALL_STUDENTS_SUBJECT_VALUE}>All students</option>
+        ) : null}
+        {filteredSubjectStudents.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name} ({s.category})
+          </option>
+        ))}
+      </select>
+      {subjectBreakdown ? (
+        <div className="space-y-3">
+          <p className="text-sm text-[var(--muted)]">
+            <strong className="text-[var(--foreground)]">{subjectBreakdown.title}</strong>
+            <br />
+            {subjectBreakdown.subtitle}
+            <br />
+            Attempts on report card: <strong>{subjectBreakdown.allAttempts}</strong>
+          </p>
+          <ul className="space-y-2">
+            {subjectBreakdown.scores.map((s) => (
+              <li key={s.subject} className="flex items-center gap-3">
+                <span className="w-28 shrink-0 text-sm font-medium">{s.subject}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--accent)]"
+                    style={{ width: `${s.avg != null ? Math.min(100, s.avg) : 0}%` }}
+                  />
+                </div>
+                <span className="w-24 text-right text-sm font-medium">
+                  {s.avg != null ? `${s.avg}%` : "—"}
+                </span>
+                <span className="w-28 text-right text-xs text-[var(--muted)]">
+                  {s.examCount > 0 ? `${s.examCount} test${s.examCount === 1 ? "" : "s"}` : "No data"}
+                </span>
+              </li>
+            ))}
+            <li className="flex items-center gap-3 border-t border-[var(--border)] pt-3">
+              <span className="w-28 shrink-0 text-sm font-semibold">Total Average</span>
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
+                <div
+                  className="h-full rounded-full bg-[var(--accent)]"
+                  style={{
+                    width: `${
+                      subjectBreakdown.overallAvg != null
+                        ? Math.min(100, subjectBreakdown.overallAvg)
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+              <span className="w-24 text-right text-sm font-semibold">
+                {subjectBreakdown.overallAvg != null ? `${subjectBreakdown.overallAvg}%` : "—"}
+              </span>
+              <span className="w-28 text-right text-xs text-[var(--muted)]">Combined</span>
+            </li>
+          </ul>
+        </div>
+      ) : (
+        <p className="text-sm text-[var(--muted)]">
+          {subjectTrackFilter === "ALL"
+            ? "Select a student to view subject-wise scores, or choose a track to include all students."
+            : "Select a student or All students to view subject-wise scores for this track."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function ResultScoreReportsPanel({
+  resetKey,
+  initialOverview,
+}: {
+  resetKey?: string;
+  initialOverview?: Awaited<ReturnType<typeof import("@/lib/data/fetchers").fetchReportsOverview>>;
+}) {
+  const { data, loading } = useReportsOverview("/api/admin/overview", initialOverview);
+  const [reportStudentId, setReportStudentId] = useState("");
+  const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
+
+  const rankList = useMemo(
+    () => (data ? buildRankListFromPerformance(data.performance) : []),
+    [data],
+  );
+
+  const filteredRanks = rankList.filter((r) => trackFilter === "ALL" || r.category === trackFilter);
+
   const reportStudent = data?.students.find((s) => s.id === reportStudentId);
-  const reportStudentStats = reportStudentId ? subjectScores?.byStudent[reportStudentId] : undefined;
   const reportAttempts = useMemo(() => {
     if (!reportStudentId || !data) return [];
     return data.performance.filter((p) => p.studentId === reportStudentId);
   }, [data, reportStudentId]);
 
-  const reportAttemptCount = reportStudentStats?.allAttempts ?? reportAttempts.length;
-  const reportAvg = reportStudentStats?.overallAvg ??
-    (reportAttempts.length > 0
+  const reportAttemptCount = reportAttempts.length;
+  const reportAvg =
+    reportAttempts.length > 0
       ? Math.round(
           (reportAttempts.reduce((s, a) => s + a.percentage, 0) / reportAttempts.length) * 10,
         ) / 10
-      : null);
+      : null;
 
   function exportRankExcel() {
     downloadCsv("rank-list.csv", [
@@ -263,13 +364,13 @@ export function ResultScoreReportsPanel({
 
   const hasPerformance = (data?.performance.length ?? 0) > 0;
 
-  if (loading) return <PanelLoading />;
-
   return (
     <FeatureActivityHub
         features={RESULT_ACTIVITIES}
         resetKey={resetKey}
         renderFeature={(id) => {
+          if (loading && !data) return <PanelLoading />;
+
           switch (id) {
             case "rank":
               return !hasPerformance ? (
@@ -296,111 +397,9 @@ export function ResultScoreReportsPanel({
             case "subject":
               return !hasPerformance ? (
                 <NoExamDataNote />
-              ) : subjectScoresLoading ? (
-                <PanelLoading />
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
-                    {(["ALL", "JEE", "NEET"] as const).map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${
-                          subjectTrackFilter === t
-                            ? "bg-[var(--accent)] text-white"
-                            : "border border-[var(--border)] text-[var(--muted)]"
-                        }`}
-                        onClick={() => {
-                          setSubjectTrackFilter(t);
-                          setSubjectStudentId("");
-                        }}
-                      >
-                        {t === "ALL" ? "All tracks" : `Track: ${t}`}
-                      </button>
-                    ))}
-                  </div>
-                  <select
-                    className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                    value={subjectStudentId}
-                    onChange={(e) => setSubjectStudentId(e.target.value)}
-                  >
-                    <option value="">Select student</option>
-                    {subjectTrackFilter !== "ALL" ? (
-                      <option value={ALL_STUDENTS_SUBJECT_VALUE}>All students</option>
-                    ) : null}
-                    {filteredSubjectStudents.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.category})
-                      </option>
-                    ))}
-                  </select>
-                  {subjectBreakdown ? (
-                    <div className="space-y-3">
-                      <p className="text-sm text-[var(--muted)]">
-                        {subjectBreakdown.title} · {subjectBreakdown.subtitle}
-                      </p>
-                      <p className="text-sm">
-                        Total attempts: <strong>{subjectBreakdown.allAttempts}</strong>
-                        {" · "}
-                        Total average:{" "}
-                        <strong>
-                          {subjectBreakdown.overallAvg != null
-                            ? `${subjectBreakdown.overallAvg}%`
-                            : "—"}
-                        </strong>
-                      </p>
-                      <ul className="space-y-2">
-                        {subjectBreakdown.scores.map((s) => (
-                          <li key={s.subject} className="flex items-center gap-3">
-                            <span className="w-28 shrink-0 text-sm font-medium">{s.subject}</span>
-                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
-                              <div
-                                className="h-full rounded-full bg-[var(--accent)]"
-                                style={{ width: `${s.avg != null ? Math.min(100, s.avg) : 0}%` }}
-                              />
-                            </div>
-                            <span className="w-24 text-right text-sm font-medium">
-                              {s.avg != null ? `${s.avg}%` : "—"}
-                            </span>
-                            <span className="w-28 text-right text-xs text-[var(--muted)]">
-                              {s.examCount > 0
-                                ? `${s.examCount} test${s.examCount === 1 ? "" : "s"}`
-                                : "No data"}
-                            </span>
-                          </li>
-                        ))}
-                        <li className="flex items-center gap-3 border-t border-[var(--border)] pt-3">
-                          <span className="w-28 shrink-0 text-sm font-semibold">Total Average</span>
-                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
-                            <div
-                              className="h-full rounded-full bg-[var(--accent)]"
-                              style={{
-                                width: `${
-                                  subjectBreakdown.overallAvg != null
-                                    ? Math.min(100, subjectBreakdown.overallAvg)
-                                    : 0
-                                }%`,
-                              }}
-                            />
-                          </div>
-                          <span className="w-24 text-right text-sm font-semibold">
-                            {subjectBreakdown.overallAvg != null
-                              ? `${subjectBreakdown.overallAvg}%`
-                              : "—"}
-                          </span>
-                          <span className="w-28 text-right text-xs text-[var(--muted)]">Combined</span>
-                        </li>
-                      </ul>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-[var(--muted)]">
-                      {subjectTrackFilter === "ALL"
-                        ? "Select a student to view subject-wise scores, or choose a track to include all students."
-                        : "Select a student or All students to view subject-wise scores for this track."}
-                    </p>
-                  )}
-                </div>
-              );
+              ) : data ? (
+                <AdminSubjectBreakdownFeature data={data} />
+              ) : null;
             case "export-bulk":
               return (
                 <div className="flex flex-wrap gap-3">
@@ -500,10 +499,6 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
   const { data, loading } = useAdminOverview();
   const { subjectScores, subjectScoresLoading } = useSubjectScores();
   const hasPerformance = (data?.performance.length ?? 0) > 0;
-  const hasSubjectScores =
-    subjectScores != null &&
-    (subjectScores.trackAggregates.JEE.allAttempts > 0 ||
-      subjectScores.trackAggregates.NEET.allAttempts > 0);
 
   const weakSubjectsByTrack = useMemo(() => {
     if (!subjectScores) return [];
@@ -656,8 +651,9 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
   }, [subjectScores]);
 
   if (loading) return <PanelLoading />;
-  if (subjectScoresLoading) return <PanelLoading />;
-  if (!hasPerformance || !hasSubjectScores) return <NoExamDataNote />;
+  if (!hasPerformance) return <NoExamDataNote />;
+
+  const subjectScoresPending = subjectScoresLoading || !subjectScores;
 
   const severityFor = (value: number | null) => {
     if (value == null) return { label: "No data", tone: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200" };
@@ -692,6 +688,9 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
             </span>
           </div>
           <p className="mb-3 text-sm text-[var(--muted)]">Weakest chapters across JEE and NEET batches</p>
+          {subjectScoresPending ? (
+            <PanelLoading />
+          ) : (
           <div className="space-y-3">
             {weakSubjectsByTrack.map((bucket) => (
               <div key={bucket.track}>
@@ -723,6 +722,7 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
               </div>
             ))}
           </div>
+          )}
         </article>
 
         <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">

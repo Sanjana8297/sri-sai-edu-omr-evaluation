@@ -57,6 +57,7 @@ export function buildReportsOverviewPayload({
   teachers,
   studentCount,
   teacherCount,
+  examCount,
 }: {
   students: StudentInput[];
   sessions: SessionInput[];
@@ -65,6 +66,7 @@ export function buildReportsOverviewPayload({
   teachers: TeacherInput[];
   studentCount: number;
   teacherCount: number;
+  examCount?: number;
 }) {
   const studentById = new Map(students.map((s) => [s.id, s]));
   const uniqueAttempts = mergeUniqueExamAttempts({ sessions, attempts });
@@ -91,7 +93,7 @@ export function buildReportsOverviewPayload({
       : null;
 
   return {
-    counts: { students: studentCount, teachers: teacherCount, exams: exams.length },
+    counts: { students: studentCount, teachers: teacherCount, exams: examCount ?? exams.length },
     avgPercentageAcrossAttempts: avgPct,
     students: students.map((s) => ({
       ...s,

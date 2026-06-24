@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import {
   fetchAdminLlmSettings,
-  fetchAdminOverview,
+  fetchAdminStudents,
   fetchAdminTeachers,
   fetchInstitutionDashboard,
   fetchMe,
@@ -81,8 +81,8 @@ export function prefetchDashboardRoute(queryClient: QueryClient, href: string) {
           staleTime: 10 * 60_000,
         }),
         queryClient.prefetchQuery({
-          queryKey: dataKeys.adminOverview,
-          queryFn: fetchAdminOverview,
+          queryKey: dataKeys.adminStudents,
+          queryFn: fetchAdminStudents,
           staleTime: 10 * 60_000,
         }),
       ]).then(() => undefined),

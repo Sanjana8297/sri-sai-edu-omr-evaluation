@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   fetchAdminAdmins,
-  fetchAdminOverview,
+  fetchAdminStudents,
   fetchAdminTeachers,
   fetchReportsOverview,
   fetchInstitutionDashboard,
@@ -30,12 +30,17 @@ export function useAdminAdminsQuery() {
   });
 }
 
-export function useAdminOverviewQuery() {
+export function useAdminStudentsQuery() {
   return useQuery({
-    queryKey: dataKeys.adminOverview,
-    queryFn: fetchAdminOverview,
+    queryKey: dataKeys.adminStudents,
+    queryFn: fetchAdminStudents,
     staleTime: 10 * 60_000,
   });
+}
+
+/** Student list for admin user management (lightweight). */
+export function useAdminOverviewQuery() {
+  return useAdminStudentsQuery();
 }
 
 export function useReportsOverviewQuery(

@@ -10,6 +10,7 @@ export const dataKeys = {
   adminLlmSettings: ["admin", "llm-settings"] as const,
   adminTeachers: ["admin", "teachers"] as const,
   adminAdmins: ["admin", "admins"] as const,
+  adminStudents: ["admin", "students"] as const,
   adminOverview: ["admin", "overview"] as const,
   adminReportsOverview: (path: string) => ["admin", "reports", "overview", path] as const,
   adminInstitutionDashboard: ["admin", "institution-dashboard"] as const,
