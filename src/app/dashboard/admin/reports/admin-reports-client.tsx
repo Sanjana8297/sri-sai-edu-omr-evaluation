@@ -8,7 +8,6 @@ import {
   ResultScoreReportsPanel,
 } from "./reports-analytics-panels";
 import { InstitutionDashboardPanel } from "./institution-dashboard-panel";
-import type { fetchReportsOverview } from "@/lib/data/fetchers";
 
 type ReportsSection = "results" | "analytics" | "institution";
 
@@ -24,11 +23,7 @@ const SECTION_SUBTITLES: Record<ReportsSection, string> = {
   institution: "Centre-level overview",
 };
 
-type AdminReportsClientProps = {
-  initialOverview?: Awaited<ReturnType<typeof fetchReportsOverview>>;
-};
-
-function AdminReportsContent({ initialOverview }: AdminReportsClientProps) {
+function AdminReportsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [section, setSection] = useState<ReportsSection>("results");
@@ -59,16 +54,14 @@ function AdminReportsContent({ initialOverview }: AdminReportsClientProps) {
         ) : null}
       </div>
 
-      {section === "results" ? (
-        <ResultScoreReportsPanel resetKey={section} initialOverview={initialOverview} />
-      ) : null}
+      {section === "results" ? <ResultScoreReportsPanel resetKey={section} /> : null}
       {section === "analytics" ? <PerformanceAnalyticsPanel resetKey={section} /> : null}
       {section === "institution" ? <InstitutionDashboardPanel /> : null}
     </div>
   );
 }
 
-export function AdminReportsClient({ initialOverview }: AdminReportsClientProps) {
+export function AdminReportsClient() {
   return (
     <Suspense
       fallback={
@@ -77,7 +70,7 @@ export function AdminReportsClient({ initialOverview }: AdminReportsClientProps)
         </div>
       }
     >
-      <AdminReportsContent initialOverview={initialOverview} />
+      <AdminReportsContent />
     </Suspense>
   );
 }

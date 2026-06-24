@@ -55,6 +55,7 @@ export function useInstitutionDashboardQuery() {
     queryKey: dataKeys.adminInstitutionDashboard,
     queryFn: fetchInstitutionDashboard,
     staleTime: 5 * 60_000,
+    retry: 1,
   });
 }
 

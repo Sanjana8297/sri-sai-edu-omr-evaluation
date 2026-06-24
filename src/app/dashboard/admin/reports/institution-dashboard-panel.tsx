@@ -175,14 +175,14 @@ function NetworkIcon() {
 }
 
 export function InstitutionDashboardPanel() {
-  const { data: rawData, isLoading: loading } = useInstitutionDashboardQuery();
+  const { data: rawData, isLoading: loading, isError } = useInstitutionDashboardQuery();
   const dashboardData = rawData?.summary ? (rawData as InstitutionDashboardData) : null;
 
   if (loading) {
     return <StatsRowSkeleton />;
   }
 
-  if (!dashboardData) {
+  if (isError || !dashboardData) {
     return (
       <p className="rounded-lg border border-dashed border-[var(--border)] px-4 py-6 text-sm text-[var(--muted)]">
         Could not load dashboard data. Please refresh the page.

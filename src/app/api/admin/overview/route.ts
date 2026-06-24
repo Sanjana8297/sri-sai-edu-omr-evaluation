@@ -3,10 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { requireRoles } from "@/lib/api-auth";
 import { buildReportsOverviewPayload } from "@/lib/reports-overview";
 
+export const maxDuration = 60;
+
 export async function GET() {
   const { response } = await requireRoles(["ADMIN"]);
   if (response) return response;
 
+  try {
   const [studentCount, teacherCount, students, sessions, attempts, exams, teachers] = await Promise.all([
     prisma.student.count(),
     prisma.teacher.count(),
@@ -85,4 +88,8 @@ export async function GET() {
       teacherCount,
     })
   );
+  } catch (error) {
+    console.error("[admin/overview]", error);
+    return NextResponse.json({ error: "Failed to load overview" }, { status: 500 });
+  }
 }
