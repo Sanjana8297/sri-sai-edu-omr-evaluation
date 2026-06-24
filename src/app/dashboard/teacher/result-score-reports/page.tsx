@@ -2,7 +2,7 @@
 
 import { DashboardShell } from "@/components/DashboardShell";
 import { teacherNavItems } from "@/lib/dashboard-nav";
-import { ResultScoreReportsPanel } from "@/app/dashboard/admin/reports/reports-analytics-panels";
+import { TeacherResultScoreReportsPanel } from "@/app/dashboard/teacher/result-score-reports/teacher-result-score-reports-panel";
 
 export default function TeacherResultScoreReportsPage() {
   return (
@@ -13,7 +13,7 @@ export default function TeacherResultScoreReportsPage() {
       navItems={teacherNavItems}
       fullWidthContent
     >
-      <ResultScoreReportsPanel variant="teacher" />
+      <TeacherResultScoreReportsPanel />
     </DashboardShell>
   );
 }

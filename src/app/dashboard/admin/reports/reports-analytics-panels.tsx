@@ -19,6 +19,59 @@ export type AttemptRow = {
   percentage: number;
 };
 
+export type RankListRow = {
+  studentId: string;
+  name: string;
+  category: string;
+  avgPct: number;
+  rank: number;
+  latestExamTitle: string;
+  latestExamScore: string;
+};
+
+export function buildRankListFromPerformance(performance: AttemptRow[]): RankListRow[] {
+  if (performance.length === 0) return [];
+
+  const byStudent = new Map<
+    string,
+    { name: string; category: string; scores: number[]; latest: AttemptRow }
+  >();
+
+  for (const row of performance) {
+    const entry = byStudent.get(row.studentId) ?? {
+      name: row.studentName,
+      category: row.category,
+      scores: [],
+      latest: row,
+    };
+    entry.scores.push(row.percentage);
+    if (new Date(row.examDate).getTime() > new Date(entry.latest.examDate).getTime()) {
+      entry.latest = row;
+    }
+    byStudent.set(row.studentId, entry);
+  }
+
+  const ranked = [...byStudent.entries()].map(([id, v]) => ({
+    studentId: id,
+    name: v.name,
+    category: v.category,
+    avgPct: Math.round((v.scores.reduce((a, b) => a + b, 0) / v.scores.length) * 10) / 10,
+    latest: v.latest,
+  }));
+
+  ranked.sort((a, b) => b.avgPct - a.avgPct);
+
+  return ranked.map((r, i) => ({
+    studentId: r.studentId,
+    name: r.name,
+    category: r.category,
+    avgPct: r.avgPct,
+    rank: i + 1,
+    latestExamTitle: r.latest.title,
+    latestExamScore: `${r.latest.marksObtained}/${r.latest.maxMarks}`,
+  }));
+}
+
 type StudentRow = {
   id: string;
   name: string;
@@ -47,7 +100,7 @@ type OverviewData = {
 const CUTOFF_PCT: Record<string, number> = { NEET: 50, JEE: 90 };
 
 const RESULT_ACTIVITIES: ActivityFeature[] = [
-  { id: "rank", title: "Rank list with percentile", description: "Instant aggregate across attempts" },
+  { id: "rank", title: "Rank list", description: "Instant aggregate across attempts with latest exam scores" },
   { id: "subject", title: "Subject-wise score breakdown", description: "Per-student subject averages from exam paper scoring" },
   { id: "report-card", title: "Individual student report card", description: "Per-student exam history and summary" },
   { id: "export-bulk", title: "Bulk Excel export", description: "Download rank list or all scores" },
@@ -96,7 +149,7 @@ export function useAdminOverview() {
   return useReportsOverview("/api/admin/overview");
 }
 
-function useSubjectScoresApi(subjectScoresPath: string) {
+export function useSubjectScoresApi(subjectScoresPath: string) {
   const [subjectScores, setSubjectScores] = useState<SubjectScoresPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -134,52 +187,18 @@ function NoExamDataNote() {
   );
 }
 
-export function ResultScoreReportsPanel({
-  resetKey,
-  variant = "admin",
-}: {
-  resetKey?: string;
-  variant?: "admin" | "teacher";
-}) {
-  const overviewPath =
-    variant === "teacher" ? "/api/teacher/reports/overview" : "/api/admin/overview";
-  const subjectScoresPath =
-    variant === "teacher"
-      ? "/api/teacher/reports/subject-scores"
-      : "/api/admin/reports/subject-scores";
-  const { data, loading } = useReportsOverview(overviewPath);
-  const { subjectScores, subjectScoresLoading } = useSubjectScoresApi(subjectScoresPath);
+export function ResultScoreReportsPanel({ resetKey }: { resetKey?: string }) {
+  const { data, loading } = useReportsOverview("/api/admin/overview");
+  const { subjectScores, subjectScoresLoading } = useSubjectScoresApi("/api/admin/reports/subject-scores");
   const [reportStudentId, setReportStudentId] = useState("");
   const [subjectStudentId, setSubjectStudentId] = useState("");
   const [subjectTrackFilter, setSubjectTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
   const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
 
-  const rankList = useMemo(() => {
-    if (!data) return [];
-    const byStudent = new Map<string, { name: string; category: string; scores: number[] }>();
-    for (const row of data.performance) {
-      const entry = byStudent.get(row.studentId) ?? {
-        name: row.studentName,
-        category: row.category,
-        scores: [],
-      };
-      entry.scores.push(row.percentage);
-      byStudent.set(row.studentId, entry);
-    }
-    const ranked = [...byStudent.entries()].map(([id, v]) => ({
-      studentId: id,
-      name: v.name,
-      category: v.category,
-      avgPct: Math.round((v.scores.reduce((a, b) => a + b, 0) / v.scores.length) * 10) / 10,
-    }));
-    ranked.sort((a, b) => b.avgPct - a.avgPct);
-    const n = ranked.length;
-    return ranked.map((r, i) => ({
-      ...r,
-      rank: i + 1,
-      percentile: n <= 1 ? 100 : Math.round(((n - i - 1) / (n - 1)) * 1000) / 10,
-    }));
-  }, [data]);
+  const rankList = useMemo(
+    () => (data ? buildRankListFromPerformance(data.performance) : []),
+    [data],
+  );
 
   const filteredRanks = rankList.filter((r) => trackFilter === "ALL" || r.category === trackFilter);
 
@@ -233,8 +252,15 @@ export function ResultScoreReportsPanel({
 
   function exportRankExcel() {
     downloadCsv("rank-list.csv", [
-      ["Rank", "Student", "Track", "Avg %", "Percentile"],
-      ...filteredRanks.map((r) => [String(r.rank), r.name, r.category, String(r.avgPct), String(r.percentile)]),
+      ["Rank", "Student", "Track", "Avg %", "Latest Exam Score", "Latest Exam"],
+      ...filteredRanks.map((r) => [
+        String(r.rank),
+        r.name,
+        r.category,
+        String(r.avgPct),
+        r.latestExamScore,
+        r.latestExamTitle,
+      ]),
     ]);
   }
 
@@ -290,7 +316,7 @@ export function ResultScoreReportsPanel({
                           <th className="px-3 py-2">Rank</th>
                           <th className="px-3 py-2">Student</th>
                           <th className="px-3 py-2">Avg %</th>
-                          <th className="px-3 py-2">Percentile</th>
+                          <th className="px-3 py-2">Latest Exam Score</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -302,7 +328,10 @@ export function ResultScoreReportsPanel({
                               <span className="ml-1 text-xs text-[var(--muted)]">({r.category})</span>
                             </td>
                             <td className="px-3 py-2">{r.avgPct}%</td>
-                            <td className="px-3 py-2">{r.percentile}</td>
+                            <td className="px-3 py-2">
+                              {r.latestExamScore}
+                              <span className="mt-0.5 block text-xs text-[var(--muted)]">{r.latestExamTitle}</span>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -458,13 +487,8 @@ export function ResultScoreReportsPanel({
             <div id="student-report-card" className="rounded-lg border border-[var(--border)] p-4 print:border-black">
               <h4 className="font-semibold">{reportStudent.name}</h4>
               <p className="text-xs text-[var(--muted)]">
-                {reportStudent.email} · Target {reportStudent.category}
-                {variant === "admin" ? (
-                  <>
-                    {" "}
-                    · Mentor: {reportStudent.teacher?.name ?? "—"}
-                  </>
-                ) : null}
+                {reportStudent.email} · Target {reportStudent.category} · Mentor:{" "}
+                {reportStudent.teacher?.name ?? "—"}
               </p>
               <p className="mt-2 text-sm">
                 Average score: <strong>{reportAvg ?? "—"}%</strong> · Attempts: {reportAttemptCount}

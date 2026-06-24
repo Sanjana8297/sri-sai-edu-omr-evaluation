@@ -220,7 +220,7 @@ const sections: HelpSection[] = [
         title: "Result & Score Reports",
         subtitle: "Instant and aggregate",
         items: [
-          "Rank list with percentile",
+          "Rank list with latest exam scores",
           "Subject-wise score breakdown",
           "Individual student report card",
           "Bulk PDF / Excel export",
