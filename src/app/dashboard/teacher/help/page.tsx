@@ -74,9 +74,6 @@ const sections: HelpSection[] = [
         items: [
           "Section A/B/C (NEET / JEE Advanced)",
           "Duration and max-marks config",
-          "Bilingual (EN / Telugu / Hindi)",
-          "Header: logo, date, roll no. field",
-          "Set A / B / C / D paper shuffling",
           "Generate preview and save paper",
           "Print-ready PDF export",
         ],

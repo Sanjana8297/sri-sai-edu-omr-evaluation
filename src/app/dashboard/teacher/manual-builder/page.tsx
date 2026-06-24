@@ -219,13 +219,6 @@ function TeacherManualBuilderPage() {
   );
   const [paperDurationMin, setPaperDurationMin] = useState("");
   const [paperMaxMarks, setPaperMaxMarks] = useState("");
-  const [langEn, setLangEn] = useState(true);
-  const [langTe, setLangTe] = useState(false);
-  const [langHi, setLangHi] = useState(false);
-  const [headerLogo, setHeaderLogo] = useState(false);
-  const [headerDate, setHeaderDate] = useState(true);
-  const [headerRollField, setHeaderRollField] = useState(true);
-  const [paperSetVariant, setPaperSetVariant] = useState<"none" | "A" | "B" | "C" | "D">("none");
 
   const pageSize = QUESTION_BANK_PAGE_SIZE;
   const debouncedBankSearch = useDebouncedValue(bankSearch, 300);
@@ -652,13 +645,6 @@ function TeacherManualBuilderPage() {
     const trimmed = questionContent.trim();
     const { questionContent: generatedQuestionContent, keyContent: generatedKeyContent } =
       paperSlots.length > 0 ? buildContentFromSelected() : { questionContent: "", keyContent: "" };
-    const langs = [
-      langEn ? "EN" : null,
-      langTe ? "Telugu" : null,
-      langHi ? "Hindi" : null,
-    ]
-      .filter(Boolean)
-      .join(", ");
     const composerLines = [
       `Section layout: ${SECTION_LAYOUT_LABELS[sectionLayout]}`,
       isJeeAdvanceLayout
@@ -666,9 +652,6 @@ function TeacherManualBuilderPage() {
         : null,
       paperDurationMin.trim() ? `Duration (min): ${paperDurationMin.trim()}` : null,
       paperMaxMarks.trim() ? `Max marks: ${paperMaxMarks.trim()}` : null,
-      langs ? `Languages: ${langs}` : null,
-      `Header — logo: ${headerLogo ? "yes" : "no"}, date: ${headerDate ? "yes" : "no"}, roll no. field: ${headerRollField ? "yes" : "no"}`,
-      paperSetVariant !== "none" ? `Paper set: ${paperSetVariant}` : null,
     ].filter(Boolean);
     const composerAppend =
       composerLines.length > 0 ? `\n\n--- Paper composer (workflow) ---\n${composerLines.join("\n")}` : "";
@@ -1237,9 +1220,6 @@ function TeacherManualBuilderPage() {
               <li>Structure and section builder</li>
               <li>Section A / B / C (NEET / JEE Advanced)</li>
               <li>Duration and max-marks config</li>
-              <li>Bilingual (EN / Telugu / Hindi)</li>
-              <li>Header: logo, date, roll no. field</li>
-              <li>Set A / B / C / D paper shuffling</li>
               <li>Print-ready PDF export</li>
             </ul>
 
@@ -1328,55 +1308,8 @@ function TeacherManualBuilderPage() {
               </div>
             ) : null}
 
-            <div>
-              <p className="text-xs font-medium text-[var(--muted)]">Bilingual paper</p>
-              <div className="mt-1 flex flex-wrap gap-3 text-sm">
-                <label className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={langEn} onChange={(e) => setLangEn(e.target.checked)} />
-                  English
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={langTe} onChange={(e) => setLangTe(e.target.checked)} />
-                  Telugu
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={langHi} onChange={(e) => setLangHi(e.target.checked)} />
-                  Hindi
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-xs font-medium text-[var(--muted)]">Header</p>
-              <div className="mt-1 flex flex-wrap gap-3 text-sm">
-                <label className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={headerLogo} onChange={(e) => setHeaderLogo(e.target.checked)} />
-                  Logo placeholder
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={headerDate} onChange={(e) => setHeaderDate(e.target.checked)} />
-                  Date line
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={headerRollField} onChange={(e) => setHeaderRollField(e.target.checked)} />
-                  Roll no. field
-                </label>
-              </div>
-            </div>
-
-            <label className="block text-xs font-medium text-[var(--muted)]">
-              Set-wise shuffling (paper code)
-              <select className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm" value={paperSetVariant} onChange={(e) => setPaperSetVariant(e.target.value as typeof paperSetVariant)}>
-                <option value="none">No set label</option>
-                <option value="A">Set A</option>
-                <option value="B">Set B</option>
-                <option value="C">Set C</option>
-                <option value="D">Set D</option>
-              </select>
-            </label>
-
             <RoadmapNote>
-              Section layout, timing, languages, header blocks, and set codes are saved with your paper metadata. Questions come from section 1—generate the paper below, then save when ready.
+              Section layout and timing are saved with your paper metadata. Questions come from section 1—generate the paper below, then save when ready.
             </RoadmapNote>
 
             {postSaveSnapshot ? (
