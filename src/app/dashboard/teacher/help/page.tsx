@@ -184,6 +184,11 @@ const sections: HelpSection[] = [
           "Bilingual question toggle",
         ],
       },
+    ],
+  },
+  {
+    heading: "Exam Scheduling",
+    modules: [
       {
         title: "Exam Scheduling",
         subtitle: "Centre and slot management",

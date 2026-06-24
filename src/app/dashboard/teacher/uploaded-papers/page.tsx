@@ -69,7 +69,7 @@ export default function TeacherUploadedPapersPage() {
       {err ? <p className="mb-3 text-sm text-red-600">{err}</p> : null}
       {papers.length === 0 ? (
         <p className="text-sm text-[var(--muted)]">
-          No papers yet. Schedule an exam under OMR & Exam Delivery → Exam Scheduling to see its question paper here.
+          No papers yet. Schedule an exam under Exam Scheduling to see its question paper here.
         </p>
       ) : null}
       <ul className="space-y-3">

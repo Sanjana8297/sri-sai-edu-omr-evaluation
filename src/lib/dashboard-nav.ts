@@ -41,13 +41,13 @@ export function buildTeacherNavItems(track: TeacherTrack): NavItem[] {
       label: "Question Banks",
       children: questionBankChildren,
     },
+    { href: "/dashboard/teacher/exam-scheduling", label: "Exam Scheduling" },
     {
       href: "/dashboard/teacher/exams",
       label: "OMR & Exam Delivery",
       children: [
         { href: "/dashboard/teacher/exams?section=omr", label: "OMR Sheet Management" },
         { href: "/dashboard/teacher/exams?section=online", label: "Online Exam Module" },
-        { href: "/dashboard/teacher/exams?section=scheduling", label: "Exam Scheduling" },
       ],
     },
     { href: "/dashboard/teacher/uploaded-papers", label: "Completed Exam Papers" },
@@ -83,6 +83,7 @@ export const adminNavItems: NavItem[] = [
       { href: "/dashboard/admin/reports?section=institution", label: "Institution Dashboard" },
     ],
   },
+  { href: "/dashboard/admin/exam-scheduling", label: "Exam Scheduling" },
   { href: "/dashboard/admin/audit-trail", label: "Activity / audit trail" },
   { href: "/dashboard/admin/llm-settings", label: "LLM Settings" },
 ];

@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
 import { DEFAULT_CBT_SETTINGS, type CbtSettings } from "@/lib/cbt-settings";
 import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
 import { OmrTemplatePreview } from "@/components/omr/OmrTemplatePreview";
+import type { TeacherTrack } from "@/lib/dashboard-nav";
 import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
@@ -40,6 +41,22 @@ function ToggleRow({
 
 type ExamPreset = OmrExamPreset;
 
+const OMR_PRESET_OPTIONS: { value: ExamPreset; label: string; teacherTrack: TeacherTrack }[] = [
+  { value: "NEET", label: "NEET", teacherTrack: "NEET" },
+  { value: "JEE_MAINS", label: "JEE Main", teacherTrack: "JEE" },
+  { value: "JEE_ADVANCE", label: "JEE Advance", teacherTrack: "JEE" },
+];
+
+function presetOptionsForTeacher(teacherTrack: TeacherTrack) {
+  return OMR_PRESET_OPTIONS.filter((option) => option.teacherTrack === teacherTrack);
+}
+
+function clampPresetToTeacher(preset: ExamPreset, teacherTrack: TeacherTrack | null): ExamPreset {
+  if (!teacherTrack) return preset;
+  const options = presetOptionsForTeacher(teacherTrack);
+  return options.some((option) => option.value === preset) ? preset : options[0]?.value ?? preset;
+}
+
 const OMR_ACTIVITIES: ActivityFeature[] = [
   { id: "template", title: "OMR template designer", description: "NEET / JEE Main / JEE Advance presets" },
   { id: "bundle", title: "Print-ready OMR + paper bundle", description: "Pair OMR with your question paper" },
@@ -71,6 +88,7 @@ function trackToPreset(track: string | undefined): ExamPreset {
 }
 
 export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
+  const [teacherTrack, setTeacherTrack] = useState<TeacherTrack | null>(null);
   const [examPreset, setExamPreset] = useState<ExamPreset>("NEET");
   const [rollDigits, setRollDigits] = useState(10);
   const [advanceSubjects, setAdvanceSubjects] = useState<JeeAdvanceSubjectConfig[]>(
@@ -93,6 +111,11 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
   const [templateMsg, setTemplateMsg] = useState<string | null>(null);
   const [templateErr, setTemplateErr] = useState<string | null>(null);
   const [templateSavedForNextStep, setTemplateSavedForNextStep] = useState(false);
+
+  const availablePresetOptions = useMemo(
+    () => (teacherTrack ? presetOptionsForTeacher(teacherTrack) : []),
+    [teacherTrack]
+  );
 
   const omrTrack = presetToTrack(examPreset);
   const layout = OMR_LAYOUT[omrTrack];
@@ -184,9 +207,21 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       setTemplateLoading(true);
       setTemplateErr(null);
       try {
-        const res = await fetch("/api/teacher/omr-template");
-        const json = await res.json();
-        if (!res.ok) {
+        const [meRes, templateRes] = await Promise.all([
+          fetch("/api/me"),
+          fetch("/api/teacher/omr-template"),
+        ]);
+        const meJson = await meRes.json();
+        const json = await templateRes.json();
+
+        let track: TeacherTrack | null = null;
+        const category = meJson.user?.category;
+        if (category === "JEE" || category === "NEET") {
+          track = category;
+          setTeacherTrack(category);
+        }
+
+        if (!templateRes.ok) {
           setTemplateErr(json.error ?? "Could not load saved template");
           return;
         }
@@ -196,7 +231,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
           examPreset?: ExamPreset;
           advance?: { subjects?: JeeAdvanceSubjectConfig[] };
         };
-        setExamPreset(trackToPreset(s.examPreset ?? s.track));
+        setExamPreset(clampPresetToTeacher(trackToPreset(s.examPreset ?? s.track), track));
         if (typeof s.rollDigits === "number" && !Number.isNaN(s.rollDigits)) {
           setRollDigits(Math.min(12, Math.max(6, s.rollDigits)));
         }
@@ -290,11 +325,14 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   setExamPreset(e.target.value as ExamPreset);
                   setTemplateSavedForNextStep(false);
                 }}
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                disabled={!teacherTrack}
+                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm disabled:opacity-50"
               >
-                <option value="NEET">NEET</option>
-                <option value="JEE_MAINS">JEE Main</option>
-                <option value="JEE_ADVANCE">JEE Advance</option>
+                {availablePresetOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="block text-xs text-[var(--muted)]">
@@ -353,7 +391,9 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   setBundlePaper(id);
                   const paper = papers.find((p) => p.id === id);
                   if (paper?.category === "JEE" || paper?.category === "NEET") {
-                    setExamPreset(trackToPreset(paper.category));
+                    setExamPreset(
+                      clampPresetToTeacher(trackToPreset(paper.category), teacherTrack)
+                    );
                   }
                   setBundleMsg(null);
                   setBundleErr(null);

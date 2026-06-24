@@ -337,7 +337,7 @@ export default function TeacherAiBuilderPage() {
       setAiWarnings([]);
       setShowPreview(false);
       setMsg(
-        "Question paper saved. Use OMR & Exam Delivery → Exam Scheduling to schedule it, or find it in the paper list when scheduling."
+        "Question paper saved. Use Exam Scheduling in the sidebar to schedule it, or find it in the paper list when scheduling."
       );
     } catch {
       setErr("Network error while saving. Check your connection and try again.");
