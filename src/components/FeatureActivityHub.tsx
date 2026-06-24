@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { dashGrid } from "@/lib/dashboard-ui";
+import { dashActivityCard, dashActivityRow } from "@/lib/dashboard-ui";
 
 export type ActivityFeature = {
   id: string;
@@ -95,18 +95,18 @@ export function FeatureActivityHub({
   }
 
   return (
-    <div className={dashGrid}>
+    <div className={dashActivityRow}>
       {features.map((feature) => (
         <button
           key={feature.id}
           type="button"
           onClick={() => setActiveId(feature.id)}
-          className="group rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 text-left transition-colors hover:bg-[var(--nav-hover-bg)]"
+          className={`${dashActivityCard} group rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 text-left transition-[border-color,box-shadow,background-color] duration-200 hover:border-[var(--accent)] hover:bg-[var(--nav-hover-bg)] hover:shadow-[0_0_0_2px_var(--nav-active-ring)] focus-visible:outline-none focus-visible:border-[var(--accent)] focus-visible:shadow-[0_0_0_3px_var(--nav-active-ring)]`}
         >
           <h3 className="text-sm font-semibold text-[var(--foreground)] group-hover:text-[var(--accent)]">
             {feature.title}
           </h3>
-          <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{feature.description}</p>
+          <p className="mt-2 flex-1 text-xs leading-relaxed text-[var(--muted)]">{feature.description}</p>
           <span className="mt-4 inline-block text-xs font-medium text-[var(--accent)]">Open activity →</span>
         </button>
       ))}

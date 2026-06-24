@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import type { Role } from "@/lib/types";
 import { DASHBOARD_SURFACE } from "@/lib/dashboard-ui";
@@ -36,14 +37,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-[var(--background)]">
-      <header className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-3 sm:px-6">
+    <div className="relative flex min-h-screen flex-col">
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+        <Image
+          src="/images/contact_us.png"
+          alt=""
+          fill
+          className="object-cover object-center"
+          priority
+          sizes="100vw"
+        />
+      </div>
+      <header className="relative border-b border-[var(--border)] bg-[var(--card)] px-4 py-3 sm:px-6">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
           <InstituteBrand compact />
           <ThemeToggle />
         </div>
       </header>
-      <div className={`flex flex-1 items-center justify-center px-4 py-8 ${DASHBOARD_SURFACE}`}>
+      <div className={`relative flex flex-1 items-center justify-center px-4 py-8 ${DASHBOARD_SURFACE}`}>
       <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8 shadow-sm">
         <Link
           href="/"

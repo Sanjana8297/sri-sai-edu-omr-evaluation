@@ -14,6 +14,11 @@ export const dashGrid = "dash-grid";
 
 export const dashGridWide = "dash-grid-wide";
 
+/** Horizontal activity card strip — fixed card width, scroll on narrow viewports */
+export const dashActivityRow = "dash-activity-row";
+
+export const dashActivityCard = "dash-static dash-activity-card";
+
 export const dashGridFour = "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4";
 
 /** Bordered blocks that should respond to hover / touch (explicit use) */

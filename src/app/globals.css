@@ -124,4 +124,28 @@ body {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
+
+  /* Activity hub — horizontal row, fixed card size, border highlight on hover */
+  .dashboard-surface .dash-activity-row {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 1rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+
+  .dashboard-surface .dash-activity-card {
+    flex: 0 0 15.625rem;
+    width: 15.625rem;
+    min-height: 9.75rem;
+    display: flex;
+    flex-direction: column;
+    scroll-snap-align: start;
+  }
 }
