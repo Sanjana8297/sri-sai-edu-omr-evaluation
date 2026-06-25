@@ -4,6 +4,7 @@ export type AuditEntry = { at: string; action: string; detail: string };
 
 export const PAPER_ACCESS_KEY = "admin-teacher-paper-access";
 export const AUDIT_TRAIL_KEY = "admin-audit-trail";
+export const PAPER_ACCESS_META_KEY = "__paperAccess";
 
 export const DEFAULT_PAPER_ACCESS: PaperAccess = {
   create: true,
@@ -16,6 +17,32 @@ export const PAPER_ACCESS_LABELS: Record<keyof PaperAccess, string> = {
   publish: "Publish exams",
   grade: "Grade / view results",
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function parsePaperAccess(value: unknown): PaperAccess {
+  const raw = isRecord(value) ? value : {};
+  return {
+    create: typeof raw.create === "boolean" ? raw.create : DEFAULT_PAPER_ACCESS.create,
+    publish: typeof raw.publish === "boolean" ? raw.publish : DEFAULT_PAPER_ACCESS.publish,
+    grade: typeof raw.grade === "boolean" ? raw.grade : DEFAULT_PAPER_ACCESS.grade,
+  };
+}
+
+export function extractPaperAccessFromCbtDefaults(cbtDefaults: unknown): PaperAccess {
+  if (!isRecord(cbtDefaults)) return { ...DEFAULT_PAPER_ACCESS };
+  return parsePaperAccess(cbtDefaults[PAPER_ACCESS_META_KEY]);
+}
+
+export function mergePaperAccessIntoCbtDefaults(cbtDefaults: unknown, access: PaperAccess): Record<string, unknown> {
+  const base = isRecord(cbtDefaults) ? cbtDefaults : {};
+  return {
+    ...base,
+    [PAPER_ACCESS_META_KEY]: access,
+  };
+}
 
 export function formatPaperAccessState(access: PaperAccess): string {
   return (Object.keys(PAPER_ACCESS_LABELS) as (keyof PaperAccess)[])

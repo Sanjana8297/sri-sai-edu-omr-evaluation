@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_CBT_SETTINGS, parseCbtSettings, type CbtSettings } from "@/lib/cbt-settings";
+import {
+  extractPaperAccessFromCbtDefaults,
+  mergePaperAccessIntoCbtDefaults,
+} from "@/lib/admin-staff-storage";
 
 export async function getTeacherCbtDefaults(teacherId: string): Promise<CbtSettings> {
   try {
@@ -14,7 +18,14 @@ export async function getTeacherCbtDefaults(teacherId: string): Promise<CbtSetti
 }
 
 export async function setTeacherCbtDefaults(teacherId: string, settings: CbtSettings): Promise<void> {
-  const json = JSON.stringify(settings);
+  const rows = await prisma.$queryRawUnsafe<Array<{ cbtDefaults: unknown }>>(
+    `SELECT "cbtDefaults" FROM "Teacher" WHERE id = $1 LIMIT 1`,
+    teacherId,
+  );
+  const existing = rows[0]?.cbtDefaults ?? null;
+  const paperAccess = extractPaperAccessFromCbtDefaults(existing);
+  const merged = mergePaperAccessIntoCbtDefaults(settings as unknown, paperAccess);
+  const json = JSON.stringify(merged);
   await prisma.$executeRawUnsafe(
     `UPDATE "Teacher" SET "cbtDefaults" = $1::jsonb WHERE id = $2`,
     json,

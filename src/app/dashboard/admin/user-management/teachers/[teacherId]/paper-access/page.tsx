@@ -7,10 +7,8 @@ import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext
 import { displayLoginId } from "@/lib/user-login-id";
 import {
   describePaperAccessChanges,
-  getPaperAccessForTeacher,
   pushAuditTrail,
-  readPaperAccess,
-  writePaperAccess,
+  parsePaperAccess,
   type PaperAccess,
 } from "@/lib/admin-staff-storage";
 
@@ -59,7 +57,7 @@ function TeacherPaperAccessContent() {
         return;
       }
       setTeacher(json.teacher);
-      setAccess(getPaperAccessForTeacher(teacherId));
+      setAccess(parsePaperAccess(json.paperAccess));
     } catch {
       setError("Could not load teacher.");
     } finally {
@@ -71,17 +69,32 @@ function TeacherPaperAccessContent() {
     void load();
   }, [load]);
 
-  function updateAccess(patch: Partial<PaperAccess>) {
+  async function updateAccess(patch: Partial<PaperAccess>) {
     if (!teacherId || !access) return;
     const nextAccess = { ...access, ...patch };
     const changes = describePaperAccessChanges(access, nextAccess, patch);
     if (changes.length === 0) return;
-    const store = readPaperAccess();
-    store[teacherId] = nextAccess;
-    writePaperAccess(store);
+    setError(null);
+    const previous = access;
     setAccess(nextAccess);
-    const staffName = teacher?.name ?? teacherId;
-    pushAuditTrail("PERMISSION_UPDATE", `${staffName} — ${changes.join("; ")}`);
+    try {
+      const res = await fetch(`/api/admin/teachers/${encodeURIComponent(teacherId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paperAccess: nextAccess }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof json.error === "string" ? json.error : "Could not save permissions");
+      }
+      const saved = parsePaperAccess(json.paperAccess);
+      setAccess(saved);
+      const staffName = teacher?.name ?? teacherId;
+      pushAuditTrail("PERMISSION_UPDATE", `${staffName} — ${changes.join("; ")}`);
+    } catch (e) {
+      setAccess(previous);
+      setError(e instanceof Error ? e.message : "Could not save permissions");
+    }
   }
 
   useSetDashboardPage({
@@ -130,8 +143,7 @@ function TeacherPaperAccessContent() {
             />
           </div>
           <p className="text-xs text-[var(--muted)]">
-            Permissions are stored for this browser session and apply to how this teacher&apos;s access is
-            managed in the admin console.
+            Permissions are saved for this teacher and remain active until changed again.
           </p>
         </div>
       ) : null}

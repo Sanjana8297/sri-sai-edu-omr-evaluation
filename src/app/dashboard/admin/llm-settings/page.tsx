@@ -10,11 +10,15 @@ import { DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL } from "@/lib/openai-runtime";
 
 const MODEL_PRESETS = [
   "gpt-4.1-mini",
-  "gpt-4.1",
-  "gpt-4o",
   "gpt-4o-mini",
-  "gpt-3.5-turbo",
+  "claude-3-5-sonnet-latest",
+  "claude-3-5-haiku-latest",
+  "gemini-1.5-pro",
+  "gemini-1.5-flash",
+  "mistral-large-latest",
+  "llama-3.1-70b-instruct",
 ];
+const OTHER_MODEL_VALUE = "__other__";
 
 type SettingsResponse = {
   model: string;
@@ -41,6 +45,9 @@ export default function AdminLlmSettingsPage() {
   const { data: settingsData, isLoading: loading, refetch } = useAdminLlmSettingsQuery();
   const [saving, setSaving] = useState(false);
   const [model, setModel] = useState(DEFAULT_LLM_MODEL);
+  const [modelOptions, setModelOptions] = useState<string[]>(MODEL_PRESETS);
+  const [customModel, setCustomModel] = useState("");
+  const [showOtherModelInput, setShowOtherModelInput] = useState(false);
   const [baseUrl, setBaseUrl] = useState(DEFAULT_LLM_BASE_URL);
   const [apiKey, setApiKey] = useState("");
   const [clearApiKey, setClearApiKey] = useState(false);
@@ -58,7 +65,11 @@ export default function AdminLlmSettingsPage() {
   useEffect(() => {
     const json = settingsData;
     if (!json) return;
-    setModel(json.model || DEFAULT_LLM_MODEL);
+    const nextModel = json.model || DEFAULT_LLM_MODEL;
+    setModel(nextModel);
+    setCustomModel("");
+    setShowOtherModelInput(false);
+    setModelOptions((prev) => (prev.includes(nextModel) ? prev : [...prev, nextModel]));
     setBaseUrl(json.baseUrl || DEFAULT_LLM_BASE_URL);
     setMasked(json.apiKeyMasked);
     setUsingEnv(json.usingEnvApiKey);
@@ -79,6 +90,21 @@ export default function AdminLlmSettingsPage() {
       setErr(null);
     }
   }, [settingsData]);
+
+  function addCustomModel() {
+    const next = customModel.trim();
+    if (!next) return;
+    setModelOptions((prev) => (prev.includes(next) ? prev : [...prev, next]));
+    setModel(next);
+    setCustomModel("");
+    setShowOtherModelInput(false);
+  }
+
+  const selectedModelValue = showOtherModelInput
+    ? OTHER_MODEL_VALUE
+    : modelOptions.includes(model)
+      ? model
+      : OTHER_MODEL_VALUE;
 
   const loadSettings = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: dataKeys.adminLlmSettings });
@@ -170,20 +196,46 @@ export default function AdminLlmSettingsPage() {
               <label className="mb-1 block text-sm font-medium" htmlFor="llm-model">
                 Model
               </label>
-              <input
+              <select
                 id="llm-model"
-                list="llm-model-presets"
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder={DEFAULT_LLM_MODEL}
+                value={selectedModelValue}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === OTHER_MODEL_VALUE) {
+                    setShowOtherModelInput(true);
+                    return;
+                  }
+                  setShowOtherModelInput(false);
+                  setModel(value);
+                  setCustomModel("");
+                }}
                 required
-              />
-              <datalist id="llm-model-presets">
-                {MODEL_PRESETS.map((m) => (
-                  <option key={m} value={m} />
+              >
+                {modelOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
                 ))}
-              </datalist>
+                <option value={OTHER_MODEL_VALUE}>Other</option>
+              </select>
+              {showOtherModelInput && (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    value={customModel}
+                    onChange={(e) => setCustomModel(e.target.value)}
+                    placeholder="Type custom model name"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomModel}
+                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium"
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
               <p className="mt-1 text-xs text-[var(--muted)]">
                 Used for AI paper builder, question generation, and internet fetch.
               </p>
