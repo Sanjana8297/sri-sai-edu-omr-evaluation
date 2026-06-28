@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
@@ -70,6 +70,7 @@ function CutoffStudentRow({ student, track }: { student: CutoffStudent; track: "
 
 export default function AnalyticsMetricDetailPage() {
   const params = useParams<{ metric: string }>();
+  const router = useRouter();
   const metric = params.metric;
   const meta = METRIC_TITLES[metric] ?? { title: "Analytics details", subtitle: "Performance analytics" };
 
@@ -419,6 +420,12 @@ export default function AnalyticsMetricDetailPage() {
       <div className="mb-4">
         <Link
           href="/dashboard/admin/reports?section=analytics"
+          onClick={(e) => {
+            if (typeof window !== "undefined" && window.history.length > 1) {
+              e.preventDefault();
+              router.back();
+            }
+          }}
           className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-medium hover:bg-[var(--background)]"
         >
           ← Back to Performance Analytics

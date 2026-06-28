@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { StatsRowSkeleton, TableSkeleton } from "@/components/skeletons/DashboardSkeletons";
@@ -452,12 +452,6 @@ function MetricContent({ metric, data }: { metric: string; data: InstitutionDash
                 ))}
               </ul>
             )}
-            <Link
-              href="/dashboard/admin/reports/follow-up"
-              className="mt-4 inline-flex text-sm font-medium text-rose-600 hover:underline dark:text-rose-400"
-            >
-              Open follow-up workspace ↗
-            </Link>
           </Panel>
         </div>
       );
@@ -559,6 +553,7 @@ function MetricContent({ metric, data }: { metric: string; data: InstitutionDash
 
 export default function InstitutionMetricDetailPage() {
   const params = useParams<{ metric: string }>();
+  const router = useRouter();
   const metric = params.metric;
   const meta = METRIC_TITLES[metric] ?? { title: "Metric details", subtitle: "Institution dashboard" };
 
@@ -576,6 +571,12 @@ export default function InstitutionMetricDetailPage() {
       <div className="mb-4">
         <Link
           href="/dashboard/admin/reports?section=institution"
+          onClick={(e) => {
+            if (typeof window !== "undefined" && window.history.length > 1) {
+              e.preventDefault();
+              router.back();
+            }
+          }}
           className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-medium hover:bg-[var(--background)]"
         >
           ← Back to Institution Dashboard

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { StatsRowSkeleton } from "@/components/skeletons/DashboardSkeletons";
@@ -22,6 +23,7 @@ type InstitutionDashboardData = {
 };
 
 export default function FollowUpPage() {
+  const router = useRouter();
   useSetDashboardPage({
     title: "Students Needing Follow-up",
     subtitle: "Low performers with subject-wise score breakdown",
@@ -56,6 +58,12 @@ export default function FollowUpPage() {
       <div className="mb-4">
         <Link
           href="/dashboard/admin/reports?section=institution"
+          onClick={(e) => {
+            if (typeof window !== "undefined" && window.history.length > 1) {
+              e.preventDefault();
+              router.back();
+            }
+          }}
           className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-medium hover:bg-[var(--background)]"
         >
           ← Back to Institution Dashboard

@@ -23,14 +23,21 @@ const SECTION_SUBTITLES: Record<ReportsSection, string> = {
   institution: "Centre-level overview",
 };
 
+function isReportsSection(value: string | null): value is ReportsSection {
+  return value === "results" || value === "analytics" || value === "institution";
+}
+
 function AdminReportsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [section, setSection] = useState<ReportsSection>("results");
+  const initialParam = searchParams.get("section");
+  const [section, setSection] = useState<ReportsSection>(
+    isReportsSection(initialParam) ? initialParam : "results"
+  );
 
   useEffect(() => {
     const param = searchParams.get("section");
-    if (param === "results" || param === "analytics" || param === "institution") {
+    if (isReportsSection(param)) {
       setSection(param);
     } else {
       router.replace("/dashboard/admin/reports?section=results");
