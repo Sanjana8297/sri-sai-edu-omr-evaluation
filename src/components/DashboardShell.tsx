@@ -20,30 +20,35 @@ import { DASHBOARD_SURFACE } from "@/lib/dashboard-ui";
 
 const SIDEBAR_COLLAPSED_KEY = "dashboard-sidebar-collapsed";
 
+// 3–4px left accent bar shown on the active item (rounded on its right edge).
+const ACTIVE_BAR =
+  "before:absolute before:inset-y-1.5 before:left-0 before:w-1 before:rounded-r-full before:bg-[var(--nav-active-bar)] before:content-['']";
+
 function navMainClass(active: boolean) {
-  const base = "block rounded-lg px-3 py-2 text-sm transition-colors duration-150 bg-transparent";
+  const base =
+    "relative block rounded-lg px-3 py-2 text-sm transition-colors duration-150 bg-transparent";
   if (active) {
-    return `${base} font-semibold text-[var(--nav-active-text)]`;
+    return `${base} ${ACTIVE_BAR} bg-[var(--nav-active-bg)] font-semibold text-[var(--nav-active-text)] shadow-sm`;
   }
-  return `${base} text-[var(--nav-inactive-text)] hover:text-[var(--nav-hover-text)]`;
+  return `${base} text-[var(--nav-inactive-text)] hover:bg-[var(--nav-hover-bg)] hover:text-[var(--nav-hover-text)]`;
 }
 
 function navParentClass(active: boolean, expanded: boolean) {
   const base =
-    "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150 bg-transparent";
+    "relative flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150 bg-transparent";
   if (active) {
-    return `${base} font-semibold text-[var(--nav-active-text)]`;
+    return `${base} ${ACTIVE_BAR} bg-[var(--nav-active-bg)] font-semibold text-[var(--nav-active-text)] shadow-sm`;
   }
   if (expanded) {
-    return `${base} font-medium text-[var(--nav-hover-text)]`;
+    return `${base} font-medium text-[var(--nav-hover-text)] hover:bg-[var(--nav-hover-bg)]`;
   }
-  return `${base} text-[var(--nav-inactive-text)] hover:text-[var(--nav-hover-text)]`;
+  return `${base} text-[var(--nav-inactive-text)] hover:bg-[var(--nav-hover-bg)] hover:text-[var(--nav-hover-text)]`;
 }
 
 function navChildClass(active: boolean) {
-  const base = "block rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150";
+  const base = "relative block rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150";
   if (active) {
-    return `${base} bg-[var(--nav-hover-bg)] font-semibold text-[var(--nav-active-text)]`;
+    return `${base} ${ACTIVE_BAR} bg-[var(--nav-active-bg)] font-semibold text-[var(--nav-active-text)]`;
   }
   return `${base} bg-transparent text-[var(--nav-inactive-text)] hover:bg-[var(--nav-hover-bg)] hover:text-[var(--nav-hover-text)]`;
 }
@@ -194,28 +199,28 @@ function DashboardShellInner({
               />
               <aside
                 id="dashboard-nav-sidebar"
-                className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[var(--border)] bg-[var(--card)] p-4 transition-transform duration-200 ease-out lg:z-30 ${
+                className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar-bg)] p-4 transition-transform duration-200 ease-out lg:z-30 ${
                   menuOpen ? "translate-x-0" : "-translate-x-full"
                 } ${sidebarCollapsed ? "lg:-translate-x-full" : "lg:translate-x-0"}`}
               >
-                <div className="mb-3 shrink-0 border-b border-[var(--border)] pb-3">
-                  <InstituteBrand compact />
+                <div className="mb-3 shrink-0 border-b border-[var(--sidebar-border)] pb-3">
+                  <InstituteBrand compact onDark />
                 </div>
                 <div className="mb-3 flex shrink-0 items-center justify-between lg:hidden">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Tasks</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--sidebar-muted)]">Tasks</p>
                   <button
                     type="button"
-                    className="rounded-md border border-[var(--border)] px-2 py-1 text-xs"
+                    className="rounded-md border border-[var(--sidebar-border)] px-2 py-1 text-xs text-[var(--nav-inactive-text)] hover:bg-[var(--nav-hover-bg)] hover:text-[var(--nav-hover-text)]"
                     onClick={() => setMenuOpen(false)}
                   >
                     Close
                   </button>
                 </div>
                 <div className="mb-1 hidden shrink-0 items-center justify-between lg:flex">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Tasks</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--sidebar-muted)]">Tasks</p>
                   <button
                     type="button"
-                    className="rounded-md border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--foreground)]"
+                    className="rounded-md border border-[var(--sidebar-border)] px-2 py-1 text-xs font-medium text-[var(--nav-inactive-text)] hover:bg-[var(--nav-hover-bg)] hover:text-[var(--nav-hover-text)]"
                     onClick={() => persistSidebarCollapsed(true)}
                     aria-controls="dashboard-nav-sidebar"
                     aria-expanded={!sidebarCollapsed}
@@ -255,7 +260,7 @@ function DashboardShellInner({
                             </span>
                           </button>
                           {isExpanded ? (
-                            <ul className="ml-2 space-y-0.5 border-l border-[var(--border)] pl-2">
+                            <ul className="ml-2 space-y-0.5 border-l border-[var(--sidebar-border)] pl-2">
                               {item.children!.map((child) => {
                                 const childActive = navHrefIsActive(pathname, search, child.href);
                                 return (

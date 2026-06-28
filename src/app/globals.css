@@ -10,15 +10,20 @@
   --accent: #4f46e5;
   --accent-soft: #eef2ff;
   --border: #e2e8f0;
-  /* Sidebar nav — inactive vs active (matches indigo accent theme) */
+  /* Sidebar surface — deep brand blue (navy) with light content on top */
+  --sidebar-bg: #172554;
+  --sidebar-border: #2a3566;
+  --sidebar-muted: #94a6cc;
+  /* Sidebar nav — inactive vs active (light content on the deep blue surface) */
   --nav-inactive-bg: transparent;
-  --nav-inactive-text: #64748b;
-  --nav-hover-bg: #e8ecf8;
-  --nav-hover-text: #0f172a;
-  --nav-active-bg: #eef2ff;
-  --nav-active-text: #4338ca;
-  --nav-active-ring: #c7d2fe;
-  --nav-parent-active-bg: #f5f7ff;
+  --nav-inactive-text: #cbd5e1;
+  --nav-hover-bg: #243069;
+  --nav-hover-text: #ffffff;
+  --nav-active-bg: #4f46e5;
+  --nav-active-text: #ffffff;
+  --nav-active-ring: #6366f1;
+  --nav-active-bar: #a5b4fc;
+  --nav-parent-active-bg: #243069;
 }
 
 html[data-theme="dark"] {
@@ -29,14 +34,19 @@ html[data-theme="dark"] {
   --accent: #818cf8;
   --accent-soft: #312e81;
   --border: #334155;
+  /* Sidebar surface — deep brand blue (slightly darker for the dark theme) */
+  --sidebar-bg: #131d44;
+  --sidebar-border: #283461;
+  --sidebar-muted: #8a9cc2;
   --nav-inactive-bg: transparent;
-  --nav-inactive-text: #94a3b8;
-  --nav-hover-bg: #1e293b;
-  --nav-hover-text: #f1f5f9;
-  --nav-active-bg: #312e81;
-  --nav-active-text: #c7d2fe;
-  --nav-active-ring: #4f46e5;
-  --nav-parent-active-bg: #1e293b;
+  --nav-inactive-text: #cbd5e1;
+  --nav-hover-bg: #202c5e;
+  --nav-hover-text: #ffffff;
+  --nav-active-bg: #4f46e5;
+  --nav-active-text: #ffffff;
+  --nav-active-ring: #6366f1;
+  --nav-active-bar: #a5b4fc;
+  --nav-parent-active-bg: #202c5e;
 }
 
 body {
