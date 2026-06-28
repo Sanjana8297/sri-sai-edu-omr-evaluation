@@ -232,6 +232,32 @@ export function buildInstitutionDashboardPayload(input: {
 
   const maxMonthly = Math.max(...monthlyAttempts.map((m) => m.count), 1);
 
+  const monthExamMap = new Map<
+    string,
+    Map<string, { title: string; category: string; students: Set<string> }>
+  >();
+  for (const key of monthBuckets.keys()) {
+    monthExamMap.set(key, new Map());
+  }
+  for (const attempt of uniqueAttempts) {
+    const key = monthKey(attempt.examDate);
+    const examMap = monthExamMap.get(key);
+    if (!examMap) continue;
+    const examKey = `${attempt.category}||${attempt.title}`;
+    const bucket =
+      examMap.get(examKey) ?? { title: attempt.title, category: attempt.category, students: new Set<string>() };
+    bucket.students.add(attempt.studentId);
+    examMap.set(examKey, bucket);
+  }
+
+  const monthlyExamBreakdown = [...monthBuckets.keys()].map((key) => ({
+    month: key,
+    label: monthShortLabel(key),
+    exams: [...(monthExamMap.get(key)?.values() ?? [])]
+      .map((e) => ({ title: e.title, category: e.category, studentCount: e.students.size }))
+      .sort((a, b) => b.studentCount - a.studentCount),
+  }));
+
   const understaffedBatches = input.teachers.filter((t) => t._count.students > STAFFING_LIMIT).length;
   const overallRatio = input.teachers.length > 0 ? Math.round(input.totalStudents / input.teachers.length) : 0;
 
@@ -271,6 +297,7 @@ export function buildInstitutionDashboardPayload(input: {
     lowPerformerSubjects,
     lowPerformerList,
     monthlyAttempts,
+    monthlyExamBreakdown,
     maxMonthlyAttempts: maxMonthly,
     staffing: {
       overallRatio: input.teachers.length > 0 ? `1 : ${overallRatio}` : "—",

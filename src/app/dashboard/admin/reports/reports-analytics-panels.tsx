@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
@@ -85,7 +86,7 @@ type TeacherRow = {
   studentCount: number;
 };
 
-type OverviewData = {
+export type OverviewData = {
   counts: { students: number; teachers: number; exams: number };
   avgPercentageAcrossAttempts: number | null;
   students: StudentRow[];
@@ -94,7 +95,275 @@ type OverviewData = {
   performance: AttemptRow[];
 };
 
-const CUTOFF_PCT: Record<string, number> = { NEET: 50, JEE: 90 };
+export const CUTOFF_PCT: Record<string, number> = { NEET: 50, JEE: 90 };
+
+export type TrendPoint = {
+  value: number;
+  examTitle: string;
+  examDate: string;
+  studentName: string;
+};
+
+export type TrendTrackSummary = {
+  avgImprovement: number | null;
+  upwardPct: number | null;
+  sparkline: number[];
+  sparklinePoints: TrendPoint[];
+  comparableStudents: number;
+};
+
+export type CutoffTrackSummary = { latestAvg: number | null; above: number; below: number };
+
+export type CutoffStudent = {
+  studentId: string;
+  studentName: string;
+  examTitle: string;
+  examDate: string;
+  percentage: number;
+  above: boolean;
+};
+
+export type WeakSubjectRow = {
+  subject: string;
+  track: "JEE" | "NEET";
+  label: string;
+  avg: number | null;
+  examCount: number;
+};
+
+export type DifficultyRow = {
+  label: string;
+  avg: number;
+  responseRate: number;
+  count: number;
+  color: string;
+};
+
+export type RecentExamAccuracy = {
+  title: string;
+  examDate: string;
+  accuracy: number;
+  attemptCount: number;
+};
+
+export function severityFor(value: number | null) {
+  if (value == null)
+    return { label: "No data", tone: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200" };
+  if (value < 35) return { label: "Critical", tone: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" };
+  if (value < 50) return { label: "Weak", tone: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" };
+  return { label: "Fair", tone: "bg-lime-100 text-lime-700 dark:bg-lime-950/40 dark:text-lime-300" };
+}
+
+export function computeWeakSubjectsByTrack(
+  subjectScores: SubjectScoresPayload | null
+): Array<{ track: "JEE" | "NEET"; subjects: WeakSubjectRow[] }> {
+  if (!subjectScores) return [];
+  return (["JEE", "NEET"] as const).map((track) => {
+    const subjects = SUBJECTS_BY_TRACK[track].map((subject) => {
+      const row = subjectScores.trackAggregates[track].subjects.find((s) => s.subject === subject);
+      return {
+        subject,
+        track,
+        label: `${subject} (${track})`,
+        avg: row?.avg ?? null,
+        examCount: row?.examCount ?? 0,
+      };
+    });
+    return {
+      track,
+      subjects: subjects.sort((a, b) => (a.avg ?? 100) - (b.avg ?? 100)),
+    };
+  });
+}
+
+export function computeTrendSummary(
+  performance: AttemptRow[]
+): { JEE: TrendTrackSummary; NEET: TrendTrackSummary } {
+  const buildTrack = (track: "JEE" | "NEET"): TrendTrackSummary => {
+    const rows = performance.filter((p) => (track === "NEET" ? p.category === "NEET" : p.category !== "NEET"));
+    const byStudent = new Map<string, AttemptRow[]>();
+    for (const row of rows) {
+      const list = byStudent.get(row.studentId) ?? [];
+      list.push(row);
+      byStudent.set(row.studentId, list);
+    }
+
+    const deltas: number[] = [];
+    let upward = 0;
+    let totalComparable = 0;
+
+    for (const attempts of byStudent.values()) {
+      const sorted = [...attempts].sort(
+        (a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime()
+      );
+      const recent = sorted.slice(-4);
+      if (recent.length >= 2) {
+        const delta = recent[recent.length - 1]!.percentage - recent[0]!.percentage;
+        deltas.push(delta);
+        totalComparable += 1;
+        if (delta > 0) upward += 1;
+      }
+    }
+
+    const allSorted = [...rows].sort(
+      (a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime()
+    );
+    const sparklinePoints = allSorted.slice(-6).map((a) => ({
+      value: Math.round(a.percentage),
+      examTitle: a.title,
+      examDate: a.examDate,
+      studentName: a.studentName,
+    }));
+
+    return {
+      avgImprovement:
+        deltas.length > 0
+          ? Math.round((deltas.reduce((sum, d) => sum + d, 0) / deltas.length) * 10) / 10
+          : null,
+      upwardPct: totalComparable > 0 ? Math.round((upward / totalComparable) * 100) : null,
+      sparkline: sparklinePoints.map((p) => p.value),
+      sparklinePoints,
+      comparableStudents: totalComparable,
+    };
+  };
+
+  return { JEE: buildTrack("JEE"), NEET: buildTrack("NEET") };
+}
+
+export function computeCutoffSummary(performance: AttemptRow[]): {
+  NEET: CutoffTrackSummary;
+  JEE: CutoffTrackSummary;
+  aiPrediction: number;
+} {
+  const latestByStudent = new Map<string, AttemptRow>();
+  for (const row of performance) {
+    const prev = latestByStudent.get(row.studentId);
+    if (!prev || new Date(row.examDate).getTime() > new Date(prev.examDate).getTime()) {
+      latestByStudent.set(row.studentId, row);
+    }
+  }
+
+  const byTrack: Record<"JEE" | "NEET", AttemptRow[]> = { JEE: [], NEET: [] };
+  for (const row of latestByStudent.values()) {
+    const track = row.category === "NEET" ? "NEET" : "JEE";
+    byTrack[track].push(row);
+  }
+
+  const build = (track: "JEE" | "NEET"): CutoffTrackSummary => {
+    const rows = byTrack[track];
+    const cutoff = CUTOFF_PCT[track];
+    const above = rows.filter((r) => r.percentage >= cutoff).length;
+    const below = rows.length - above;
+    const latestAvg =
+      rows.length > 0
+        ? Math.round((rows.reduce((sum, r) => sum + r.percentage, 0) / rows.length) * 10) / 10
+        : null;
+    return { latestAvg, above, below };
+  };
+
+  const aiPrediction = byTrack.JEE.filter(
+    (r) => r.percentage < CUTOFF_PCT.JEE && r.percentage >= CUTOFF_PCT.JEE - 12
+  ).length;
+
+  return { NEET: build("NEET"), JEE: build("JEE"), aiPrediction };
+}
+
+/** Latest attempt per student, grouped by track, classified above/below the cut-off. */
+export function computeCutoffStudents(
+  performance: AttemptRow[]
+): { JEE: CutoffStudent[]; NEET: CutoffStudent[] } {
+  const latestByStudent = new Map<string, AttemptRow>();
+  for (const row of performance) {
+    const prev = latestByStudent.get(row.studentId);
+    if (!prev || new Date(row.examDate).getTime() > new Date(prev.examDate).getTime()) {
+      latestByStudent.set(row.studentId, row);
+    }
+  }
+
+  const byTrack: { JEE: CutoffStudent[]; NEET: CutoffStudent[] } = { JEE: [], NEET: [] };
+  for (const row of latestByStudent.values()) {
+    const track = row.category === "NEET" ? "NEET" : "JEE";
+    byTrack[track].push({
+      studentId: row.studentId,
+      studentName: row.studentName,
+      examTitle: row.title,
+      examDate: row.examDate,
+      percentage: row.percentage,
+      above: row.percentage >= CUTOFF_PCT[track],
+    });
+  }
+
+  byTrack.JEE.sort((a, b) => b.percentage - a.percentage);
+  byTrack.NEET.sort((a, b) => b.percentage - a.percentage);
+  return byTrack;
+}
+
+export function computeDifficultyAnalysis(performance: AttemptRow[]): DifficultyRow[] {
+  const buckets = [
+    { label: "Easy", match: (t: string) => /mock|practice|easy/i.test(t), color: "bg-lime-500" },
+    {
+      label: "Medium",
+      match: (t: string) => !/mock|practice|easy|full|grand/i.test(t),
+      color: "bg-amber-500",
+    },
+    { label: "Hard", match: (t: string) => /full|grand|final/i.test(t), color: "bg-orange-500" },
+  ];
+  return buckets.map((b) => {
+    const rows = performance.filter((p) => b.match(p.title));
+    const avg = rows.length > 0 ? rows.reduce((s, r) => s + r.percentage, 0) / rows.length : 0;
+    return {
+      label: b.label,
+      avg: Math.round(avg * 10) / 10,
+      responseRate: rows.length > 0 ? Math.min(100, Math.round(avg)) : 0,
+      count: rows.length,
+      color: b.color,
+    };
+  });
+}
+
+/** Average accuracy (score %) per exam for the most recent exams, newest first. */
+export function computeRecentExamAccuracy(
+  performance: AttemptRow[],
+  limit = 4
+): RecentExamAccuracy[] {
+  const byExam = new Map<string, { title: string; examDate: string; sum: number; count: number }>();
+  for (const row of performance) {
+    const key = `${row.title}__${row.examDate}`;
+    const entry = byExam.get(key) ?? { title: row.title, examDate: row.examDate, sum: 0, count: 0 };
+    entry.sum += row.percentage;
+    entry.count += 1;
+    byExam.set(key, entry);
+  }
+
+  return [...byExam.values()]
+    .sort((a, b) => new Date(b.examDate).getTime() - new Date(a.examDate).getTime())
+    .slice(0, limit)
+    .map((e) => ({
+      title: e.title,
+      examDate: e.examDate,
+      accuracy: Math.round((e.sum / e.count) * 10) / 10,
+      attemptCount: e.count,
+    }));
+}
+
+export function computeDifficultyNotes(
+  subjectScores: SubjectScoresPayload | null
+): { missed: string; best: string } {
+  if (!subjectScores) return { missed: "—", best: "—" };
+  const allSubjects = (["JEE", "NEET"] as const).flatMap((track) =>
+    subjectScores.trackAggregates[track].subjects.map((s) => ({ ...s, track }))
+  );
+  const withData = allSubjects.filter((s) => s.avg != null);
+  if (withData.length === 0) return { missed: "—", best: "—" };
+  const worst = withData.reduce((a, b) => ((a.avg ?? 100) < (b.avg ?? 100) ? a : b));
+  const best = withData.reduce((a, b) => ((a.avg ?? 0) > (b.avg ?? 0) ? a : b));
+  return {
+    missed: `${worst.subject} (${worst.track})`,
+    best: `${best.subject} (${best.track})`,
+  };
+}
+
+export const ANALYTICS_DETAIL_BASE = "/dashboard/admin/reports/analytics";
 
 const RESULT_ACTIVITIES: ActivityFeature[] = [
   { id: "rank", title: "Rank list", description: "Instant aggregate across attempts with latest exam scores" },
@@ -500,167 +769,42 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
   const { subjectScores, subjectScoresLoading } = useSubjectScores();
   const hasPerformance = (data?.performance.length ?? 0) > 0;
 
-  const weakSubjectsByTrack = useMemo(() => {
-    if (!subjectScores) return [];
-    return (["JEE", "NEET"] as const).map((track) => {
-      const subjects = SUBJECTS_BY_TRACK[track].map((subject) => {
-        const row = subjectScores.trackAggregates[track].subjects.find((s) => s.subject === subject);
-        return {
-          subject,
-          track,
-          label: `${subject} (${track})`,
-          avg: row?.avg ?? null,
-          examCount: row?.examCount ?? 0,
-        };
-      });
-      return {
-        track,
-        subjects: subjects.sort((a, b) => (a.avg ?? 100) - (b.avg ?? 100)),
-      };
-    });
-  }, [subjectScores]);
+  const weakSubjectsByTrack = useMemo(() => computeWeakSubjectsByTrack(subjectScores), [subjectScores]);
 
-  const trendSummary = useMemo(() => {
-    const empty = { avgImprovement: null as number | null, upwardPct: null as number | null, sparkline: [] as number[] };
-    if (!data) return { JEE: empty, NEET: empty };
+  const trendSummary = useMemo(
+    () =>
+      data
+        ? computeTrendSummary(data.performance)
+        : {
+            JEE: { avgImprovement: null, upwardPct: null, sparkline: [], sparklinePoints: [], comparableStudents: 0 },
+            NEET: { avgImprovement: null, upwardPct: null, sparkline: [], sparklinePoints: [], comparableStudents: 0 },
+          },
+    [data]
+  );
 
-    const buildTrack = (track: "JEE" | "NEET") => {
-      const rows = data.performance.filter((p) => (track === "NEET" ? p.category === "NEET" : p.category !== "NEET"));
-      const byStudent = new Map<string, AttemptRow[]>();
-      for (const row of rows) {
-        const list = byStudent.get(row.studentId) ?? [];
-        list.push(row);
-        byStudent.set(row.studentId, list);
-      }
+  const cutoffSummary = useMemo(
+    () =>
+      data
+        ? computeCutoffSummary(data.performance)
+        : {
+            NEET: { latestAvg: null, above: 0, below: 0 },
+            JEE: { latestAvg: null, above: 0, below: 0 },
+            aiPrediction: 0,
+          },
+    [data]
+  );
 
-      const deltas: number[] = [];
-      let upward = 0;
-      let totalComparable = 0;
+  const difficultyAnalysis = useMemo(
+    () => (data ? computeDifficultyAnalysis(data.performance) : []),
+    [data]
+  );
 
-      for (const attempts of byStudent.values()) {
-        const sorted = [...attempts].sort(
-          (a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime()
-        );
-        const recent = sorted.slice(-4);
-        if (recent.length >= 2) {
-          const delta = recent[recent.length - 1]!.percentage - recent[0]!.percentage;
-          deltas.push(delta);
-          totalComparable += 1;
-          if (delta > 0) upward += 1;
-        }
-      }
-
-      const allSorted = [...rows].sort(
-        (a, b) => new Date(a.examDate).getTime() - new Date(b.examDate).getTime()
-      );
-      const sparkline = allSorted.slice(-6).map((a) => Math.round(a.percentage));
-
-      return {
-        avgImprovement:
-          deltas.length > 0
-            ? Math.round((deltas.reduce((sum, d) => sum + d, 0) / deltas.length) * 10) / 10
-            : null,
-        upwardPct:
-          totalComparable > 0 ? Math.round((upward / totalComparable) * 100) : null,
-        sparkline,
-      };
-    };
-
-    return { JEE: buildTrack("JEE"), NEET: buildTrack("NEET") };
-  }, [data]);
-
-  const cutoffSummary = useMemo(() => {
-    if (!data) {
-      return {
-        NEET: { latestAvg: null as number | null, above: 0, below: 0 },
-        JEE: { latestAvg: null as number | null, above: 0, below: 0 },
-        aiPrediction: 0,
-      };
-    }
-
-    const latestByStudent = new Map<string, AttemptRow>();
-    for (const row of data.performance) {
-      const prev = latestByStudent.get(row.studentId);
-      if (!prev || new Date(row.examDate).getTime() > new Date(prev.examDate).getTime()) {
-        latestByStudent.set(row.studentId, row);
-      }
-    }
-
-    const byTrack: Record<"JEE" | "NEET", AttemptRow[]> = { JEE: [], NEET: [] };
-    for (const row of latestByStudent.values()) {
-      const track = row.category === "NEET" ? "NEET" : "JEE";
-      byTrack[track].push(row);
-    }
-
-    const build = (track: "JEE" | "NEET") => {
-      const rows = byTrack[track];
-      const cutoff = CUTOFF_PCT[track];
-      const above = rows.filter((r) => r.percentage >= cutoff).length;
-      const below = rows.length - above;
-      const latestAvg =
-        rows.length > 0
-          ? Math.round((rows.reduce((sum, r) => sum + r.percentage, 0) / rows.length) * 10) / 10
-          : null;
-      return { latestAvg, above, below };
-    };
-
-    const aiPrediction = byTrack.JEE.filter(
-      (r) => r.percentage < CUTOFF_PCT.JEE && r.percentage >= CUTOFF_PCT.JEE - 12
-    ).length;
-
-    return { NEET: build("NEET"), JEE: build("JEE"), aiPrediction };
-  }, [data]);
-
-  const difficultyAnalysis = useMemo(() => {
-    if (!data) return [];
-    const buckets = [
-      { label: "Easy", match: (t: string) => /mock|practice|easy/i.test(t), color: "bg-lime-500" },
-      {
-        label: "Medium",
-        match: (t: string) => !/mock|practice|easy|full|grand/i.test(t),
-        color: "bg-amber-500",
-      },
-      { label: "Hard", match: (t: string) => /full|grand|final/i.test(t), color: "bg-orange-500" },
-    ];
-    return buckets.map((b) => {
-      const rows = data.performance.filter((p) => b.match(p.title));
-      const avg = rows.length > 0 ? rows.reduce((s, r) => s + r.percentage, 0) / rows.length : 0;
-      return {
-        label: b.label,
-        avg: Math.round(avg * 10) / 10,
-        responseRate: rows.length > 0 ? Math.min(100, Math.round(avg)) : 0,
-        count: rows.length,
-        color: b.color,
-      };
-    });
-  }, [data]);
-
-  const difficultyNotes = useMemo(() => {
-    if (!subjectScores) return { missed: "—", best: "—" };
-    const allSubjects = (["JEE", "NEET"] as const).flatMap((track) =>
-      subjectScores.trackAggregates[track].subjects.map((s) => ({ ...s, track }))
-    );
-    const withData = allSubjects.filter((s) => s.avg != null);
-    if (withData.length === 0) return { missed: "—", best: "—" };
-    const worst = withData.reduce((a, b) => ((a.avg ?? 100) < (b.avg ?? 100) ? a : b));
-    const best = withData.reduce((a, b) => ((a.avg ?? 0) > (b.avg ?? 0) ? a : b));
-    return {
-      missed: `${worst.subject} (${worst.track})`,
-      best: `${best.subject} (${best.track})`,
-    };
-  }, [subjectScores]);
+  const difficultyNotes = useMemo(() => computeDifficultyNotes(subjectScores), [subjectScores]);
 
   if (loading) return <PanelLoading />;
   if (!hasPerformance) return <NoExamDataNote />;
 
   const subjectScoresPending = subjectScoresLoading || !subjectScores;
-
-  const severityFor = (value: number | null) => {
-    if (value == null) return { label: "No data", tone: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200" };
-    if (value < 35) return { label: "Critical", tone: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300" };
-    if (value < 50) return { label: "Weak", tone: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" };
-    return { label: "Fair", tone: "bg-lime-100 text-lime-700 dark:bg-lime-950/40 dark:text-lime-300" };
-  };
 
   const maxSpark = (sparkline: number[]) => Math.max(...sparkline, 1);
 
@@ -723,6 +867,12 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
             ))}
           </div>
           )}
+          <Link
+            href={`${ANALYTICS_DETAIL_BASE}/weak-chapters`}
+            className="mt-4 inline-flex text-sm font-medium text-[var(--accent)] hover:underline"
+          >
+            View weak chapters ↗
+          </Link>
         </article>
 
         <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
@@ -772,6 +922,12 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
               </div>
             ))}
           </div>
+          <Link
+            href={`${ANALYTICS_DETAIL_BASE}/trend`}
+            className="mt-4 inline-flex text-sm font-medium text-[var(--accent)] hover:underline"
+          >
+            View improvement trend ↗
+          </Link>
         </article>
 
         <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
@@ -794,6 +950,12 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
           <div className="mt-4 rounded-lg bg-violet-100 px-3 py-2 text-sm text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
             AI predicts {cutoffSummary.aiPrediction} students could cross JEE cutoff with 3 more full-length tests.
           </div>
+          <Link
+            href={`${ANALYTICS_DETAIL_BASE}/cutoff`}
+            className="mt-4 inline-flex text-sm font-medium text-[var(--accent)] hover:underline"
+          >
+            View cut-off proximity ↗
+          </Link>
         </article>
 
         <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
@@ -819,6 +981,12 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
               Best accuracy: {difficultyNotes.best}
             </p>
           </div>
+          <Link
+            href={`${ANALYTICS_DETAIL_BASE}/difficulty`}
+            className="mt-4 inline-flex text-sm font-medium text-[var(--accent)] hover:underline"
+          >
+            View difficulty analysis ↗
+          </Link>
         </article>
       </div>
     </div>

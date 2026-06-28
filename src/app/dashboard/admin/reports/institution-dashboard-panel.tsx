@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { StatsRowSkeleton } from "@/components/skeletons/DashboardSkeletons";
 import { StatBlock } from "@/components/reports/StatBlock";
 import { useInstitutionDashboardQuery } from "@/hooks/data/use-admin-queries";
+
+const INSTITUTION_DETAIL_BASE = "/dashboard/admin/reports/institution";
 
 type InstitutionDashboardData = {
   academicYear: string;
@@ -218,6 +220,7 @@ export function InstitutionDashboardPanel() {
           value={summary.totalStudents.toLocaleString()}
           detail={growthLabel}
           detailTone={summary.studentGrowthPositive ? "positive" : "negative"}
+          viewHref={`${INSTITUTION_DETAIL_BASE}/total-students`}
         />
         <StatBlock
           icon={<FolderIcon />}
@@ -225,6 +228,7 @@ export function InstitutionDashboardPanel() {
           title="Active batches"
           value={summary.activeBatches}
           detail={`JEE: ${summary.jeeBatches} · NEET: ${summary.neetBatches}`}
+          viewHref={`${INSTITUTION_DETAIL_BASE}/active-batches`}
         />
         <StatBlock
           icon={<AlertIcon />}
@@ -237,6 +241,7 @@ export function InstitutionDashboardPanel() {
               : `Below ${dashboardData.lowPerformerThreshold}% average`
           }
           detailTone={summary.lowPerformersNewThisWeek > 0 ? "negative" : "neutral"}
+          viewHref={`${INSTITUTION_DETAIL_BASE}/low-performers`}
         />
         <StatBlock
           icon={<DocIcon />}
@@ -245,6 +250,7 @@ export function InstitutionDashboardPanel() {
           value={summary.examsThisMonth}
           detail={examDeltaLabel}
           detailTone={summary.examsMonthDeltaPositive ? "positive" : "negative"}
+          viewHref={`${INSTITUTION_DETAIL_BASE}/exams-this-month`}
         />
       </div>
 
@@ -258,6 +264,7 @@ export function InstitutionDashboardPanel() {
             iconBg="bg-violet-600"
             title="Batch-wise score heatmap"
             subtitle="Average % by mentor batch and track"
+            footer={{ label: "View all batches", href: `${INSTITUTION_DETAIL_BASE}/batch-heatmap` }}
           >
             <p className="mb-3 text-xs font-medium text-[var(--muted)]">Top batches this month</p>
             {dashboardData.allBatches.length === 0 ? (
@@ -350,6 +357,7 @@ export function InstitutionDashboardPanel() {
             iconBg="bg-teal-600"
             title="Exam frequency & coverage tracker"
             subtitle="Attempts logged per month"
+            footer={{ label: "View exam frequency", href: `${INSTITUTION_DETAIL_BASE}/exam-frequency` }}
           >
             <p className="mb-3 text-xs font-medium text-[var(--muted)]">Monthly attempts — last 4 months</p>
             {dashboardData.monthlyAttempts.every((m) => m.count === 0) ? (
@@ -374,6 +382,7 @@ export function InstitutionDashboardPanel() {
             iconBg="bg-amber-500"
             title="Teacher–student ratio insights"
             subtitle="Centre staffing vs enrolment"
+            footer={{ label: "View staffing details", href: `${INSTITUTION_DETAIL_BASE}/staffing` }}
           >
             <div className="mb-3 grid grid-cols-2 gap-3">
               <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
