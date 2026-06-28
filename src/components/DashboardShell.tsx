@@ -92,9 +92,11 @@ function DashboardShellInner({
     }
   }, []);
 
+  // When the active route changes, keep only the section that contains the
+  // current page expanded and collapse every other section.
   useEffect(() => {
-    setExpandedHrefs((prev) => {
-      const next = new Set(prev);
+    setExpandedHrefs(() => {
+      const next = new Set<string>();
       for (const item of resolvedNavItems) {
         if (item.children?.some((child) => navHrefIsActive(pathname, search, child.href))) {
           next.add(item.href);
