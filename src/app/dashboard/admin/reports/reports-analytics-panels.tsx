@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ActivityFeature } from "@/components/FeatureActivityHub";
@@ -423,7 +424,7 @@ function NoExamDataNote() {
   );
 }
 
-function SubjectBreakdownList({
+export function SubjectBreakdownList({
   title,
   subtitle,
   allAttempts,
@@ -487,10 +488,10 @@ export function ResultScoreReportsPanel({
   resetKey?: string;
   initialOverview?: Awaited<ReturnType<typeof import("@/lib/data/fetchers").fetchReportsOverview>>;
 }) {
+  const router = useRouter();
   const { data, loading } = useReportsOverview("/api/admin/overview", initialOverview);
-  const { subjectScores, subjectScoresLoading } = useSubjectScoresApi("/api/admin/reports/subject-scores");
+  const { subjectScores } = useSubjectScoresApi("/api/admin/reports/subject-scores");
   const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
-  const [selectedStudentId, setSelectedStudentId] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const [reportCardOpen, setReportCardOpen] = useState(false);
   const [reportStudentId, setReportStudentId] = useState("");
@@ -513,21 +514,6 @@ export function ResultScoreReportsPanel({
   );
 
   const filteredRanks = rankList.filter((r) => trackFilter === "ALL" || r.category === trackFilter);
-
-  const selectedStudent = data?.students.find((s) => s.id === selectedStudentId);
-  const selectedBreakdown = useMemo(() => {
-    if (!subjectScores || !selectedStudentId) return null;
-    const student = data?.students.find((s) => s.id === selectedStudentId);
-    const entry = subjectScores.byStudent[selectedStudentId];
-    if (!student || !entry) return null;
-    return {
-      title: `${student.name} · Target ${entry.track}`,
-      subtitle: "Average % per subject across all exam attempts on the report card",
-      allAttempts: entry.allAttempts,
-      overallAvg: entry.overallAvg,
-      scores: entry.subjects,
-    };
-  }, [data, selectedStudentId, subjectScores]);
 
   const reportStudent = data?.students.find((s) => s.id === reportStudentId);
   const reportStudentStats = reportStudentId ? subjectScores?.byStudent[reportStudentId] : undefined;
@@ -632,7 +618,7 @@ export function ResultScoreReportsPanel({
             type="button"
             className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-medium hover:bg-[var(--background)]"
             onClick={() => {
-              setReportStudentId(selectedStudentId || data?.students[0]?.id || "");
+              setReportStudentId(data?.students[0]?.id || "");
               setReportCardOpen(true);
             }}
           >
@@ -644,49 +630,31 @@ export function ResultScoreReportsPanel({
       {!hasPerformance ? (
         <NoExamDataNote />
       ) : (
-        <>
-          <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-            <div className="mb-4 flex flex-wrap gap-2">
-              {(["ALL", "JEE", "NEET"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={`rounded-full px-3 py-1 text-xs font-medium ${
-                    trackFilter === t ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"
-                  }`}
-                  onClick={() => setTrackFilter(t)}
-                >
-                  {t === "ALL" ? "All tracks" : t}
-                </button>
-              ))}
-            </div>
-            <RankListTable
-              rows={filteredRanks}
-              selectedStudentId={selectedStudentId}
-              onSelectStudent={setSelectedStudentId}
-            />
-          </section>
-
-          {selectedStudentId ? (
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-              <h3 className="text-lg font-semibold">Subject-wise score breakdown</h3>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                {selectedStudent ? `Scores for ${selectedStudent.name}` : "Loading student…"}
-              </p>
-              <div className="mt-4">
-                {subjectScoresLoading ? (
-                  <p className="text-sm text-[var(--muted)]">Loading subject scores…</p>
-                ) : selectedBreakdown ? (
-                  <SubjectBreakdownList {...selectedBreakdown} />
-                ) : (
-                  <p className="text-sm text-[var(--muted)]">
-                    No subject breakdown available for this student yet.
-                  </p>
-                )}
-              </div>
-            </section>
-          ) : null}
-        </>
+        <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(["ALL", "JEE", "NEET"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  trackFilter === t ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"
+                }`}
+                onClick={() => setTrackFilter(t)}
+              >
+                {t === "ALL" ? "All tracks" : t}
+              </button>
+            ))}
+          </div>
+          <p className="mb-3 text-xs text-[var(--muted)]">
+            Select a student to view their subject-wise breakdown and analysis notes.
+          </p>
+          <RankListTable
+            rows={filteredRanks}
+            onSelectStudent={(id) => {
+              if (id) router.push(`/dashboard/admin/reports/student/${encodeURIComponent(id)}`);
+            }}
+          />
+        </section>
       )}
 
       {reportCardOpen ? (

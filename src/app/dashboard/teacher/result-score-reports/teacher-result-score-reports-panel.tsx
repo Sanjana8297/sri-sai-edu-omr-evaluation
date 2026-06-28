@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildRankListFromPerformance,
@@ -20,68 +21,11 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
-function SubjectBreakdownList({
-  title,
-  subtitle,
-  allAttempts,
-  overallAvg,
-  scores,
-}: {
-  title: string;
-  subtitle: string;
-  allAttempts: number;
-  overallAvg: number | null;
-  scores: Array<{ subject: string; avg: number | null; examCount: number }>;
-}) {
-  return (
-    <div className="space-y-3">
-      <p className="text-sm text-[var(--muted)]">
-        {title} · {subtitle}
-      </p>
-      <p className="text-sm">
-        Total attempts: <strong>{allAttempts}</strong>
-        {" · "}
-        Total average: <strong>{overallAvg != null ? `${overallAvg}%` : "—"}</strong>
-      </p>
-      <ul className="space-y-2">
-        {scores.map((s) => (
-          <li key={s.subject} className="flex items-center gap-3">
-            <span className="w-28 shrink-0 text-sm font-medium">{s.subject}</span>
-            <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
-              <div
-                className="h-full rounded-full bg-[var(--accent)]"
-                style={{ width: `${s.avg != null ? Math.min(100, s.avg) : 0}%` }}
-              />
-            </div>
-            <span className="w-24 text-right text-sm font-medium">{s.avg != null ? `${s.avg}%` : "—"}</span>
-            <span className="w-28 text-right text-xs text-[var(--muted)]">
-              {s.examCount > 0 ? `${s.examCount} test${s.examCount === 1 ? "" : "s"}` : "No data"}
-            </span>
-          </li>
-        ))}
-        <li className="flex items-center gap-3 border-t border-[var(--border)] pt-3">
-          <span className="w-28 shrink-0 text-sm font-semibold">Total Average</span>
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
-            <div
-              className="h-full rounded-full bg-[var(--accent)]"
-              style={{ width: `${overallAvg != null ? Math.min(100, overallAvg) : 0}%` }}
-            />
-          </div>
-          <span className="w-24 text-right text-sm font-semibold">
-            {overallAvg != null ? `${overallAvg}%` : "—"}
-          </span>
-          <span className="w-28 text-right text-xs text-[var(--muted)]">Combined</span>
-        </li>
-      </ul>
-    </div>
-  );
-}
-
 export function TeacherResultScoreReportsPanel() {
+  const router = useRouter();
   const { data, loading } = useReportsOverview("/api/teacher/reports/overview");
-  const { subjectScores, subjectScoresLoading } = useSubjectScoresApi("/api/teacher/reports/subject-scores");
+  const { subjectScores } = useSubjectScoresApi("/api/teacher/reports/subject-scores");
   const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
-  const [selectedStudentId, setSelectedStudentId] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const [reportCardOpen, setReportCardOpen] = useState(false);
   const [reportStudentId, setReportStudentId] = useState("");
@@ -104,21 +48,6 @@ export function TeacherResultScoreReportsPanel() {
   );
 
   const filteredRanks = rankList.filter((r) => trackFilter === "ALL" || r.category === trackFilter);
-
-  const selectedStudent = data?.students.find((s) => s.id === selectedStudentId);
-  const selectedBreakdown = useMemo(() => {
-    if (!subjectScores || !selectedStudentId) return null;
-    const student = data?.students.find((s) => s.id === selectedStudentId);
-    const entry = subjectScores.byStudent[selectedStudentId];
-    if (!student || !entry) return null;
-    return {
-      title: `${student.name} · Target ${entry.track}`,
-      subtitle: "Average % per subject across all exam attempts on the report card",
-      allAttempts: entry.allAttempts,
-      overallAvg: entry.overallAvg,
-      scores: entry.subjects,
-    };
-  }, [data, selectedStudentId, subjectScores]);
 
   const reportStudent = data?.students.find((s) => s.id === reportStudentId);
   const reportStudentStats = reportStudentId ? subjectScores?.byStudent[reportStudentId] : undefined;
@@ -221,7 +150,7 @@ export function TeacherResultScoreReportsPanel() {
             type="button"
             className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-medium hover:bg-[var(--background)]"
             onClick={() => {
-              setReportStudentId(selectedStudentId || data?.students[0]?.id || "");
+              setReportStudentId(data?.students[0]?.id || "");
               setReportCardOpen(true);
             }}
           >
@@ -235,47 +164,31 @@ export function TeacherResultScoreReportsPanel() {
           No exam data yet. Schedule exams and record attempts to populate this report.
         </p>
       ) : (
-        <>
-          <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-            <div className="mb-4 flex flex-wrap gap-2">
-              {(["ALL", "JEE", "NEET"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={`rounded-full px-3 py-1 text-xs font-medium ${
-                    trackFilter === t ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"
-                  }`}
-                  onClick={() => setTrackFilter(t)}
-                >
-                  {t === "ALL" ? "All tracks" : t}
-                </button>
-              ))}
-            </div>
-            <RankListTable
-              rows={filteredRanks}
-              selectedStudentId={selectedStudentId}
-              onSelectStudent={setSelectedStudentId}
-            />
-          </section>
-
-          {selectedStudentId ? (
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-              <h3 className="text-lg font-semibold">Subject-wise score breakdown</h3>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                {selectedStudent ? `Scores for ${selectedStudent.name}` : "Loading student…"}
-              </p>
-              <div className="mt-4">
-                {subjectScoresLoading ? (
-                  <p className="text-sm text-[var(--muted)]">Loading subject scores…</p>
-                ) : selectedBreakdown ? (
-                  <SubjectBreakdownList {...selectedBreakdown} />
-                ) : (
-                  <p className="text-sm text-[var(--muted)]">No subject breakdown available for this student yet.</p>
-                )}
-              </div>
-            </section>
-          ) : null}
-        </>
+        <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(["ALL", "JEE", "NEET"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  trackFilter === t ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"
+                }`}
+                onClick={() => setTrackFilter(t)}
+              >
+                {t === "ALL" ? "All tracks" : t}
+              </button>
+            ))}
+          </div>
+          <p className="mb-3 text-xs text-[var(--muted)]">
+            Select a student to view their subject-wise breakdown and analysis notes.
+          </p>
+          <RankListTable
+            rows={filteredRanks}
+            onSelectStudent={(id) => {
+              if (id) router.push(`/dashboard/teacher/result-score-reports/student/${encodeURIComponent(id)}`);
+            }}
+          />
+        </section>
       )}
 
       {reportCardOpen ? (
