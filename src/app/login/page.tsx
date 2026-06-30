@@ -40,7 +40,7 @@ export default function LoginPage() {
     <div className="relative flex min-h-screen flex-col">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
         <Image
-          src="/images/sri_sai_login_education_v5.png"
+          src="/images/sri_sai_login_education_v5_2.png"
           alt=""
           fill
           className="object-cover object-center"
