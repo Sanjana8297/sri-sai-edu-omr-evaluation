@@ -34,6 +34,14 @@ import { buildQuestionsSearchParams } from "@/hooks/questions/fetch-questions-pa
 import { QUESTION_BANK_PAGE_SIZE } from "@/hooks/questions/use-question-bank-paged";
 import { useDebouncedValue } from "@/hooks/questions/use-debounced-value";
 import type { QuestionBankFilters as QuestionBankQueryFilters } from "@/lib/questions/types";
+import {
+  dashBlock,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashInput,
+  dashPanel,
+  dashSelect,
+} from "@/lib/dashboard-ui";
 
 type QuestionBankItem = {
   id: number;
@@ -841,7 +849,7 @@ function TeacherManualBuilderPage() {
                 <input type="checkbox" checked={bankRepeatedOnly} onChange={(e) => setBankRepeatedOnly(e.target.checked)} />
                 Repeated only
               </label>
-              <button type="button" className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-white" onClick={loadQuestionBank} disabled={bankLoading}>
+              <button type="button" className={dashBtnPrimary} onClick={loadQuestionBank} disabled={bankLoading}>
                 {bankLoading ? "Loading..." : "Refresh"}
               </button>
               <button type="button" className="rounded-lg border border-[var(--border)] px-3 py-1.5" onClick={toggleSelectAllCurrentPage} disabled={bankLoading || bankItems.length === 0}>
@@ -997,7 +1005,7 @@ function TeacherManualBuilderPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  className={dashBtnPrimary}
                   onClick={() => void runTypedQuestionLookup()}
                   disabled={typedLookupLoading}
                 >
@@ -1047,7 +1055,7 @@ function TeacherManualBuilderPage() {
                   </div>
                   <button
                     type="button"
-                    className="mt-3 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+                    className={dashBtnPrimary}
                     onClick={() => addBankQuestionToPaper(typedLookupFound)}
                   >
                     Add this bank question to paper
@@ -1080,7 +1088,7 @@ function TeacherManualBuilderPage() {
                   </label>
                   <button
                     type="button"
-                    className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                    className={dashBtnPrimary}
                     disabled={customAddSaving}
                     onClick={() => void addCustomQuestionToPaper()}
                   >
@@ -1197,7 +1205,7 @@ function TeacherManualBuilderPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className={dashBtnPrimary}
                 disabled={paperSlots.length === 0}
                 onClick={() => goToWorkflowStep(2)}
               >
@@ -1393,7 +1401,7 @@ function TeacherManualBuilderPage() {
               </button>
               <button
                 type="button"
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className={dashBtnPrimary}
                 disabled={paperSlots.length === 0}
                 onClick={() => generateQuestionPaperFromSlots()}
               >
@@ -1401,7 +1409,7 @@ function TeacherManualBuilderPage() {
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className={dashBtnPrimary}
                 disabled={paperSlots.length === 0 || !paperPreviewReady || !title.trim()}
               >
                 Save paper

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { dashActivityCard, dashActivityRow } from "@/lib/dashboard-ui";
+import { dashActivityCard, dashActivityRow, dashBtnPrimary, dashCard, dashCardMeta, dashCardTitle, dashPanel } from "@/lib/dashboard-ui";
 
 export type ActivityFeature = {
   id: string;
@@ -73,18 +73,14 @@ export function FeatureActivityHub({
         >
           ← Back to activities
         </button>
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 sm:p-6">
-          <h3 className="text-base font-semibold text-[var(--foreground)]">{active.title}</h3>
-          <p className="mt-1 text-sm text-[var(--muted)]">{active.description}</p>
-          <div className="mt-5 border-t border-[var(--border)] pt-5">{renderFeature(activeId, actions)}</div>
+        <section className={dashPanel}>
+          <h3 className={dashCardTitle}>{active.title}</h3>
+          <p className={dashCardMeta}>{active.description}</p>
+          <div className="mt-6 border-t border-[var(--border)] pt-6">{renderFeature(activeId, actions)}</div>
           {nextFeature ? (
-            <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-[var(--border)] pt-5">
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-[var(--border)] pt-6">
               {nextError ? <p className="mr-auto text-xs text-red-600">{nextError}</p> : null}
-              <button
-                type="button"
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
-                onClick={actions.openNextFeature}
-              >
+              <button type="button" className={dashBtnPrimary} onClick={actions.openNextFeature}>
                 Next: {nextFeature.title} →
               </button>
             </div>
@@ -101,12 +97,12 @@ export function FeatureActivityHub({
           key={feature.id}
           type="button"
           onClick={() => setActiveId(feature.id)}
-          className={`${dashActivityCard} group rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 text-left transition-[border-color,box-shadow,background-color] duration-200 hover:border-[var(--accent)] hover:bg-[var(--nav-hover-bg)] hover:shadow-[0_0_0_2px_var(--nav-active-ring)] focus-visible:outline-none focus-visible:border-[var(--accent)] focus-visible:shadow-[0_0_0_3px_var(--nav-active-ring)]`}
+          className={`${dashActivityCard} ${dashCard} group text-left transition-[border-color,box-shadow,background-color,transform] duration-200 hover:border-[color-mix(in_srgb,var(--accent)_40%,var(--border))] hover:shadow-[0_8px_24px_-6px_rgba(15,23,42,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 motion-safe:hover:-translate-y-0.5`}
         >
-          <h3 className="text-sm font-semibold text-[var(--foreground)] group-hover:text-[var(--accent)]">
+          <h3 className={`${dashCardTitle} text-sm group-hover:text-[var(--accent)]`}>
             {feature.title}
           </h3>
-          <p className="mt-2 flex-1 text-xs leading-relaxed text-[var(--muted)]">{feature.description}</p>
+          <p className={`${dashCardMeta} mt-2 flex-1 text-xs`}>{feature.description}</p>
           <span className="mt-4 inline-block text-xs font-medium text-[var(--accent)]">Open activity →</span>
         </button>
       ))}

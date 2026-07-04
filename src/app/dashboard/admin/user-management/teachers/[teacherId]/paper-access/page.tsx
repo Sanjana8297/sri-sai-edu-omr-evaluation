@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { displayLoginId } from "@/lib/user-login-id";
+import { dashBlock, dashCardTitle, dashPanel } from "@/lib/dashboard-ui";
 import {
   describePaperAccessChanges,
   pushAuditTrail,
@@ -30,7 +31,7 @@ function ToggleRow({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm">
+    <label className={`${dashBlock} flex items-center justify-between gap-3 py-2.5 text-sm`}>
       <span>{label}</span>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
     </label>
@@ -118,9 +119,9 @@ function TeacherPaperAccessContent() {
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
       {teacher && access ? (
-        <div className="max-w-lg space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
+        <div className={`${dashPanel} max-w-lg space-y-4`}>
           <div>
-            <h2 className="text-lg font-semibold">{teacher.name}</h2>
+            <h2 className={dashCardTitle}>{teacher.name}</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
               {displayLoginId(teacher)} · Track: {teacher.category}
             </p>

@@ -1,5 +1,7 @@
 "use client";
 
+import { dashPaginationBtn, dashPaginationBtnActive } from "@/lib/dashboard-ui";
+
 type Props = {
   page: number;
   totalPages: number;
@@ -51,7 +53,7 @@ export function QuestionBankPagination({ page, totalPages, onPageChange, disable
     >
       <button
         type="button"
-        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40"
+        className={dashPaginationBtn}
         onClick={() => onPageChange(page - 1)}
         disabled={disabled || atStart}
         aria-label="Previous page"
@@ -68,11 +70,7 @@ export function QuestionBankPagination({ page, totalPages, onPageChange, disable
           <button
             key={entry}
             type="button"
-            className={`min-w-[2.25rem] rounded-lg border px-2 py-1.5 text-sm font-medium ${
-              entry === page
-                ? "border-[var(--accent)] bg-[var(--accent)] text-white"
-                : "border-[var(--border)] bg-[var(--background)] hover:bg-[var(--accent-soft)]"
-            }`}
+            className={`min-w-[2.25rem] ${entry === page ? dashPaginationBtnActive : dashPaginationBtn}`}
             onClick={() => onPageChange(entry)}
             disabled={disabled || entry === page}
             aria-current={entry === page ? "page" : undefined}
@@ -84,7 +82,7 @@ export function QuestionBankPagination({ page, totalPages, onPageChange, disable
 
       <button
         type="button"
-        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40"
+        className={dashPaginationBtn}
         onClick={() => onPageChange(page + 1)}
         disabled={disabled || atEnd}
         aria-label="Next page"

@@ -2,6 +2,13 @@
 
 import { memo } from "react";
 import Link from "next/link";
+import {
+  dashBadgeAccent,
+  dashBtnPrimary,
+  dashCard,
+  dashCardMeta,
+  dashCardTitle,
+} from "@/lib/dashboard-ui";
 import type { StudentAvailableExam, StudentExamHistoryItem } from "@/lib/data/fetchers";
 
 type AvailableExamCardProps = {
@@ -12,27 +19,25 @@ type AvailableExamCardProps = {
 
 function StudentAvailableExamCardInner({ exam, canTake, inProgress }: AvailableExamCardProps) {
   return (
-    <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">{exam.title}</h2>
-          <p className="text-sm text-[var(--muted)]">
-            {exam.category} · Duration {exam.durationMinutes} minutes
-          </p>
-          <p className="text-sm text-[var(--muted)]">
+    <article className={dashCard}>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <h2 className={dashCardTitle}>{exam.title}</h2>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className={dashBadgeAccent}>{exam.category}</span>
+            <span className={dashCardMeta}>Duration {exam.durationMinutes} minutes</span>
+          </div>
+          <p className={dashCardMeta}>
             Open until {new Date(exam.endTime).toLocaleString()}
           </p>
           {inProgress ? (
-            <p className="mt-1 text-sm text-blue-700">
+            <p className="mt-2 text-sm font-medium text-blue-700 dark:text-blue-300">
               You have an attempt in progress — resume to continue.
             </p>
           ) : null}
         </div>
         {canTake ? (
-          <Link
-            href={`/dashboard/student/exams/${exam.id}/take`}
-            className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white"
-          >
+          <Link href={`/dashboard/student/exams/${exam.id}/take`} className={dashBtnPrimary}>
             {inProgress ? "Resume" : "Start exam"}
           </Link>
         ) : null}
@@ -45,17 +50,20 @@ export const StudentAvailableExamCard = memo(StudentAvailableExamCardInner);
 
 function StudentHistoryExamCardInner({ exam }: { exam: StudentExamHistoryItem }) {
   return (
-    <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold">{exam.title}</h2>
-        <span className="text-sm text-[var(--muted)]">
+    <article className={dashCard}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className={dashCardTitle}>{exam.title}</h2>
+        <span className="text-sm tabular-nums text-[var(--muted)]">
           {new Date(exam.examDate).toLocaleDateString()}
         </span>
       </div>
-      <p className="mt-2 text-sm text-[var(--muted)]">
-        {exam.category} · {exam.marksObtained} / {exam.maxMarks} · {exam.percentage}%
-      </p>
-      <p className="mt-1 text-xs text-[var(--muted)]">Session status: {exam.status}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className={dashBadgeAccent}>{exam.category}</span>
+        <span className={dashCardMeta}>
+          {exam.marksObtained} / {exam.maxMarks} · {exam.percentage}%
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-[var(--muted)]">Session status: {exam.status}</p>
     </article>
   );
 }

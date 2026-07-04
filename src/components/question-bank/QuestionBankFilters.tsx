@@ -1,6 +1,7 @@
 "use client";
 
 import type { TeacherTrack } from "@/lib/dashboard-nav";
+import { dashInput, dashSelect } from "@/lib/dashboard-ui";
 
 export type FilterState = {
   search: string;
@@ -23,13 +24,13 @@ export function QuestionBankFilters({ track, filters, onChange }: Props) {
     <>
       <div className="grid gap-2 md:grid-cols-5">
         <input
-          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+          className={dashInput}
           placeholder="Search keywords"
           value={filters.search}
           onChange={(e) => onChange({ search: e.target.value })}
         />
         <select
-          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+          className={dashSelect}
           value={filters.difficulty}
           onChange={(e) => onChange({ difficulty: e.target.value as FilterState["difficulty"] })}
         >
@@ -39,20 +40,20 @@ export function QuestionBankFilters({ track, filters, onChange }: Props) {
           <option value="hard">hard</option>
         </select>
         <input
-          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+          className={dashInput}
           placeholder="Year (e.g. 2024)"
           value={filters.year}
           onChange={(e) => onChange({ year: e.target.value })}
         />
         <input
-          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+          className={dashInput}
           placeholder="Chapter"
           value={filters.chapter}
           onChange={(e) => onChange({ chapter: e.target.value })}
         />
         {track === "JEE" ? (
           <select
-            className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            className={dashSelect}
             value={filters.jeeExamType}
             onChange={(e) => onChange({ jeeExamType: e.target.value as FilterState["jeeExamType"] })}
           >

@@ -22,6 +22,14 @@ import {
 import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
 import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
 import type { TeacherTrack } from "@/lib/dashboard-nav";
+import {
+  dashBlock,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashInput,
+  dashPanel,
+  dashSelect,
+} from "@/lib/dashboard-ui";
 
 type AiTrackProfile = "JEE" | "JEE ADV" | "NEET";
 
@@ -349,15 +357,15 @@ export default function TeacherAiBuilderPage() {
   }
 
   return (
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
-        <div className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+      <div className={dashPanel}>
+        <div className={`${dashBlock} mb-6`}>
           <p className="text-sm font-semibold">AI Paper Configuration</p>
           <p className="mt-1 text-xs text-[var(--muted)]">Generate blueprint, compose paper, then validate before saving.</p>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <label className="text-xs text-[var(--muted)]">
               Track
               <select
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-70"
+                className={`${dashSelect} mt-1 w-full text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-70`}
                 value={aiTrackProfile}
                 onChange={(e) => setAiTrackProfile(e.target.value as AiTrackProfile)}
                 disabled={!teacherTrack}
@@ -371,12 +379,12 @@ export default function TeacherAiBuilderPage() {
             </label>
             <label className="text-xs text-[var(--muted)]">
               Duration (minutes)
-              <input className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" type="number" min={1} max={480} value={aiDurationMinutes} onChange={(e) => setAiDurationMinutes(Number(e.target.value || 0))} disabled={aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV" || aiTrackProfile === "NEET"} />
+              <input className={`${dashInput} mt-1`} type="number" min={1} max={480} value={aiDurationMinutes} onChange={(e) => setAiDurationMinutes(Number(e.target.value || 0))} disabled={aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV" || aiTrackProfile === "NEET"} />
             </label>
             <label className="text-xs text-[var(--muted)]">
               Total Questions
               <input
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                className={`${dashInput} mt-1`}
                 type="number"
                 min={1}
                 max={300}
@@ -388,7 +396,7 @@ export default function TeacherAiBuilderPage() {
             <label className="text-xs text-[var(--muted)]">
               Total Marks
               <input
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                className={`${dashInput} mt-1`}
                 type="number"
                 value={aiTotalMarks}
                 disabled={aiTrackProfile === "JEE" || aiTrackProfile === "JEE ADV" || aiTrackProfile === "NEET"}
@@ -397,7 +405,7 @@ export default function TeacherAiBuilderPage() {
             </label>
           </div>
           {aiTrackProfile === "JEE" ? (
-            <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs text-[var(--muted)]">
+            <div className={`${dashBlock} mt-3 text-xs text-[var(--muted)]`}>
               JEE Main format is fixed: 180 minutes (3 hours), Mathematics/Physics/Chemistry (25 questions each; 20 MCQ + 5 Numerical-with-options per subject), marking +4 / 0 / −1.
             </div>
           ) : null}
@@ -407,30 +415,30 @@ export default function TeacherAiBuilderPage() {
             </div>
           ) : null}
           {aiTrackProfile === "NEET" ? (
-            <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs text-[var(--muted)]">
+            <div className={`${dashBlock} mt-3 text-xs text-[var(--muted)]`}>
               NEET format is fixed: 180 minutes (3 hours), 4 parts (Botany, Zoology, Physics, Chemistry), 45 questions each, total 180 questions, marking +4 / 0 / -1, total marks 720.
             </div>
           ) : null}
           <label className="mt-3 block text-xs text-[var(--muted)]">
             Difficulty Configuration
-            <textarea className="mt-1 min-h-[70px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="e.g., 30% easy, 50% medium, 20% hard" value={aiDifficultyDistribution} onChange={(e) => setAiDifficultyDistribution(e.target.value)} />
+            <textarea className={`${dashInput} mt-1 min-h-[70px]`} placeholder="e.g., 30% easy, 50% medium, 20% hard" value={aiDifficultyDistribution} onChange={(e) => setAiDifficultyDistribution(e.target.value)} />
           </label>
           <label className="mt-3 block text-xs text-[var(--muted)]">
             Additional Constraints
-            <textarea className="mt-1 min-h-[90px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm" placeholder="Syllabus focus, question style, excluded topics, etc." value={aiExtraInstructions} onChange={(e) => setAiExtraInstructions(e.target.value)} />
+            <textarea className={`${dashInput} mt-1 min-h-[90px]`} placeholder="Syllabus focus, question style, excluded topics, etc." value={aiExtraInstructions} onChange={(e) => setAiExtraInstructions(e.target.value)} />
           </label>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60" type="button" disabled={loadingBlueprint} onClick={generateBlueprint}>
+            <button className={dashBtnPrimary} type="button" disabled={loadingBlueprint} onClick={generateBlueprint}>
               {loadingBlueprint ? "Generating blueprint..." : "1) Generate Blueprint"}
             </button>
-            <button className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60" type="button" disabled={!blueprint || loadingCompose} onClick={composePaper}>
+            <button className={dashBtnPrimary} type="button" disabled={!blueprint || loadingCompose} onClick={composePaper}>
               {loadingCompose ? "Composing..." : "2) Compose Paper"}
             </button>
-            <button className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60" type="button" disabled={!blueprint || loadingValidate} onClick={validatePaper}>
+            <button className={dashBtnPrimary} type="button" disabled={!blueprint || loadingValidate} onClick={validatePaper}>
               {loadingValidate ? "Validating..." : "3) Validate"}
             </button>
             <button
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium disabled:opacity-60"
+              className={dashBtnSecondary}
               type="button"
               disabled={!aiComposed}
               onClick={() => setShowPreview((v) => !v)}
@@ -501,7 +509,7 @@ export default function TeacherAiBuilderPage() {
         </div>
 
         <form className="space-y-3" onSubmit={submit}>
-          <input className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2" placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
+          <input className={dashInput} placeholder="Paper title" value={title} onChange={(e) => setTitle(e.target.value)} required />
           {aiComposed ? (
             <p className="text-xs text-[var(--muted)]">
               AI content is generated and ready. Click save to store this paper.
@@ -512,7 +520,7 @@ export default function TeacherAiBuilderPage() {
             </p>
           )}
           <button
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            className={dashBtnPrimary}
             type="submit"
             disabled={!aiComposed || loadingSave}
           >

@@ -2,6 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdminTeachersQuery } from "@/hooks/data/use-admin-queries";
+import {
+  dashBlock,
+  dashBtnDanger,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashBtnSm,
+  dashCardMeta,
+  dashInput,
+  dashPanel,
+  dashSectionTitle,
+  dashSelect,
+} from "@/lib/dashboard-ui";
 
 type Paper = { id: string; title: string; category: string };
 type TeacherOption = { id: string; name: string; category: string };
@@ -228,9 +240,9 @@ export function ExamSchedulingPanel({
   return (
     <>
       <div className="grid gap-6 lg:grid-cols-[1.1fr_1.4fr]">
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
-          <h2 className="text-lg font-semibold">Schedule Exam</h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">
+        <div className={dashPanel}>
+          <h2 className={dashSectionTitle}>Schedule Exam</h2>
+          <p className={`${dashCardMeta} text-xs`}>
             {isAdmin
               ? "Assign exams to any teacher — select staff, paper, window, and publish."
               : "Centre and slot management — assign papers, windows, and publish."}
@@ -240,7 +252,7 @@ export function ExamSchedulingPanel({
               <select
                 value={teacherId}
                 onChange={(e) => setTeacherId(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+                className={dashSelect + " w-full"}
                 required
               >
                 <option value="">Select teacher</option>
@@ -258,7 +270,7 @@ export function ExamSchedulingPanel({
                 const paper = papers.find((p) => p.id === e.target.value);
                 if (paper && !title) setTitle(paper.title);
               }}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+              className={dashInput}
               required
               disabled={isAdmin && !teacherId}
             >
@@ -272,7 +284,7 @@ export function ExamSchedulingPanel({
               ))}
             </select>
             <input
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+              className={dashInput}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Exam title"
@@ -282,7 +294,7 @@ export function ExamSchedulingPanel({
               Starts at
               <input
                 type="datetime-local"
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+                className={`${dashInput} mt-1`}
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
                 required
@@ -292,7 +304,7 @@ export function ExamSchedulingPanel({
               Ends at
               <input
                 type="datetime-local"
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+                className={`${dashInput} mt-1`}
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
                 required
@@ -304,7 +316,7 @@ export function ExamSchedulingPanel({
                 type="number"
                 min={1}
                 max={480}
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+                className={`${dashInput} mt-1`}
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(Number(e.target.value))}
                 required
@@ -325,7 +337,7 @@ export function ExamSchedulingPanel({
                 ) : null}
               </p>
             ) : null}
-            <button className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white" type="submit">
+            <button className={dashBtnPrimary} type="submit">
               Create exam
             </button>
           </form>
@@ -333,12 +345,12 @@ export function ExamSchedulingPanel({
           {msg ? <p className="mt-3 text-sm text-green-700">{msg}</p> : null}
         </div>
 
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
-          <h2 className="text-lg font-semibold">Scheduled Exams</h2>
+        <div className={dashPanel}>
+          <h2 className={dashSectionTitle}>Scheduled Exams</h2>
           <div className="mt-4 space-y-3">
             {exams.length === 0 ? <p className="text-sm text-[var(--muted)]">No exams scheduled yet.</p> : null}
             {exams.map((exam) => (
-              <article key={exam.id} className="rounded-lg border border-[var(--border)] p-4">
+              <article key={exam.id} className={dashBlock}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">{exam.title}</h3>
@@ -357,14 +369,14 @@ export function ExamSchedulingPanel({
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      className="rounded border border-[var(--border)] px-3 py-1 text-sm"
+                      className={dashBtnSm}
                       onClick={() => void togglePublish(exam)}
                     >
                       {exam.isPublished ? "Unpublish" : "Publish"}
                     </button>
                     <button
                       type="button"
-                      className="rounded border border-red-200 p-2 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className={`${dashBtnDanger} !p-2`}
                       onClick={() => void deleteExam(exam)}
                       disabled={deletingExamId === exam.id}
                       aria-label={`Delete ${exam.title}`}
@@ -379,16 +391,16 @@ export function ExamSchedulingPanel({
           </div>
         </div>
       </div>
-      <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
+      <div className={`${dashPanel} mt-6`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Proctoring Review</h2>
+          <h2 className={dashSectionTitle}>Proctoring Review</h2>
           <select
             value={reviewExamId}
             onChange={(e) => {
               setReviewExamId(e.target.value);
               void loadReview(e.target.value);
             }}
-            className="rounded border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            className={dashSelect}
           >
             <option value="">Select exam</option>
             {exams.map((exam) => (
@@ -403,7 +415,7 @@ export function ExamSchedulingPanel({
             <p className="text-sm text-[var(--muted)]">No student sessions logged for this exam yet.</p>
           ) : null}
           {reviews.map((row) => (
-            <article key={row.id} className="rounded-lg border border-[var(--border)] p-4">
+            <article key={row.id} className={dashBlock}>
               <p className="font-medium">{row.student.name}</p>
               <p className="text-sm text-[var(--muted)]">
                 {row.student.email} · Status: {row.status} · Violations: {row.violationCount}

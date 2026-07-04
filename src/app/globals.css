@@ -24,6 +24,15 @@
   --nav-active-ring: #6366f1;
   --nav-active-bar: #a5b4fc;
   --nav-parent-active-bg: #243069;
+  /* Button surfaces — tinted fills (not white/card) */
+  --btn-secondary-bg: #eef2ff;
+  --btn-secondary-hover-bg: #e0e7ff;
+  --btn-secondary-border: #c7d2fe;
+  --btn-secondary-text: #3730a3;
+  --btn-danger-bg: #fee2e2;
+  --btn-danger-hover-bg: #fecaca;
+  --btn-danger-border: #fca5a5;
+  --btn-danger-text: #b91c1c;
 }
 
 html[data-theme="dark"] {
@@ -47,6 +56,14 @@ html[data-theme="dark"] {
   --nav-active-ring: #6366f1;
   --nav-active-bar: #a5b4fc;
   --nav-parent-active-bg: #202c5e;
+  --btn-secondary-bg: #312e81;
+  --btn-secondary-hover-bg: #3730a3;
+  --btn-secondary-border: #4f46e5;
+  --btn-secondary-text: #e0e7ff;
+  --btn-danger-bg: #450a0a;
+  --btn-danger-hover-bg: #7f1d1d;
+  --btn-danger-border: #b91c1c;
+  --btn-danger-text: #fecaca;
 }
 
 body {
@@ -61,6 +78,16 @@ body {
     width: 100%;
   }
 
+  .dashboard-surface .dash-card,
+  .dashboard-surface .dash-panel,
+  .dashboard-surface .dash-block {
+    transition:
+      box-shadow 0.2s ease,
+      transform 0.2s ease,
+      border-color 0.2s ease,
+      background-color 0.2s ease;
+  }
+
   .dashboard-surface
     :where(section, article, li, div, button, a):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
       .dash-static
@@ -68,31 +95,40 @@ body {
     transition:
       box-shadow 0.2s ease,
       transform 0.2s ease,
+      border-color 0.2s ease,
       background-color 0.2s ease;
   }
 
   @media (hover: hover) {
+    .dashboard-surface .dash-card:not(.dash-static):hover,
     .dashboard-surface
       :where(section, article, li, div, button, a):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
         .dash-static
       ):hover {
-      box-shadow: 0 4px 14px -2px rgb(15 23 42 / 0.08);
+      box-shadow:
+        0 8px 24px -6px rgb(15 23 42 / 0.12),
+        0 1px 3px rgb(15 23 42 / 0.06);
+      border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
     }
 
+    html[data-theme="dark"] .dashboard-surface .dash-card:not(.dash-static):hover,
     html[data-theme="dark"]
       .dashboard-surface
       :where(section, article, li, div, button, a):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
         .dash-static
       ):hover {
-      box-shadow: 0 4px 18px -2px rgb(0 0 0 / 0.35);
+      box-shadow:
+        0 8px 24px -6px rgb(0 0 0 / 0.35),
+        0 1px 3px rgb(0 0 0 / 0.2);
     }
 
     @media (prefers-reduced-motion: no-preference) {
+      .dashboard-surface .dash-card:not(.dash-static):hover,
       .dashboard-surface
         :where(section, article, li, div, button, a):is(.rounded-2xl, .rounded-xl, .rounded-lg).border:not(
           .dash-static
         ):hover {
-        transform: translateY(-1px);
+        transform: translateY(-2px);
       }
     }
   }
@@ -102,6 +138,44 @@ body {
       .dash-static
     ):focus-within {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  /* Table polish — apply .dash-table on shared data tables */
+  .dashboard-surface table.dash-table thead {
+    background: color-mix(in srgb, var(--accent-soft) 55%, var(--card));
+  }
+
+  .dashboard-surface table.dash-table thead th {
+    padding: 0.75rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .dashboard-surface table.dash-table tbody td {
+    padding: 0.75rem 1rem;
+    vertical-align: middle;
+  }
+
+  .dashboard-surface table.dash-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background-color 0.15s ease;
+  }
+
+  .dashboard-surface table.dash-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .dashboard-surface table.dash-table tbody tr:nth-child(even) {
+    background: color-mix(in srgb, var(--background) 50%, transparent);
+  }
+
+  @media (hover: hover) {
+    .dashboard-surface table.dash-table tbody tr:hover {
+      background: color-mix(in srgb, var(--accent-soft) 35%, var(--card));
+    }
   }
 
   /* Responsive grids when pages use the shared utility classes */
@@ -157,5 +231,82 @@ body {
     display: flex;
     flex-direction: column;
     scroll-snap-align: start;
+  }
+
+  /* Sidebar nav — scrollable but no visible scrollbar */
+  #dashboard-nav-sidebar nav {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  #dashboard-nav-sidebar nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ── Legacy control auto-upgrade (Result & Score Reports styling) ── */
+
+  /* Secondary buttons — card/white fill → indigo tint */
+  .dashboard-surface button.rounded-lg.border[class*="bg-[var(--card)]"] {
+    background-color: var(--btn-secondary-bg) !important;
+    border-color: var(--btn-secondary-border) !important;
+    color: var(--btn-secondary-text) !important;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  }
+
+  /* Cancel / pagination — border only or plain background */
+  .dashboard-surface
+    button.rounded-lg.border[class*="border-[var(--border)]"]:not([class*="bg-[var(--accent)]"]):not(
+      [class*="bg-[var(--card)]"]
+    ) {
+    background-color: var(--btn-secondary-bg);
+    border-color: var(--btn-secondary-border);
+    color: var(--btn-secondary-text);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  }
+
+  .dashboard-surface
+    button.rounded-lg.border[class*="bg-[var(--background)]"]:not([class*="bg-[var(--accent)]"]) {
+    background-color: var(--btn-secondary-bg) !important;
+    border-color: var(--btn-secondary-border) !important;
+    color: var(--btn-secondary-text) !important;
+  }
+
+  @media (hover: hover) {
+    .dashboard-surface
+      button.rounded-lg.border[class*="bg-[var(--card)]"]:hover:not(:disabled),
+    .dashboard-surface
+      button.rounded-lg.border[class*="border-[var(--border)]"]:not([class*="bg-[var(--accent)]"]):not(
+        [class*="bg-[var(--card)]"]
+      ):hover:not(:disabled),
+    .dashboard-surface
+      button.rounded-lg.border[class*="bg-[var(--background)]"]:not([class*="bg-[var(--accent)]"]):hover:not(
+        :disabled
+      ) {
+      background-color: var(--btn-secondary-hover-bg) !important;
+      border-color: var(--accent) !important;
+    }
+  }
+
+  /* Primary accent buttons — consistent elevation */
+  .dashboard-surface button.rounded-lg[class*="bg-[var(--accent)]"] {
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  @media (hover: hover) {
+    .dashboard-surface button.rounded-lg[class*="bg-[var(--accent)]"]:hover:not(:disabled) {
+      filter: brightness(1.08);
+    }
+  }
+
+  /* Form controls — card fill → page background */
+  .dashboard-surface
+    :is(input, select, textarea).rounded-lg.border[class*="bg-[var(--card)]"] {
+    background-color: var(--background) !important;
+  }
+
+  .dashboard-surface :is(input, select, textarea).rounded-lg.border:focus {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
   }
 }

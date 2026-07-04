@@ -2,6 +2,8 @@
 
 import { useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { dashTable, dashTableHead, dashTableWrap } from "@/lib/dashboard-ui";
 import { StudentRow } from "./StudentRow";
 import type { TeacherStudent } from "@/lib/data/fetchers";
 
@@ -29,47 +31,44 @@ export function StudentTable({
   });
 
   const header = (
-    <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+    <thead className={dashTableHead}>
       <tr>
-        <th className="px-4 py-3 font-medium">Name</th>
-        <th className="px-4 py-3 font-medium">Login ID</th>
-        <th className="px-4 py-3 font-medium">Year</th>
-        <th className="px-4 py-3 font-medium text-right">Actions</th>
+        <th className="text-left">Name</th>
+        <th className="text-left">Login ID</th>
+        <th className="text-left">Year</th>
+        <th className="text-right">Actions</th>
       </tr>
     </thead>
   );
 
   if (students.length === 0) {
     return (
-      <table className="min-w-full text-left text-sm">
-        {header}
-        <tbody>
-          <tr>
-            <td colSpan={4} className="px-4 py-6 text-center text-[var(--muted)]">
-              {emptyMessage}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <EmptyState
+        title="No students found"
+        description={emptyMessage}
+        icon="👥"
+      />
     );
   }
 
   if (!useVirtual) {
     return (
-      <table className="min-w-full text-left text-sm">
-        {header}
-        <tbody>
-          {students.map((student) => (
-            <StudentRow key={student.id} student={student} actions={renderActions(student)} />
-          ))}
-        </tbody>
-      </table>
+      <div className={dashTableWrap}>
+        <table className={dashTable}>
+          {header}
+          <tbody>
+            {students.map((student) => (
+              <StudentRow key={student.id} student={student} actions={renderActions(student)} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   }
 
   return (
-    <div>
-      <table className="min-w-full text-left text-sm">{header}</table>
+    <div className={dashTableWrap}>
+      <table className={dashTable}>{header}</table>
       <div ref={parentRef} className="max-h-[70vh] overflow-y-auto">
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -77,7 +76,7 @@ export function StudentTable({
             return (
               <table
                 key={student.id}
-                className="min-w-full text-left text-sm"
+                className={dashTable}
                 style={{
                   position: "absolute",
                   top: 0,

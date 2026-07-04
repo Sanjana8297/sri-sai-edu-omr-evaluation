@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { dashCard, dashCardMeta, dashCardTitle, dashLabel } from "@/lib/dashboard-ui";
 import { readAuditTrail, type AuditEntry } from "@/lib/admin-staff-storage";
 
 function formatActionLabel(action: string): string {
@@ -26,17 +28,17 @@ function AuditEntryCard({ entry }: { entry: AuditEntry }) {
   const changeText = rest.join(" — ").split(". Current permissions:")[0].trim();
 
   return (
-    <li className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm">
-      <p className="font-medium">{formatActionLabel(entry.action)}</p>
-      <p className="mt-1 text-xs text-[var(--muted)]">{new Date(entry.at).toLocaleString()}</p>
+    <li className={dashCard}>
+      <p className={dashCardTitle}>{formatActionLabel(entry.action)}</p>
+      <p className={`${dashCardMeta} mt-1 text-xs`}>{new Date(entry.at).toLocaleString()}</p>
       {hasStructuredDetail ? (
-        <div className="mt-2 space-y-2 text-sm">
+        <div className="mt-3 space-y-3 text-sm leading-relaxed">
           <p>
             <span className="text-[var(--muted)]">Staff:</span> {staffName}
           </p>
           {changeText ? (
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">Changes</p>
+              <p className={dashLabel}>Changes</p>
               <ul className="mt-1 list-inside list-disc space-y-0.5">
                 {changeText.split("; ").map((change) => (
                   <li key={change}>{change}</li>
@@ -68,12 +70,13 @@ export default function AdminAuditTrailPage() {
   return (
     <>
       {entries.length === 0 ? (
-        <p className="text-sm text-[var(--muted)]">
-          No audit entries yet. Actions such as creating staff, updating permissions, or resetting credentials
-          will appear here.
-        </p>
+        <EmptyState
+          icon="📋"
+          title="No audit entries yet"
+          description="Actions such as creating staff, updating permissions, or resetting credentials will appear here."
+        />
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {entries.map((entry) => (
             <AuditEntryCard key={`${entry.at}-${entry.action}-${entry.detail}`} entry={entry} />
           ))}

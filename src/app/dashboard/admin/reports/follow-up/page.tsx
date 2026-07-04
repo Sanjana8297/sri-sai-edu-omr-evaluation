@@ -8,6 +8,7 @@ import { StatsRowSkeleton } from "@/components/skeletons/DashboardSkeletons";
 import { useInstitutionDashboardQuery } from "@/hooks/data/use-admin-queries";
 import { useSubjectScoresApi } from "@/app/dashboard/admin/reports/reports-analytics-panels";
 import type { SubjectScoresPayload } from "@/lib/subject-score-breakdown";
+import { dashBtnSecondary, dashCard, dashPanel } from "@/lib/dashboard-ui";
 
 type FollowUpStudent = {
   id: string;
@@ -64,7 +65,7 @@ export default function FollowUpPage() {
               router.back();
             }
           }}
-          className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-medium hover:bg-[var(--background)]"
+          className={`${dashBtnSecondary} inline-flex items-center`}
         >
           ← Back to Institution Dashboard
         </Link>
@@ -77,7 +78,7 @@ export default function FollowUpPage() {
         </p>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-          <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <section className={dashPanel}>
             <h2 className="text-sm font-semibold">Students needing follow-up</h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
               Below {institutionData.lowPerformerThreshold}% overall average
@@ -107,7 +108,7 @@ export default function FollowUpPage() {
             </ul>
           </section>
 
-          <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <section className={dashPanel}>
             <h2 className="text-sm font-semibold">Subject-wise score breakdown</h2>
             {selectedStudent && selectedBreakdown ? (
               <>

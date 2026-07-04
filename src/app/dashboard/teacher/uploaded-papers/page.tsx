@@ -4,6 +4,16 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { CardListSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { EmptyState } from "@/components/ui/EmptyState";
+import {
+  dashBadgeAccent,
+  dashBadgeEmerald,
+  dashBtnDanger,
+  dashBtnSecondary,
+  dashCard,
+  dashCardTitle,
+  dashLabel,
+} from "@/lib/dashboard-ui";
 import { useTeacherQuestionPapersQuery } from "@/hooks/data/use-teacher-question-papers";
 import { dataKeys } from "@/hooks/data/keys";
 
@@ -53,36 +63,35 @@ export default function TeacherUploadedPapersPage() {
     <>
       {err ? <p className="mb-3 text-sm text-red-600">{err}</p> : null}
       {papers.length === 0 ? (
-        <p className="text-sm text-[var(--muted)]">
-          No papers yet. Schedule an exam under Exam Scheduling to see its question paper here.
-        </p>
+        <EmptyState
+          icon="🗂️"
+          title="No archived papers yet"
+          description="Schedule an exam under Exam Scheduling to see its question paper here."
+          action={{ label: "Go to Exam Scheduling", href: "/dashboard/teacher/exam-scheduling" }}
+        />
       ) : null}
-      <ul className="space-y-3">
+      <ul className="space-y-4">
         {papers.map((p) => (
-          <li key={p.id} className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="font-medium">{p.title}</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs">{p.category}</span>
+          <li key={p.id} className={dashCard}>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className={dashCardTitle}>{p.title}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className={dashBadgeAccent}>{p.category}</span>
                   {p.isAiGenerated ? (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-800">
+                    <span className={dashBadgeEmerald}>
                       AI {p.aiPromptVersion ? `(${p.aiPromptVersion})` : ""}
                     </span>
                   ) : null}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs"
-                  onClick={() => toggleView(p.id)}
-                >
+              <div className="flex shrink-0 items-center gap-2">
+                <button type="button" className={dashBtnSecondary} onClick={() => toggleView(p.id)}>
                   {openPaperIds.includes(p.id) ? "Hide" : "View"}
                 </button>
                 <button
                   type="button"
-                  className="rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 disabled:opacity-60"
+                  className={dashBtnDanger}
                   onClick={() => {
                     const ok = window.confirm(
                       `Delete "${p.title}"? This action cannot be undone.`
@@ -96,42 +105,48 @@ export default function TeacherUploadedPapersPage() {
               </div>
             </div>
             {openPaperIds.includes(p.id) ? (
-              <>
-                <p className="mt-2 text-xs uppercase tracking-wide text-[var(--muted)]">Question paper</p>
-                {p.questionPaperUrl ? (
-                  <a
-                    className="mt-1 inline-block text-sm text-[var(--accent)] underline"
-                    href={p.questionPaperUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {p.questionPaperUrl}
-                  </a>
-                ) : null}
-                {p.questionContent ? (
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--muted)]">{p.questionContent}</p>
-                ) : p.questionPaperUrl ? null : (
-                  <p className="mt-1 text-sm text-[var(--muted)]">No text.</p>
-                )}
-                <p className="mt-3 text-xs uppercase tracking-wide text-[var(--muted)]">Answer key</p>
-                {p.answerSheetUrl ? (
-                  <a
-                    className="mt-1 inline-block text-sm text-[var(--accent)] underline"
-                    href={p.answerSheetUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {p.answerSheetUrl}
-                  </a>
-                ) : null}
-                {p.keyContent ? (
-                  <p className="mt-1 whitespace-pre-wrap text-sm">{p.keyContent}</p>
-                ) : p.answerSheetUrl ? null : (
-                  <p className="mt-1 text-sm text-[var(--muted)]">Not uploaded yet.</p>
-                )}
-              </>
+              <div className="mt-5 space-y-4 border-t border-[var(--border)] pt-5">
+                <div>
+                  <p className={dashLabel}>Question paper</p>
+                  {p.questionPaperUrl ? (
+                    <a
+                      className="mt-1.5 inline-block text-sm text-[var(--accent)] underline"
+                      href={p.questionPaperUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {p.questionPaperUrl}
+                    </a>
+                  ) : null}
+                  {p.questionContent ? (
+                    <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-[var(--muted)]">
+                      {p.questionContent}
+                    </p>
+                  ) : p.questionPaperUrl ? null : (
+                    <p className="mt-1.5 text-sm text-[var(--muted)]">No text.</p>
+                  )}
+                </div>
+                <div>
+                  <p className={dashLabel}>Answer key</p>
+                  {p.answerSheetUrl ? (
+                    <a
+                      className="mt-1.5 inline-block text-sm text-[var(--accent)] underline"
+                      href={p.answerSheetUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {p.answerSheetUrl}
+                    </a>
+                  ) : null}
+                  {p.keyContent ? (
+                    <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">{p.keyContent}</p>
+                  ) : p.answerSheetUrl ? null : (
+                    <p className="mt-1.5 text-sm text-[var(--muted)]">Not uploaded yet.</p>
+                  )}
+                </div>
+              </div>
             ) : (
-              <p className="mt-2 text-xs text-[var(--muted)]">Click View to open question paper and answer key.</p>
+              <p className="mt-3 text-sm text-[var(--muted)]">Click View to open question paper and answer key.</p>
             )}
           </li>
         ))}

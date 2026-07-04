@@ -4,6 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { TableSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import {
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashInput,
+  dashLabel,
+  dashPanel,
+  dashSelect,
+} from "@/lib/dashboard-ui";
 import { useAdminLlmSettingsQuery } from "@/hooks/data/use-admin-llm-settings";
 import { dataKeys } from "@/hooks/data/keys";
 import { DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL } from "@/lib/openai-runtime";
@@ -187,18 +195,18 @@ export default function AdminLlmSettingsPage() {
           </div>
         ) : null}
 
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
+      <div className={dashPanel}>
         {loading ? (
           <p className="text-sm text-[var(--muted)]">Loading settings…</p>
         ) : (
           <form onSubmit={(e) => void handleSave(e)} className="space-y-5">
             <div>
-              <label className="mb-1 block text-sm font-medium" htmlFor="llm-model">
+              <label className={`${dashLabel} mb-1.5 block normal-case`} htmlFor="llm-model">
                 Model
               </label>
               <select
                 id="llm-model"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                className={dashSelect}
                 value={selectedModelValue}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -222,7 +230,7 @@ export default function AdminLlmSettingsPage() {
               {showOtherModelInput && (
                 <div className="mt-2 flex gap-2">
                   <input
-                    className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    className={`${dashInput} min-w-0 flex-1`}
                     value={customModel}
                     onChange={(e) => setCustomModel(e.target.value)}
                     placeholder="Type custom model name"
@@ -230,7 +238,7 @@ export default function AdminLlmSettingsPage() {
                   <button
                     type="button"
                     onClick={addCustomModel}
-                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium"
+                    className={dashBtnSecondary}
                   >
                     Add
                   </button>
@@ -248,7 +256,7 @@ export default function AdminLlmSettingsPage() {
               <input
                 id="llm-base-url"
                 type="url"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                className={dashSelect}
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder={DEFAULT_LLM_BASE_URL}
@@ -267,7 +275,7 @@ export default function AdminLlmSettingsPage() {
                 id="llm-api-key"
                 type="password"
                 autoComplete="new-password"
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                className={dashSelect}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={masked ? `Current: ${masked} — enter new key to replace` : "sk-…"}
@@ -301,7 +309,7 @@ export default function AdminLlmSettingsPage() {
               <button
                 type="submit"
                 disabled={saving || !tableReady}
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className={dashBtnPrimary}
               >
                 {saving ? "Saving…" : "Save settings"}
               </button>
@@ -309,7 +317,7 @@ export default function AdminLlmSettingsPage() {
                 type="button"
                 onClick={() => void loadSettings()}
                 disabled={saving || loading}
-                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium disabled:opacity-50"
+                className={dashBtnSecondary}
               >
                 Reset form
               </button>
@@ -317,7 +325,7 @@ export default function AdminLlmSettingsPage() {
                 type="button"
                 onClick={() => void handleTestConnection()}
                 disabled={saving || loading || testing}
-                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium disabled:opacity-50"
+                className={dashBtnSecondary}
               >
                 {testing ? "Testing…" : "Test AI connection"}
               </button>

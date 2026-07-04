@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type { Role } from "@/lib/types";
-import { DASHBOARD_SURFACE } from "@/lib/dashboard-ui";
+import { DASHBOARD_SURFACE, dashBtnPrimary, dashBtnSm, dashCard, dashInput, dashSelect } from "@/lib/dashboard-ui";
 import { InstituteBrand } from "@/components/InstituteBrand";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -55,10 +55,10 @@ export default function LoginPage() {
         </div>
       </header>
       <div className={`relative flex flex-1 items-center justify-center px-4 py-8 ${DASHBOARD_SURFACE}`}>
-      <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--card)] p-8 shadow-sm">
+      <div className={`${dashCard} w-full max-w-md p-8`}>
         <Link
           href="/"
-          className="inline-flex items-center rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--background)]"
+          className={dashBtnSm + " mb-4 inline-flex"}
         >
           Back to Website
         </Link>
@@ -73,7 +73,7 @@ export default function LoginPage() {
             </label>
             <select
               id="role"
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--foreground)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              className={`${dashSelect} mt-1 w-full text-[var(--foreground)]`}
               value={role}
               onChange={(e) => setRole(e.target.value as Role)}
             >
@@ -93,7 +93,7 @@ export default function LoginPage() {
               id="loginId"
               type="text"
               autoComplete="username"
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--foreground)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              className={`${dashInput} mt-1 text-[var(--foreground)]`}
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
               required
@@ -110,7 +110,7 @@ export default function LoginPage() {
               id="password"
               type="password"
               autoComplete="current-password"
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--foreground)] outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              className={`${dashInput} mt-1 text-[var(--foreground)]`}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -120,7 +120,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-[var(--accent)] py-2.5 text-sm font-medium text-white hover:opacity-95 disabled:opacity-60"
+            className={`${dashBtnPrimary} w-full py-2.5`}
           >
             {loading ? "Signing in…" : "Sign in"}
           </button>

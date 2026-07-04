@@ -3,12 +3,16 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { RankListRow, type RankListRowData } from "@/components/reports/RankListRow";
+import { dashTable, dashTableHead, dashTableWrap } from "@/lib/dashboard-ui";
 
 type RankListTableProps = {
   rows: RankListRowData[];
   threshold?: number;
   selectedStudentId?: string;
   onSelectStudent?: (studentId: string) => void;
+  /** When true, omit outer card wrapper (for use inside an existing panel). */
+  embedded?: boolean;
+  maxHeightClass?: string;
 };
 
 export function RankListTable({
@@ -16,6 +20,8 @@ export function RankListTable({
   threshold = 40,
   selectedStudentId,
   onSelectStudent,
+  embedded = false,
+  maxHeightClass = "max-h-64",
 }: RankListTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const useVirtual = rows.length > threshold;
@@ -28,20 +34,24 @@ export function RankListTable({
   });
 
   const header = (
-    <thead className="sticky top-0 z-10 bg-[var(--card)] text-[var(--muted)]">
+    <thead className={`${dashTableHead} sticky top-0 z-10`}>
       <tr>
-        <th className="px-3 py-2">Rank</th>
-        <th className="px-3 py-2">Student</th>
-        <th className="px-3 py-2">Avg %</th>
-        <th className="px-3 py-2">Latest Exam Score</th>
+        <th className="text-left">Rank</th>
+        <th className="text-left">Student</th>
+        <th className="text-right">Avg %</th>
+        <th className="text-left">Latest Exam Score</th>
       </tr>
     </thead>
   );
 
+  const wrapClass = embedded
+    ? `${maxHeightClass} overflow-auto rounded-xl bg-[color-mix(in_srgb,var(--background)_45%,transparent)]`
+    : `${dashTableWrap} ${maxHeightClass} overflow-y-auto`;
+
   if (!useVirtual) {
     return (
-      <div className="max-h-64 overflow-y-auto rounded-lg border border-[var(--border)]">
-        <table className="min-w-full text-left text-sm">
+      <div className={wrapClass}>
+        <table className={dashTable}>
           {header}
           <tbody>
             {rows.map((row) => (
@@ -63,18 +73,18 @@ export function RankListTable({
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border)]">
-      <table className="min-w-full text-left text-sm">
+    <div className={embedded ? wrapClass : dashTableWrap}>
+      <table className={dashTable}>
         {header}
       </table>
-      <div ref={parentRef} className="max-h-64 overflow-y-auto">
+      <div ref={parentRef} className={`${maxHeightClass} overflow-y-auto`}>
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const row = rows[virtualRow.index];
             return (
               <table
                 key={row.studentId}
-                className="min-w-full text-left text-sm"
+                className={dashTable}
                 style={{
                   position: "absolute",
                   top: 0,

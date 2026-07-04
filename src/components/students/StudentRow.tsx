@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, type ReactNode } from "react";
+import { dashTableRow } from "@/lib/dashboard-ui";
 import { displayLoginId } from "@/lib/user-login-id";
 import type { TeacherStudent } from "@/lib/data/fetchers";
 
@@ -17,11 +18,11 @@ type StudentRowProps = {
 
 export const StudentRow = memo(function StudentRow({ student, actions }: StudentRowProps) {
   return (
-    <tr className="border-b border-[var(--border)] last:border-0">
-      <td className="px-4 py-3 font-medium">{student.name}</td>
-      <td className="px-4 py-3">{displayLoginId(student)}</td>
-      <td className="px-4 py-3">{formatStudentYear(student)}</td>
-      <td className="px-4 py-3">
+    <tr className={dashTableRow}>
+      <td className="font-medium">{student.name}</td>
+      <td>{displayLoginId(student)}</td>
+      <td>{formatStudentYear(student)}</td>
+      <td>
         <div className="flex items-center justify-end gap-2">{actions}</div>
       </td>
     </tr>

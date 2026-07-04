@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { displayLoginId } from "@/lib/user-login-id";
 import { useAutoClearMessage } from "@/hooks/use-auto-clear-message";
+import {
+  dashBlock,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashInput,
+  dashSelect,
+} from "@/lib/dashboard-ui";
 
 export type CredentialRole = "STUDENT" | "TEACHER" | "ADMIN";
 
@@ -175,7 +182,7 @@ export function ResetCredentialsForm({
       ) : null}
       {!fixedAccount ? (
         <select
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+          className={dashSelect + " w-full"}
           value={selectedKey}
           onChange={(e) => {
             setSelectedKey(e.target.value);
@@ -195,7 +202,7 @@ export function ResetCredentialsForm({
       ) : null}
 
       {selected ? (
-        <p className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs text-[var(--muted)]">
+        <p className={`${dashBlock} text-xs text-[var(--muted)]`}>
           Current login: <strong className="text-[var(--foreground)]">{displayLoginId(selected)}</strong>
           {selected.email ? (
             <>
@@ -222,7 +229,7 @@ export function ResetCredentialsForm({
         <label className="block text-sm text-[var(--muted)]">
           Year
           <select
-            className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            className={`${dashSelect} mt-1 w-full`}
             value={newYear}
             onChange={(e) => setNewYear(e.target.value)}
           >
@@ -234,7 +241,7 @@ export function ResetCredentialsForm({
       ) : null}
 
       <input
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        className={dashInput}
         type="email"
         placeholder="New email (leave blank to keep)"
         value={newEmail}
@@ -246,7 +253,7 @@ export function ResetCredentialsForm({
       />
 
       <input
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        className={dashInput}
         placeholder="New username (leave blank to keep)"
         value={newUsername}
         onChange={(e) => {
@@ -287,7 +294,7 @@ export function ResetCredentialsForm({
       </div>
 
       <input
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        className={dashInput}
         type="password"
         placeholder="New password (leave blank to keep)"
         value={newPassword}
@@ -300,7 +307,7 @@ export function ResetCredentialsForm({
         <button
           type="submit"
           disabled={!selected || loading}
-          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          className={dashBtnPrimary}
         >
           {loading ? "Saving…" : "Save changes"}
         </button>
@@ -308,7 +315,7 @@ export function ResetCredentialsForm({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium"
+            className={dashBtnSecondary}
           >
             Cancel
           </button>

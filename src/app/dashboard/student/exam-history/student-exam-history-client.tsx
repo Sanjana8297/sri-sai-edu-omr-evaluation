@@ -3,6 +3,7 @@
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { StudentHistoryExamCard } from "@/components/exams/StudentExamCard";
 import { CardListSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { VirtualList } from "@/components/ui/VirtualList";
 import { useStudentExamsQuery } from "@/hooks/data/use-student-exams";
 import type { StudentExamHistoryItem } from "@/lib/data/fetchers";
@@ -24,11 +25,12 @@ export function StudentExamHistoryClient({ initialData }: Props) {
 
   if (exams.length === 0) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <p className="text-center text-2xl font-semibold text-[var(--muted)]">
-          No exams taken yet.
-        </p>
-      </div>
+      <EmptyState
+        icon="📚"
+        title="No exams taken yet"
+        description="Your completed exam attempts will show up here with scores and session details."
+        action={{ label: "View open exams", href: "/dashboard/student/exams" }}
+      />
     );
   }
 

@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireRoles } from "@/lib/api-auth";
+import { prisma } from "@/lib/prisma";
+import {
+  filterQuestionsNotInBank,
+  loadExistingContentHashesForSubject,
+} from "@/lib/question-bank-duplicate-filter";
+import { fetchSearchSnippets } from "@/lib/internet-search-snippets";
 import { callOpenAiChatCompletion, getAiConfigError } from "@/lib/openai-runtime";
+
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
 type InternetQuestion = {
   questionText: string;
@@ -12,38 +21,17 @@ type InternetQuestion = {
   sourceUrl: string;
 };
 
-function stripTags(value: string): string {
-  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-async function fetchSearchSnippets(query: string): Promise<Array<{ title: string; url: string; snippet: string }>> {
-  const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  const response = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
-  });
-  if (!response.ok) return [];
-  const html = await response.text();
-
-  const results: Array<{ title: string; url: string; snippet: string }> = [];
-  const blocks = html.split('class="result"');
-  for (const block of blocks) {
-    const linkMatch = block.match(/class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-    const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i);
-    if (!linkMatch) continue;
-    const href = linkMatch[1];
-    const title = stripTags(linkMatch[2]);
-    const snippet = snippetMatch ? stripTags(snippetMatch[1]) : "";
-    if (title && href) {
-      results.push({ title, url: href, snippet });
-    }
-    if (results.length >= 8) break;
-  }
-  return results;
-}
-
 export async function POST(request: Request) {
-  const { response } = await requireRoles(["TEACHER"]);
+  const { session, response } = await requireRoles(["TEACHER"]);
   if (response) return response;
+
+  const me = await prisma.teacher.findUnique({
+    where: { id: session.sub },
+    select: { category: true },
+  });
+  if (!me || (me.category !== "JEE" && me.category !== "NEET")) {
+    return NextResponse.json({ error: "Invalid teacher profile" }, { status: 400 });
+  }
 
   const aiConfigError = await getAiConfigError();
   if (aiConfigError) {
@@ -73,12 +61,23 @@ export async function POST(request: Request) {
   if (!category || !subject || Number.isNaN(year)) {
     return NextResponse.json({ error: "category, subject, and year are required" }, { status: 400 });
   }
+  if (category !== me.category) {
+    return NextResponse.json({ error: "category does not match your track" }, { status: 400 });
+  }
+
+  const allowedSubjects =
+    me.category === "JEE"
+      ? new Set(["Maths", "Physics", "Chemistry"])
+      : new Set(["Physics", "Chemistry", "Botany", "Zoology"]);
+  if (!allowedSubjects.has(subject)) {
+    return NextResponse.json({ error: "Invalid subject for your track" }, { status: 400 });
+  }
+
+  const exam = me.category as "JEE" | "NEET";
 
   const query = `${category} ${subject} ${year} entrance exam MCQ ${topic}`.trim();
   const snippets = await fetchSearchSnippets(query);
-  if (snippets.length === 0) {
-    return NextResponse.json({ error: "No internet sources found for this query. Try a broader topic." }, { status: 404 });
-  }
+  const searchUnavailable = snippets.length === 0;
 
   const schema = {
     type: "object",
@@ -124,12 +123,22 @@ export async function POST(request: Request) {
     messages: [
       {
         role: "system",
-        content:
-          "Use only provided internet snippets to draft exam-style MCQ questions. Keep one correct option, four options total, and attach best sourceName/sourceUrl from snippets.",
+        content: searchUnavailable
+          ? "Web search was unavailable on this server. Generate original exam-style MCQ questions using your knowledge of the given category and subject. Keep one correct option and four options total. Set sourceName to a plausible public study resource name and sourceUrl to a well-known education site homepage (https URL). Do not repeat the same question stem within the batch."
+          : "Use only provided internet snippets to draft exam-style MCQ questions. Keep one correct option, four options total, and attach best sourceName/sourceUrl from snippets. Do not repeat the same question stem within the batch.",
       },
       {
         role: "user",
-        content: JSON.stringify({ category, subject, year, topic, count, difficulty, snippets }),
+        content: JSON.stringify({
+          category,
+          subject,
+          year,
+          topic,
+          count,
+          difficulty,
+          snippets: searchUnavailable ? [] : snippets,
+          searchUnavailable,
+        }),
       },
     ],
   });
@@ -146,5 +155,27 @@ export async function POST(request: Request) {
   if (!content) return NextResponse.json({ error: "AI returned empty content" }, { status: 400 });
 
   const parsed = JSON.parse(content) as { questions: InternetQuestion[] };
-  return NextResponse.json({ questions: parsed.questions ?? [], snippets });
+  const rawQuestions = parsed.questions ?? [];
+
+  const existingHashes = await loadExistingContentHashesForSubject(
+    prisma,
+    exam,
+    subject,
+    rawQuestions.map((q) => q.questionText)
+  );
+  const { kept, skippedDuplicateInBank, skippedDuplicateInBatch } = filterQuestionsNotInBank(
+    exam,
+    subject,
+    rawQuestions,
+    existingHashes
+  );
+
+  return NextResponse.json({
+    questions: kept,
+    snippets,
+    skippedDuplicateInBank,
+    skippedDuplicateInBatch,
+    fetchedFromAi: rawQuestions.length,
+    searchUnavailable,
+  });
 }

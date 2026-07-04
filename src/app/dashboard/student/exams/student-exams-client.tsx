@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { StudentAvailableExamCard } from "@/components/exams/StudentExamCard";
 import { CardListSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { useStudentExamsAvailableQuery } from "@/hooks/data/use-student-exams-available";
 import type { StudentAvailableExam } from "@/lib/data/fetchers";
 import { isSessionSubmitted } from "@/lib/proctoring";
@@ -52,11 +53,11 @@ export function StudentExamsClient({ initialData }: Props) {
         </p>
       ) : null}
       {exams.length === 0 ? (
-        <div className="flex min-h-[40vh] items-center justify-center">
-          <p className="text-center text-2xl font-semibold text-[var(--muted)]">
-            No exams are open for you right now.
-          </p>
-        </div>
+        <EmptyState
+          icon="📝"
+          title="No exams are open right now"
+          description="When your teacher schedules an exam, it will appear here for you to start or resume."
+        />
       ) : null}
       {exams.map((exam) => {
         const latestSession = exam.examSessions[0];

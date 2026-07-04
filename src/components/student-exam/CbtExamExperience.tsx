@@ -13,6 +13,7 @@ import {
   writeCachedProgress,
 } from "@/lib/exam-progress-cache";
 import { VIOLATION_LIMIT, isSessionSubmitted } from "@/lib/proctoring";
+import { dashBtnPrimary, dashBtnSecondary } from "@/lib/dashboard-ui";
 import { NeetInstructionsPanel } from "@/components/exam/NeetInstructionsPanel";
 import { JeeMainsInstructionsPanel } from "@/components/exam/JeeMainsInstructionsPanel";
 import { InstituteBrand } from "@/components/InstituteBrand";
@@ -501,7 +502,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
         <p className="text-sm text-[var(--muted)]">Could not load exam questions.</p>
         <button
           type="button"
-          className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+          className={dashBtnSecondary}
           onClick={() => router.push("/dashboard/student/exams")}
         >
           Back to exams
@@ -555,7 +556,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
             </p>
             <button
               type="button"
-              className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-white"
+              className={dashBtnPrimary}
               onClick={() => setInstructionsAcknowledged(true)}
             >
               I have read the instructions — Begin exam
@@ -731,7 +732,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
               <footer className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] bg-[var(--card)] px-5 py-3">
                 <button
                   type="button"
-                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-40"
+                  className={dashBtnSecondary}
                   disabled={activeGlobalIndex === 0}
                   onClick={goPrevious}
                 >
@@ -739,7 +740,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
                 </button>
                 <button
                   type="button"
-                  className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+                  className={dashBtnPrimary}
                   disabled={activeGlobalIndex >= flatQuestions.length - 1}
                   onClick={saveAndNext}
                 >
@@ -786,7 +787,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+                className={dashBtnSecondary}
                 onClick={() => setShowSubmitConfirm(false)}
               >
                 Cancel
@@ -794,7 +795,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
               <button
                 type="button"
                 disabled={submitting}
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                className={dashBtnPrimary}
                 onClick={() => void submitExam()}
               >
                 {submitting ? "Submitting…" : "Confirm submit"}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type ReactNode } from "react";
 import { StatsRowSkeleton } from "@/components/skeletons/DashboardSkeletons";
 import { StatBlock } from "@/components/reports/StatBlock";
+import { dashCard, dashCardMeta, dashCardTitle } from "@/lib/dashboard-ui";
 import { useInstitutionDashboardQuery } from "@/hooks/data/use-admin-queries";
 
 const INSTITUTION_DETAIL_BASE = "/dashboard/admin/reports/institution";
@@ -72,14 +73,14 @@ function SectionCard({
   footerClass?: string;
 }) {
   return (
-    <article className="dash-static flex flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-      <div className="mb-4 flex items-start gap-3">
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+    <article className={`${dashCard} dash-static flex flex-col`}>
+      <div className="mb-5 flex items-start gap-3">
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconBg}`}>
           {icon}
         </div>
         <div>
-          <h3 className="font-semibold">{title}</h3>
-          <p className="text-xs text-[var(--muted)]">{subtitle}</p>
+          <h3 className={dashCardTitle}>{title}</h3>
+          <p className={`${dashCardMeta} text-xs`}>{subtitle}</p>
         </div>
       </div>
       <div className="flex-1">{children}</div>

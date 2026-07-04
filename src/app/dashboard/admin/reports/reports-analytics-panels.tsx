@@ -11,6 +11,29 @@ import { useReportsOverviewQuery } from "@/hooks/data/use-admin-queries";
 import { fetchSubjectScores } from "@/lib/data/fetchers";
 import { RankListTable } from "@/components/reports/RankListTable";
 import type { RankListRowData } from "@/components/reports/RankListRow";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { TableSkeleton } from "@/components/skeletons/DashboardSkeletons";
+import {
+  dashBadgeAccent,
+  dashBlock,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashCard,
+  dashCardMeta,
+  dashCardTitle,
+  dashDropdown,
+  dashDropdownItem,
+  dashFilterPill,
+  dashFilterPillActive,
+  dashInput,
+  dashLabel,
+  dashPageStats,
+  dashPanel,
+  dashSectionTitle,
+  dashSelect,
+  dashTable,
+  dashTableHead,
+} from "@/lib/dashboard-ui";
 
 export type AttemptRow = {
   id: string;
@@ -418,9 +441,11 @@ function PanelLoading() {
 
 function NoExamDataNote() {
   return (
-    <p className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] px-4 py-6 text-sm text-[var(--muted)]">
-      No exam data yet. Schedule exams and record attempts to populate this report.
-    </p>
+    <EmptyState
+      icon="📊"
+      title="No exam data yet"
+      description="Schedule exams and record attempts to populate this report."
+    />
   );
 }
 
@@ -438,40 +463,42 @@ export function SubjectBreakdownList({
   scores: Array<{ subject: string; avg: number | null; examCount: number }>;
 }) {
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-[var(--muted)]">
+    <div className={`${dashBlock} space-y-4`}>
+      <p className={dashCardMeta}>
         {title} · {subtitle}
       </p>
-      <p className="text-sm">
+      <p className="text-sm leading-relaxed">
         Total attempts: <strong>{allAttempts}</strong>
         {" · "}
         Total average: <strong>{overallAvg != null ? `${overallAvg}%` : "—"}</strong>
       </p>
-      <ul className="space-y-2">
+      <ul className="space-y-3">
         {scores.map((s) => (
           <li key={s.subject} className="flex items-center gap-3">
             <span className="w-28 shrink-0 text-sm font-medium">{s.subject}</span>
-            <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
+            <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--background)_70%,transparent)]">
               <div
-                className="h-full rounded-full bg-[var(--accent)]"
+                className="h-full rounded-full bg-[var(--accent)] transition-all duration-300"
                 style={{ width: `${s.avg != null ? Math.min(100, s.avg) : 0}%` }}
               />
             </div>
-            <span className="w-24 text-right text-sm font-medium">{s.avg != null ? `${s.avg}%` : "—"}</span>
+            <span className="w-24 text-right text-sm font-medium tabular-nums">
+              {s.avg != null ? `${s.avg}%` : "—"}
+            </span>
             <span className="w-28 text-right text-xs text-[var(--muted)]">
               {s.examCount > 0 ? `${s.examCount} test${s.examCount === 1 ? "" : "s"}` : "No data"}
             </span>
           </li>
         ))}
-        <li className="flex items-center gap-3 border-t border-[var(--border)] pt-3">
+        <li className="flex items-center gap-3 border-t border-[var(--border)] pt-4">
           <span className="w-28 shrink-0 text-sm font-semibold">Total Average</span>
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--background)]">
+          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--background)_70%,transparent)]">
             <div
               className="h-full rounded-full bg-[var(--accent)]"
               style={{ width: `${overallAvg != null ? Math.min(100, overallAvg) : 0}%` }}
             />
           </div>
-          <span className="w-24 text-right text-sm font-semibold">
+          <span className="w-24 text-right text-sm font-semibold tabular-nums">
             {overallAvg != null ? `${overallAvg}%` : "—"}
           </span>
           <span className="w-28 text-right text-xs text-[var(--muted)]">Combined</span>
@@ -481,16 +508,49 @@ export function SubjectBreakdownList({
   );
 }
 
+export type ResultScoreReportsConfig = {
+  overviewPath: string;
+  subjectScoresPath: string;
+  studentReportHref: (studentId: string) => string;
+  reportCardElementId: string;
+  reportCardTitleId: string;
+  reportStudentSelectId: string;
+  showMentorInReportCard?: boolean;
+};
+
+export const ADMIN_RESULT_SCORE_CONFIG: ResultScoreReportsConfig = {
+  overviewPath: "/api/admin/overview",
+  subjectScoresPath: "/api/admin/reports/subject-scores",
+  studentReportHref: (id) => `/dashboard/admin/reports/student/${encodeURIComponent(id)}`,
+  reportCardElementId: "admin-student-report-card",
+  reportCardTitleId: "admin-report-card-title",
+  reportStudentSelectId: "admin-report-student",
+  showMentorInReportCard: true,
+};
+
+export const TEACHER_RESULT_SCORE_CONFIG: ResultScoreReportsConfig = {
+  overviewPath: "/api/teacher/reports/overview",
+  subjectScoresPath: "/api/teacher/reports/subject-scores",
+  studentReportHref: (id) =>
+    `/dashboard/teacher/result-score-reports/student/${encodeURIComponent(id)}`,
+  reportCardElementId: "teacher-student-report-card",
+  reportCardTitleId: "teacher-report-card-title",
+  reportStudentSelectId: "teacher-report-student",
+  showMentorInReportCard: true,
+};
+
 export function ResultScoreReportsPanel({
   resetKey,
   initialOverview,
+  config = ADMIN_RESULT_SCORE_CONFIG,
 }: {
   resetKey?: string;
   initialOverview?: Awaited<ReturnType<typeof import("@/lib/data/fetchers").fetchReportsOverview>>;
+  config?: ResultScoreReportsConfig;
 }) {
   const router = useRouter();
-  const { data, loading } = useReportsOverview("/api/admin/overview", initialOverview);
-  const { subjectScores } = useSubjectScoresApi("/api/admin/reports/subject-scores");
+  const { data, loading } = useReportsOverview(config.overviewPath, initialOverview);
+  const { subjectScores } = useSubjectScoresApi(config.subjectScoresPath);
   const [trackFilter, setTrackFilter] = useState<"ALL" | "JEE" | "NEET">("ALL");
   const [exportOpen, setExportOpen] = useState(false);
   const [reportCardOpen, setReportCardOpen] = useState(false);
@@ -563,127 +623,137 @@ export function ResultScoreReportsPanel({
   }
 
   if (loading && !data) {
-    return <PanelLoading />;
+    return <TableSkeleton rows={8} />;
   }
+
+  const attemptCount = data?.performance.length ?? 0;
 
   return (
     <div key={resetKey} className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold">Rank list</h3>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Aggregate rankings with each student&apos;s latest exam score
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative" ref={exportMenuRef}>
+      {hasPerformance ? (
+        <p className={dashPageStats}>
+          {filteredRanks.length} student{filteredRanks.length === 1 ? "" : "s"} ranked · {attemptCount}{" "}
+          exam attempt{attemptCount === 1 ? "" : "s"} recorded
+        </p>
+      ) : null}
+
+      <section className={`${dashPanel} dash-static space-y-5`}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 className={dashSectionTitle}>Rank list</h3>
+            <p className={dashCardMeta}>
+              Aggregate rankings with each student&apos;s latest exam score
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative" ref={exportMenuRef}>
+              <button
+                type="button"
+                className={`${dashBtnSecondary} inline-flex items-center gap-1.5`}
+                disabled={!hasPerformance}
+                onClick={() => setExportOpen((open) => !open)}
+                aria-expanded={exportOpen}
+                aria-haspopup="menu"
+              >
+                Bulk Excel Export
+                <span className="text-[var(--muted)]" aria-hidden>
+                  ▾
+                </span>
+              </button>
+              {exportOpen ? (
+                <div role="menu" className={dashDropdown}>
+                  <button type="button" role="menuitem" className={dashDropdownItem} onClick={exportRankExcel}>
+                    Export rank list
+                  </button>
+                  <button type="button" role="menuitem" className={dashDropdownItem} onClick={exportAllExcel}>
+                    Export all scores
+                  </button>
+                </div>
+              ) : null}
+            </div>
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-medium hover:bg-[var(--background)] disabled:opacity-50"
-              disabled={!hasPerformance}
-              onClick={() => setExportOpen((open) => !open)}
-              aria-expanded={exportOpen}
-              aria-haspopup="menu"
+              className={dashBtnSecondary}
+              onClick={() => {
+                setReportStudentId(data?.students[0]?.id || "");
+                setReportCardOpen(true);
+              }}
             >
-              Bulk Excel Export
-              <span className="text-[var(--muted)]" aria-hidden>
-                ▾
-              </span>
+              Individual Student Report card
             </button>
-            {exportOpen ? (
-              <div
-                role="menu"
-                className="absolute right-0 z-20 mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="block w-full px-4 py-2 text-left text-sm hover:bg-[var(--background)]"
-                  onClick={exportRankExcel}
-                >
-                  Export rank list
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="block w-full px-4 py-2 text-left text-sm hover:bg-[var(--background)]"
-                  onClick={exportAllExcel}
-                >
-                  Export all scores
-                </button>
-              </div>
-            ) : null}
           </div>
-          <button
-            type="button"
-            className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-medium hover:bg-[var(--background)]"
-            onClick={() => {
-              setReportStudentId(data?.students[0]?.id || "");
-              setReportCardOpen(true);
-            }}
-          >
-            Individual Student Report card
-          </button>
         </div>
-      </div>
 
-      {!hasPerformance ? (
-        <NoExamDataNote />
-      ) : (
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-          <div className="mb-4 flex flex-wrap gap-2">
-            {(["ALL", "JEE", "NEET"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={`rounded-full px-3 py-1 text-xs font-medium ${
-                  trackFilter === t ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"
-                }`}
-                onClick={() => setTrackFilter(t)}
-              >
-                {t === "ALL" ? "All tracks" : t}
-              </button>
-            ))}
-          </div>
-          <p className="mb-3 text-xs text-[var(--muted)]">
-            Select a student to view their subject-wise breakdown and analysis notes.
-          </p>
-          <RankListTable
-            rows={filteredRanks}
-            onSelectStudent={(id) => {
-              if (id) router.push(`/dashboard/admin/reports/student/${encodeURIComponent(id)}`);
-            }}
-          />
-        </section>
-      )}
+        {!hasPerformance ? (
+          <NoExamDataNote />
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5">
+              <div className="flex flex-wrap gap-2">
+                {(["ALL", "JEE", "NEET"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={trackFilter === t ? dashFilterPillActive : dashFilterPill}
+                    onClick={() => setTrackFilter(t)}
+                  >
+                    {t === "ALL" ? "All tracks" : t}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--muted)]">
+                Click a student row to open their full report
+              </p>
+            </div>
+            <RankListTable
+              embedded
+              maxHeightClass="max-h-[28rem]"
+              rows={filteredRanks}
+              onSelectStudent={(id) => {
+                if (id) router.push(config.studentReportHref(id));
+              }}
+            />
+          </>
+        )}
+      </section>
 
       {reportCardOpen ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="admin-report-card-title"
+          aria-labelledby={config.reportCardTitleId}
           onClick={() => setReportCardOpen(false)}
         >
           <div
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+            className={`${dashPanel} max-h-[90vh] w-full max-w-2xl overflow-y-auto shadow-xl`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <h3 id="admin-report-card-title" className="text-lg font-semibold">
-                Individual student report card
-              </h3>
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <h3 id={config.reportCardTitleId} className={dashSectionTitle}>
+                  Individual student report card
+                </h3>
+                <p className={dashCardMeta}>Preview and print a summary for one student</p>
+              </div>
               <button
                 type="button"
-                className="rounded-lg border border-[var(--border)] px-2 py-1 text-sm text-[var(--muted)] hover:bg-[var(--background)]"
+                className={dashBtnSecondary}
                 onClick={() => setReportCardOpen(false)}
                 aria-label="Close"
               >
                 ✕
               </button>
             </div>
+            <label
+              className={`${dashLabel} mb-1.5 block normal-case`}
+              htmlFor={config.reportStudentSelectId}
+            >
+              Student
+            </label>
             <select
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              id={config.reportStudentSelectId}
+              className={`${dashSelect} w-full`}
               value={reportStudentId}
               onChange={(e) => setReportStudentId(e.target.value)}
             >
@@ -695,29 +765,31 @@ export function ResultScoreReportsPanel({
               ))}
             </select>
             {reportStudent ? (
-              <div id="admin-student-report-card" className="mt-4 rounded-lg border border-[var(--border)] p-4 print:border-black">
-                <h4 className="font-semibold">{reportStudent.name}</h4>
-                <p className="text-xs text-[var(--muted)]">
-                  {reportStudent.email} · Target {reportStudent.category} · Mentor:{" "}
-                  {reportStudent.teacher?.name ?? "—"}
+              <div id={config.reportCardElementId} className={`${dashBlock} mt-5 print:border-black`}>
+                <h4 className={dashCardTitle}>{reportStudent.name}</h4>
+                <p className={`${dashCardMeta} text-xs`}>
+                  {reportStudent.email} · Target {reportStudent.category}
+                  {config.showMentorInReportCard ? (
+                    <> · Mentor: {reportStudent.teacher?.name ?? "—"}</>
+                  ) : null}
                 </p>
-                <p className="mt-2 text-sm">
+                <p className="mt-3 text-sm leading-relaxed">
                   Average score: <strong>{reportAvg ?? "—"}%</strong> · Attempts: {reportAttemptCount}
                 </p>
-                <table className="mt-3 min-w-full text-left text-sm">
-                  <thead>
-                    <tr className="text-[var(--muted)]">
-                      <th className="py-1 pr-4">Exam</th>
-                      <th className="py-1 pr-4">Date</th>
-                      <th className="py-1">Score</th>
+                <table className={`${dashTable} mt-4`}>
+                  <thead className={dashTableHead}>
+                    <tr>
+                      <th className="text-left">Exam</th>
+                      <th className="text-left">Date</th>
+                      <th className="text-right">Score</th>
                     </tr>
                   </thead>
                   <tbody>
                     {reportAttempts.map((a) => (
                       <tr key={a.id} className="border-t border-[var(--border)]">
-                        <td className="py-2 pr-4">{a.title}</td>
-                        <td className="py-2 pr-4">{new Date(a.examDate).toLocaleDateString()}</td>
-                        <td className="py-2">
+                        <td className="py-2">{a.title}</td>
+                        <td className="py-2">{new Date(a.examDate).toLocaleDateString()}</td>
+                        <td className="py-2 text-right tabular-nums">
                           {a.marksObtained}/{a.maxMarks} ({a.percentage}%)
                         </td>
                       </tr>
@@ -726,9 +798,9 @@ export function ResultScoreReportsPanel({
                 </table>
                 <button
                   type="button"
-                  className="mt-3 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs print:hidden"
+                  className={`${dashBtnSecondary} mt-4 text-xs print:hidden`}
                   onClick={() => {
-                    const el = document.getElementById("admin-student-report-card");
+                    const el = document.getElementById(config.reportCardElementId);
                     if (!el) return;
                     const w = window.open("", "_blank");
                     if (!w) return;
@@ -743,7 +815,7 @@ export function ResultScoreReportsPanel({
                 </button>
               </div>
             ) : (
-              <p className="mt-4 text-sm text-[var(--muted)]">Select a student to view their report card.</p>
+              <p className={`${dashCardMeta} mt-4`}>Select a student to view their report card.</p>
             )}
           </div>
         </div>
@@ -800,16 +872,16 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
     <div key={resetKey} className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-2xl font-semibold tracking-tight">Performance analytics</h3>
-          <p className="text-sm text-[var(--muted)]">AI-driven insights · Updated today</p>
+          <h3 className={dashSectionTitle}>Performance analytics</h3>
+          <p className={dashCardMeta}>AI-driven insights · Updated today</p>
         </div>
-        <span className="inline-flex items-center rounded-full bg-violet-100 px-3 py-1 text-sm font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+        <span className={dashBadgeAccent}>
           Powered by AI
         </span>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+        <article className={dashCard}>
           <div className="mb-4 flex items-start justify-between">
             <div>
               <h4 className="text-xl font-semibold">Weak chapter identification</h4>
@@ -863,12 +935,12 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
           </Link>
         </article>
 
-        <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+        <article className={dashCard}>
           <h4 className="text-xl font-semibold">Improvement trend across attempts</h4>
           <p className="text-sm text-[var(--muted)]">Chronological score progression</p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             {(["JEE", "NEET"] as const).map((track) => (
-              <div key={track} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+              <div key={track} className={`${dashBlock} p-3`}>
                 <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{track}</p>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <div>
@@ -918,7 +990,7 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
           </Link>
         </article>
 
-        <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+        <article className={dashCard}>
           <h4 className="text-xl font-semibold">NEET / JEE cut-off proximity meter</h4>
           <p className="text-sm text-[var(--muted)]">Latest score vs qualifying benchmark</p>
           <div className="mt-4 grid grid-cols-2 gap-3">
@@ -946,7 +1018,7 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
           </Link>
         </article>
 
-        <article className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+        <article className={dashCard}>
           <h4 className="text-xl font-semibold">Question difficulty vs response analysis</h4>
           <p className="text-sm text-[var(--muted)]">Performance by inferred paper difficulty</p>
           <p className="mt-4 text-sm text-[var(--muted)]">Accuracy rate by difficulty tier</p>

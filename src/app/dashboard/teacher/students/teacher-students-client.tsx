@@ -9,6 +9,14 @@ import {
 } from "@/components/ResetCredentialsForm";
 import { TableSkeleton } from "@/components/skeletons/DashboardSkeletons";
 import { StudentTable } from "@/components/students/StudentTable";
+import {
+  dashBtnDanger,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashInput,
+  dashPanel,
+  dashTableWrap,
+} from "@/lib/dashboard-ui";
 import { useTeacherStudentsQuery } from "@/hooks/data/use-teacher-students";
 import { dataKeys } from "@/hooks/data/keys";
 import { useAutoClearMessage } from "@/hooks/use-auto-clear-message";
@@ -47,7 +55,7 @@ function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-lg"
+        className={`${dashPanel} max-h-[90vh] w-full max-w-lg overflow-y-auto shadow-xl`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="teacher-student-modal-title"
@@ -59,7 +67,7 @@ function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-[var(--border)] px-2 py-1 text-sm text-[var(--muted)] hover:text-[var(--foreground)]"
+            className={dashBtnSecondary}
             aria-label="Close"
           >
             ✕
@@ -207,7 +215,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
       <div className="mb-4 flex justify-end">
         <button
           type="button"
-          className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-medium hover:bg-[var(--background)]"
+          className={dashBtnSecondary}
           onClick={() => {
             setError(null);
             setSuccess(null);
@@ -218,10 +226,10 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
+      <div className={dashTableWrap}>
         <div className="border-b border-[var(--border)] p-3">
           <input
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            className={dashInput}
             placeholder="Search students by name, email, username, year..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -233,7 +241,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
             <>
               <button
                 type="button"
-                className="rounded border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--background)]"
+                className={`${dashBtnSecondary} !p-2`}
                 aria-label={`Edit credentials for ${s.name}`}
                 title="Edit credentials"
                 onClick={() => {
@@ -246,7 +254,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
               </button>
               <button
                 type="button"
-                className="rounded border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                className={`${dashBtnDanger} !p-2`}
                 aria-label={`Delete ${s.name}`}
                 title="Delete student"
                 disabled={deletingId === s.id}
@@ -266,27 +274,27 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
         <Modal title="Create a new Student" onClose={closeCreateModal}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={createStudent}>
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm sm:col-span-2"
+              className={`${dashInput} sm:col-span-2`}
               placeholder="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               type="email"
               placeholder="Email (optional if username set)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               placeholder="Username (optional if email set)"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm sm:col-span-2"
+              className={`${dashInput} sm:col-span-2`}
               type="password"
               placeholder="Temporary password"
               value={password}
@@ -297,7 +305,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
               Target: <span className="font-medium text-[var(--foreground)]">{teacherCategory ?? "—"}</span>
             </div>
             <select
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               value={year}
               onChange={(e) => setYear(e.target.value as "1" | "2")}
               required
@@ -307,7 +315,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
             </select>
             <button
               type="submit"
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white sm:col-span-2"
+              className={`${dashBtnPrimary} sm:col-span-2`}
             >
               Enrol student
             </button>

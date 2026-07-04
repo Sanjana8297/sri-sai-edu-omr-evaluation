@@ -7,6 +7,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { useSubjectScoresApi, SubjectBreakdownList } from "@/app/dashboard/admin/reports/reports-analytics-panels";
 import { ExamPaperAnalysis, type ExamAnalysisDetail } from "@/components/reports/ExamPaperAnalysis";
+import {
+  dashBtnSecondary,
+  dashCard,
+  dashFilterPill,
+  dashFilterPillActive,
+  dashPanel,
+} from "@/lib/dashboard-ui";
 
 type TabId = "breakdown" | "notes";
 
@@ -43,7 +50,7 @@ function BreakdownTab({ studentId }: { studentId: string }) {
     return <p className="text-sm text-[var(--muted)]">No subject breakdown available for this student yet.</p>;
   }
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+    <section className={dashPanel}>
       <SubjectBreakdownList {...breakdown} />
     </section>
   );
@@ -99,7 +106,7 @@ function NotesTab({ studentId }: { studentId: string }) {
             key={s.id}
             type="button"
             onClick={() => setSelectedId(s.id)}
-            className="block w-full rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 text-left transition-colors hover:bg-[var(--background)]"
+            className={`${dashCard} block w-full text-left transition-colors hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--border))]`}
           >
             <h2 className="font-semibold">{s.exam.title}</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
@@ -150,7 +157,7 @@ export default function StudentReportPage() {
               router.back();
             }
           }}
-          className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-medium hover:bg-[var(--background)]"
+          className={`${dashBtnSecondary} inline-flex items-center`}
         >
           ← Back to Result &amp; Score Reports
         </Link>

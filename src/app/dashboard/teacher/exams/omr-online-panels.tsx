@@ -13,6 +13,14 @@ import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePa
 import { OmrTemplatePreview } from "@/components/omr/OmrTemplatePreview";
 import type { TeacherTrack } from "@/lib/dashboard-nav";
 import {
+  dashBlock,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashInput,
+  dashPanel,
+  dashSelect,
+} from "@/lib/dashboard-ui";
+import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
   buildDefaultAdvanceSubjects,
@@ -362,7 +370,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
             />
             <button
               type="button"
-              className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className={dashBtnPrimary}
               disabled={templateLoading || templateSaving}
               onClick={() => void saveOmrTemplate()}
             >
@@ -424,7 +432,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className={dashBtnPrimary}
                 disabled={!bundlePaper || bundleLoading}
                 onClick={() => void downloadOmrOnly()}
               >
@@ -482,7 +490,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
               </label>
               <button
                 type="button"
-                className="mt-3 w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white"
+                className={`${dashBtnPrimary} mt-3 w-full`}
                 onClick={runDetection}
               >
                 Run bubble detection
@@ -651,7 +659,7 @@ export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: stri
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm text-[var(--muted)]">
+      <div className={`${dashBlock} text-sm text-[var(--muted)]`}>
         These options apply during live student attempts. Exam duration is set under{" "}
         <strong className="text-[var(--foreground)]">Exam Scheduling</strong>.
         {hasUnsavedChanges ? (
@@ -681,7 +689,7 @@ export function OnlineExamModulePanel({ resetKey: _resetKey }: { resetKey?: stri
           </p>
           <button
             type="button"
-            className="rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className={dashBtnPrimary}
             disabled={saving || !hasUnsavedChanges}
             onClick={() => void saveAllChanges()}
           >

@@ -186,8 +186,8 @@ function DashboardShellInner({
       <main
         className={`transition-[padding] duration-200 ${mainOffsetLg ? "lg:pl-[290px]" : ""} ${
           fullWidthContent
-            ? "flex min-h-0 flex-1 flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-10"
-            : "px-4 py-6 sm:px-6 sm:py-8"
+            ? "flex min-h-0 flex-1 flex-col px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-5 lg:px-10"
+            : "px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-5"
         }`}
       >
         <div className={fullWidthContent ? "flex min-h-0 flex-1 flex-col" : ""}>

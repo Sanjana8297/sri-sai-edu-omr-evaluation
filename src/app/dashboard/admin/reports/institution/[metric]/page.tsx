@@ -9,6 +9,20 @@ import {
   useAdminStudentsQuery,
   useInstitutionDashboardQuery,
 } from "@/hooks/data/use-admin-queries";
+import {
+  dashBadgeMuted,
+  dashBlock,
+  dashBtnSecondary,
+  dashBtnSm,
+  dashCard,
+  dashInput,
+  dashPanel,
+  dashSelect,
+  dashTable,
+  dashTableHead,
+  dashTableRow,
+  dashTableWrap,
+} from "@/lib/dashboard-ui";
 
 type InstitutionDashboardData = {
   academicYear: string;
@@ -67,7 +81,7 @@ const METRIC_TITLES: Record<string, { title: string; subtitle: string }> = {
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+    <section className={dashPanel}>
       <h2 className="mb-4 text-sm font-semibold">{title}</h2>
       {children}
     </section>
@@ -82,7 +96,7 @@ function StatTile({ label, value, tone }: { label: string; value: string | numbe
         ? "text-red-600 dark:text-red-400"
         : "";
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+    <div className={dashBlock}>
       <p className="text-xs text-[var(--muted)]">{label}</p>
       <p className={`mt-1 text-2xl font-bold tracking-tight ${toneClass}`}>{value}</p>
     </div>
@@ -206,7 +220,7 @@ function TotalStudentsPanel() {
             <select
               value={trackFilter}
               onChange={(e) => changeTrack(e.target.value as TrackFilter)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-sm"
+              className={dashSelect}
             >
               <option value="ALL">All tracks</option>
               <option value="JEE">JEE</option>
@@ -218,7 +232,7 @@ function TotalStudentsPanel() {
             <select
               value={yearFilter}
               onChange={(e) => changeYear(e.target.value as YearFilter)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-sm"
+              className={dashSelect}
             >
               <option value="ALL">All years</option>
               <option value="1">Year 1</option>
@@ -230,7 +244,7 @@ function TotalStudentsPanel() {
           </span>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+        <div className={dashTableWrap}>
           <table className="min-w-full text-left text-sm">
             <thead className="bg-[var(--card)] text-[var(--muted)]">
               <tr>
@@ -272,7 +286,7 @@ function TotalStudentsPanel() {
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 enabled:hover:bg-[var(--background)]"
+                className={dashBtnSm}
               >
                 ← Previous
               </button>
@@ -283,7 +297,7 @@ function TotalStudentsPanel() {
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 enabled:hover:bg-[var(--background)]"
+                className={dashBtnSm}
               >
                 Next →
               </button>
@@ -426,7 +440,7 @@ function MetricContent({ metric, data }: { metric: string; data: InstitutionDash
                 {data.lowPerformerSubjects.map((s) => (
                   <span
                     key={s.subject}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1 text-xs font-medium"
+                    className={dashBtnSm}
                   >
                     {s.subject} – {s.count}
                   </span>
@@ -577,7 +591,7 @@ export default function InstitutionMetricDetailPage() {
               router.back();
             }
           }}
-          className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-medium hover:bg-[var(--background)]"
+          className={`${dashBtnSecondary} inline-flex items-center`}
         >
           ← Back to Institution Dashboard
         </Link>

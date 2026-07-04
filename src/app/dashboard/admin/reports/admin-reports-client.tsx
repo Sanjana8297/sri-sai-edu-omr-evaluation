@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
+import { dashCardMeta, dashPageStats, dashSectionTitle } from "@/lib/dashboard-ui";
 import {
   PerformanceAnalyticsPanel,
   ResultScoreReportsPanel,
@@ -52,11 +53,11 @@ function AdminReportsContent() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="mb-6 border-b border-[var(--border)] pb-4">
+      <div className={dashPageStats}>
         {section !== "institution" ? (
           <>
-            <h2 className="text-sm font-medium text-[var(--foreground)]">{SECTION_LABELS[section]}</h2>
-            <p className="mt-0.5 text-xs text-[var(--muted)]">{SECTION_SUBTITLES[section]}</p>
+            <h2 className={dashSectionTitle}>{SECTION_LABELS[section]}</h2>
+            <p className={`${dashCardMeta} mt-1 text-xs`}>{SECTION_SUBTITLES[section]}</p>
           </>
         ) : null}
       </div>

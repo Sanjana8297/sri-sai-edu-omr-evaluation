@@ -12,6 +12,21 @@ import { pushAuditTrail } from "@/lib/admin-staff-storage";
 import { useAutoClearMessage } from "@/hooks/use-auto-clear-message";
 import { TableSkeleton } from "@/components/skeletons/DashboardSkeletons";
 import {
+  dashBtnDanger,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashBtnSm,
+  dashCardTitle,
+  dashInput,
+  dashLabel,
+  dashPanel,
+  dashSelect,
+  dashTable,
+  dashTableHead,
+  dashTableRow,
+  dashTableWrap,
+} from "@/lib/dashboard-ui";
+import {
   useAdminAdminsQuery,
   useAdminStudentsQuery,
   useAdminTeachersQuery,
@@ -69,7 +84,7 @@ function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-lg"
+        className={`${dashPanel} max-h-[90vh] w-full max-w-lg overflow-y-auto shadow-xl`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="admin-modal-title"
@@ -81,7 +96,7 @@ function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-[var(--border)] px-2 py-1 text-sm text-[var(--muted)] hover:text-[var(--foreground)]"
+            className={dashBtnSecondary}
             aria-label="Close"
           >
             ✕
@@ -330,7 +345,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
           <label className="grid gap-1 text-xs font-medium text-[var(--muted)]">
             Track
             <select
-              className="min-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+              className={dashSelect}
               value={trackFilter}
               onChange={(e) => {
                 setTrackFilter(e.target.value as "ALL" | "JEE" | "NEET");
@@ -345,7 +360,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
           <label className="grid gap-1 text-xs font-medium text-[var(--muted)]">
             Year
             <select
-              className="min-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+              className={dashSelect}
               value={yearFilter}
               onChange={(e) => {
                 setYearFilter(e.target.value as "ALL" | "1" | "2");
@@ -361,7 +376,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+            className={dashBtnPrimary}
             onClick={() => {
               closeModal();
               setModal("bulk");
@@ -371,7 +386,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
           </button>
           <button
             type="button"
-            className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2 text-sm font-medium"
+            className={dashBtnSecondary}
             onClick={() => {
               closeModal();
               setModal("single");
@@ -382,10 +397,10 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-        <div className="border-b border-[var(--border)] p-3">
+      <div className={dashTableWrap}>
+        <div className="border-b border-[var(--border)] p-4">
           <input
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            className={dashInput}
             placeholder="Search by name, email, username, track, teacher..."
             value={query}
             onChange={(e) => {
@@ -394,8 +409,8 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
             }}
           />
         </div>
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+        <table className={dashTable}>
+          <thead className={dashTableHead}>
             <tr>
               <th className="px-4 py-3 font-medium">Roll no.</th>
               <th className="px-4 py-3 font-medium">Name</th>
@@ -417,7 +432,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
             {pagedStudents.map((s, i) => (
               <tr
                 key={s.id}
-                className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--background)]"
+                className={`${dashTableRow} cursor-pointer`}
                 onClick={() => openAttemptHistory(s.id)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -451,7 +466,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
                   <div className="flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      className="rounded border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--card)]"
+                      className={`${dashBtnSecondary} !p-2`}
                       aria-label={`Edit credentials for ${s.name}`}
                       title="Edit credentials"
                       onClick={() => {
@@ -465,7 +480,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
                     </button>
                     <button
                       type="button"
-                      className="rounded border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      className={`${dashBtnDanger} !p-2`}
                       aria-label={`Delete ${s.name}`}
                       title="Delete student"
                       disabled={deletingId === s.id}
@@ -486,7 +501,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
           <div className="flex gap-2">
             <button
               type="button"
-              className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
+              className={dashBtnSm}
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
@@ -497,7 +512,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
             </span>
             <button
               type="button"
-              className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
+              className={dashBtnSm}
               disabled={page >= pageCount}
               onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
             >
@@ -535,27 +550,27 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
         <Modal title="Add Single Student" onClose={closeModal}>
           <form className="grid gap-3 sm:grid-cols-2" onSubmit={submit}>
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               placeholder="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               type="email"
               placeholder="Email (optional if username set)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               placeholder="Username (optional if email set)"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               type="password"
               placeholder="Temporary password"
               value={password}
@@ -563,7 +578,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
               required
             />
             <select
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               value={category}
               onChange={(e) => setCategory(e.target.value as "JEE" | "NEET")}
             >
@@ -571,7 +586,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
               <option value="NEET">Target: NEET</option>
             </select>
             <select
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               value={year}
               onChange={(e) => setYear(e.target.value as "1" | "2")}
               required
@@ -580,7 +595,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
               <option value="2">Year: 2</option>
             </select>
             <select
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm sm:col-span-2"
+              className={`${dashSelect} sm:col-span-2`}
               value={teacherId}
               onChange={(e) => setTeacherId(e.target.value)}
               required
@@ -598,7 +613,7 @@ export function StudentProfilesPanel({ resetKey: _resetKey }: { resetKey?: strin
             </label>
             <button
               type="submit"
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white sm:col-span-2"
+              className={`${dashBtnPrimary} sm:col-span-2`}
             >
               Enrol student
             </button>
@@ -805,7 +820,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
       <div className="flex flex-wrap items-center justify-end gap-2">
         <button
           type="button"
-          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+          className={dashBtnPrimary}
           onClick={() => {
             closeModal();
             setSuccess(null);
@@ -816,10 +831,10 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-        <div className="border-b border-[var(--border)] p-3">
+      <div className={dashTableWrap}>
+        <div className="border-b border-[var(--border)] p-4">
           <input
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            className={dashInput}
             placeholder="Search staff by name, login, track, or role..."
             value={query}
             onChange={(e) => {
@@ -828,8 +843,8 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
             }}
           />
         </div>
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+        <table className={dashTable}>
+          <thead className={dashTableHead}>
             <tr>
               <th className="px-4 py-3 font-medium">Name</th>
               <th className="px-4 py-3 font-medium">Login ID</th>
@@ -849,7 +864,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
             {pagedStaff.map((s) => (
               <tr
                 key={`${s.role}-${s.id}`}
-                className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--background)]"
+                className={`${dashTableRow} cursor-pointer`}
                 onClick={() => openStaffDetail(s)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -887,7 +902,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
                   <div className="flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      className="rounded border border-[var(--border)] p-2 text-[var(--foreground)] hover:bg-[var(--card)]"
+                      className={`${dashBtnSecondary} !p-2`}
                       aria-label={`Edit credentials for ${s.name}`}
                       title="Edit credentials"
                       onClick={() => {
@@ -901,7 +916,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
                     </button>
                     <button
                       type="button"
-                      className="rounded border border-red-200 p-2 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      className={`${dashBtnDanger} !p-2`}
                       aria-label={`Delete ${s.name}`}
                       title={`Delete ${s.role === "TEACHER" ? "teacher" : "admin"}`}
                       disabled={deletingId === s.id}
@@ -922,7 +937,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
           <div className="flex gap-2">
             <button
               type="button"
-              className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
+              className={dashBtnSm}
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
@@ -933,7 +948,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
             </span>
             <button
               type="button"
-              className="rounded border border-[var(--border)] px-3 py-1 disabled:opacity-50"
+              className={dashBtnSm}
               disabled={page >= pageCount}
               onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
             >
@@ -947,7 +962,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
         <Modal title="Create new Teacher/Admin" onClose={closeModal}>
           <form className="grid gap-3" onSubmit={submitCreate}>
             <select
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               value={createRole}
               onChange={(e) => setCreateRole(e.target.value as "TEACHER" | "ADMIN")}
             >
@@ -955,27 +970,27 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
               <option value="ADMIN">Role: Admin</option>
             </select>
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               placeholder="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               type="email"
               placeholder="Email (optional if username set)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               placeholder="Username (optional if email set)"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
             <input
-              className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={dashInput}
               type="password"
               placeholder="Temporary password"
               value={password}
@@ -984,7 +999,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
             />
             {createRole === "TEACHER" ? (
               <select
-                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                className={dashInput}
                 value={category}
                 onChange={(e) => setCategory(e.target.value as "JEE" | "NEET")}
               >
@@ -992,7 +1007,7 @@ export function TeacherRolesPanel({ resetKey: _resetKey }: { resetKey?: string }
                 <option value="NEET">Track: NEET</option>
               </select>
             ) : null}
-            <button type="submit" className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white">
+            <button type="submit" className={dashBtnPrimary}>
               Create account
             </button>
           </form>

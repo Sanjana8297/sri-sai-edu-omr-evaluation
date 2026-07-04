@@ -20,6 +20,7 @@ import {
 import { hasActiveQuestionFilters, questionKeys } from "@/hooks/questions/keys";
 import { useQuestionBankFilteredTotal } from "@/hooks/questions/use-question-bank-total";
 import { useMeQuery } from "@/hooks/data/use-me";
+import { dashBtnSecondary } from "@/lib/dashboard-ui";
 
 export default function TeacherSubjectQuestionBankPage() {
   const params = useParams<{ subject: string }>();
@@ -270,7 +271,7 @@ export default function TeacherSubjectQuestionBankPage() {
                       type="button"
                       onClick={() => void exportFilteredCsv()}
                       disabled={exporting || exportingFullBank}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium disabled:opacity-50"
+                      className={dashBtnSecondary}
                     >
                       {exporting ? "Exporting…" : "Export filtered CSV"}
                     </button>
@@ -278,7 +279,7 @@ export default function TeacherSubjectQuestionBankPage() {
                       type="button"
                       onClick={() => void exportFilteredPdf()}
                       disabled={exporting || exportingFullBank}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium disabled:opacity-50"
+                      className={dashBtnSecondary}
                     >
                       Export filtered PDF
                     </button>
@@ -304,7 +305,7 @@ export default function TeacherSubjectQuestionBankPage() {
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={importing || exporting || exportingFullBank}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium disabled:opacity-50"
+                      className={dashBtnSecondary}
                     >
                       {importing ? "Importing…" : "Import CSV"}
                     </button>

@@ -4,6 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
 import { useMeQuery } from "@/hooks/data/use-me";
 import { formatQuestionTextForDisplay } from "@/lib/question-text";
+import {
+  dashBlock,
+  dashBtnPrimary,
+  dashBtnSecondary,
+  dashBtnSm,
+  dashInput,
+  dashPanel,
+  dashSelect,
+} from "@/lib/dashboard-ui";
 
 type Track = "JEE" | "NEET";
 
@@ -75,9 +84,40 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
         setErr(j.error ?? "Could not fetch AI questions");
         return;
       }
-      setAiQuestions(j.questions ?? []);
+      const questions = (j.questions ?? []) as AiQuestion[];
+      setAiQuestions(questions);
       setSelectedAiQuestionIndices([]);
-      setMsg(`Fetched ${j.questions?.length ?? 0} questions.`);
+
+      const skippedBank = Number(j.skippedDuplicateInBank ?? 0);
+      const skippedBatch = Number(j.skippedDuplicateInBatch ?? 0);
+      const fetchedFromAi = Number(j.fetchedFromAi ?? questions.length);
+      const searchUnavailable = Boolean(j.searchUnavailable);
+
+      if (questions.length === 0) {
+        if (skippedBank > 0 || skippedBatch > 0) {
+          setErr(
+            `All ${fetchedFromAi} fetched question${fetchedFromAi === 1 ? "" : "s"} already exist in the question bank or were duplicates in the batch. Try a different topic or chapter.`
+          );
+        } else {
+          setMsg("No questions were returned. Try a broader topic.");
+        }
+        return;
+      }
+
+      const skipParts: string[] = [];
+      if (skippedBank > 0) {
+        skipParts.push(`${skippedBank} already in bank`);
+      }
+      if (skippedBatch > 0) {
+        skipParts.push(`${skippedBatch} duplicate in batch`);
+      }
+      const skipNote = skipParts.length > 0 ? ` (${skipParts.join(", ")} skipped)` : "";
+      const searchNote = searchUnavailable
+        ? " Web search was unavailable on the server; questions were generated from AI knowledge."
+        : "";
+      setMsg(
+        `Showing ${questions.length} new question${questions.length === 1 ? "" : "s"}${skipNote}.${searchNote}`
+      );
     } finally {
       setAiLoading(false);
     }
@@ -104,7 +144,11 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
     });
     const j = await res.json();
     if (!res.ok) {
-      setErr(j.error ?? "Could not add question");
+      setErr(
+        res.status === 409
+          ? "This question already exists in the question bank."
+          : (j.error ?? "Could not add question")
+      );
       return;
     }
     setMsg("Question added to question bank.");
@@ -119,6 +163,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
     setMsg(null);
 
     let added = 0;
+    let skipped = 0;
     for (const idx of selectedAiQuestionIndices) {
       const q = aiQuestions[idx];
       if (!q) continue;
@@ -139,17 +184,19 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
         }),
       });
       if (res.ok) added += 1;
+      else if (res.status === 409) skipped += 1;
     }
-    setMsg(`${added} selected questions added to question bank.`);
+    const skipNote = skipped > 0 ? ` ${skipped} skipped (already in bank).` : "";
+    setMsg(`${added} selected question${added === 1 ? "" : "s"} added to question bank.${skipNote}`);
   }
 
   return (
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
+      <div className={dashPanel}>
         <div className="grid gap-2 md:grid-cols-4">
           <label className="text-xs text-[var(--muted)]">
             Subject
             <select
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={`${dashSelect} mt-1 w-full`}
               value={aiSubject}
               onChange={(e) => setAiSubject(e.target.value)}
             >
@@ -161,7 +208,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
           <label className="text-xs text-[var(--muted)]">
             Year
             <input
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={`${dashSelect} mt-1 w-full`}
               type="number"
               min={2000}
               max={2100}
@@ -172,7 +219,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
           <label className="text-xs text-[var(--muted)]">
             Chapter / Topic
             <input
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={`${dashSelect} mt-1 w-full`}
               placeholder="Optional"
               value={aiChapter}
               onChange={(e) => setAiChapter(e.target.value)}
@@ -181,7 +228,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
           <label className="text-xs text-[var(--muted)]">
             Difficulty
             <select
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={`${dashSelect} mt-1 w-full`}
               value={aiDifficulty}
               onChange={(e) => setAiDifficulty(e.target.value as "easy" | "medium" | "hard")}
             >
@@ -193,7 +240,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
           <label className="text-xs text-[var(--muted)]">
             Question Count
             <input
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              className={`${dashInput} mt-1`}
               type="number"
               min={1}
               max={10}
@@ -206,7 +253,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm text-white disabled:opacity-60"
+            className={dashBtnPrimary}
             onClick={() => void generateAiQuestions()}
             disabled={aiLoading}
           >
@@ -214,7 +261,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
           </button>
           <button
             type="button"
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm disabled:opacity-60"
+            className={dashBtnSecondary}
             disabled={selectedAiQuestionIndices.length === 0}
             onClick={() => void addSelectedAiQuestionsToBank()}
           >
@@ -228,7 +275,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
         {aiQuestions.length > 0 ? (
           <div className="mt-4 max-h-[65vh] space-y-2 overflow-auto pr-1">
             {aiQuestions.map((q, idx) => (
-              <div key={`${q.questionText}-${idx}`} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+              <div key={`${q.questionText}-${idx}`} className={dashBlock}>
                 <div className="mb-2 flex items-center justify-between gap-2 text-xs">
                   <label className="inline-flex items-center gap-2">
                     <input
@@ -270,7 +317,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
                 <div className="mt-2">
                   <button
                     type="button"
-                    className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs"
+                    className={dashBtnSm}
                     onClick={() => void addGeneratedQuestionToBank(q)}
                   >
                     Add this question

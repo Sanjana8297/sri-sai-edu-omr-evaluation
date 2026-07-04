@@ -19,6 +19,14 @@ import {
   type CutoffStudent,
 } from "@/app/dashboard/admin/reports/reports-analytics-panels";
 import type { DifficultyLabel, ExamDifficultyBreakdown } from "@/lib/exam-difficulty-breakdown";
+import {
+  dashBlock,
+  dashBtnSecondary,
+  dashCard,
+  dashFilterPill,
+  dashFilterPillActive,
+  dashPanel,
+} from "@/lib/dashboard-ui";
 
 const DIFFICULTY_COLOR: Record<DifficultyLabel, string> = {
   Easy: "bg-emerald-500",
@@ -35,7 +43,7 @@ const METRIC_TITLES: Record<string, { title: string; subtitle: string }> = {
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
+    <section className={dashPanel}>
       <h2 className="mb-4 text-sm font-semibold">{title}</h2>
       {children}
     </section>
@@ -426,7 +434,7 @@ export default function AnalyticsMetricDetailPage() {
               router.back();
             }
           }}
-          className="inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm font-medium hover:bg-[var(--background)]"
+          className={`${dashBtnSecondary} inline-flex items-center`}
         >
           ← Back to Performance Analytics
         </Link>
