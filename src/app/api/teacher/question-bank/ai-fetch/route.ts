@@ -10,6 +10,7 @@ import { callOpenAiChatCompletion, getAiConfigError } from "@/lib/openai-runtime
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type InternetQuestion = {
   questionText: string;
@@ -76,7 +77,7 @@ export async function POST(request: Request) {
   const exam = me.category as "JEE" | "NEET";
 
   const query = `${category} ${subject} ${year} entrance exam MCQ ${topic}`.trim();
-  const snippets = await fetchSearchSnippets(query);
+  const { snippets, source: searchSource } = await fetchSearchSnippets(query);
   const searchUnavailable = snippets.length === 0;
 
   const schema = {
@@ -125,7 +126,11 @@ export async function POST(request: Request) {
         role: "system",
         content: searchUnavailable
           ? "Web search was unavailable on this server. Generate original exam-style MCQ questions using your knowledge of the given category and subject. Keep one correct option and four options total. Set sourceName to a plausible public study resource name and sourceUrl to a well-known education site homepage (https URL). Do not repeat the same question stem within the batch."
-          : "Use only provided internet snippets to draft exam-style MCQ questions. Keep one correct option, four options total, and attach best sourceName/sourceUrl from snippets. Do not repeat the same question stem within the batch.",
+          : searchSource === "wikipedia"
+            ? "Use the provided Wikipedia excerpts and reference titles to draft exam-style MCQ questions. Keep one correct option and four options total. Set sourceName to the Wikipedia article title and sourceUrl to the provided Wikipedia URL when relevant. Do not repeat the same question stem within the batch."
+            : searchSource === "openai"
+              ? "Use the provided web search excerpts (from OpenAI web search) to draft exam-style MCQ questions. Keep one correct option and four options total. Set sourceName and sourceUrl from the provided reference snippets where possible. Do not repeat the same question stem within the batch."
+              : "Use only provided internet snippets to draft exam-style MCQ questions. Keep one correct option, four options total, and attach best sourceName/sourceUrl from snippets. Do not repeat the same question stem within the batch.",
       },
       {
         role: "user",
@@ -138,6 +143,7 @@ export async function POST(request: Request) {
           difficulty,
           snippets: searchUnavailable ? [] : snippets,
           searchUnavailable,
+          searchSource,
         }),
       },
     ],
@@ -177,5 +183,6 @@ export async function POST(request: Request) {
     skippedDuplicateInBatch,
     fetchedFromAi: rawQuestions.length,
     searchUnavailable,
+    searchSource,
   });
 }

@@ -92,6 +92,7 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
       const skippedBatch = Number(j.skippedDuplicateInBatch ?? 0);
       const fetchedFromAi = Number(j.fetchedFromAi ?? questions.length);
       const searchUnavailable = Boolean(j.searchUnavailable);
+      const searchSource = j.searchSource as string | null | undefined;
 
       if (questions.length === 0) {
         if (skippedBank > 0 || skippedBatch > 0) {
@@ -113,8 +114,16 @@ export default function TeacherFetchNewQuestionUsingAiPage() {
       }
       const skipNote = skipParts.length > 0 ? ` (${skipParts.join(", ")} skipped)` : "";
       const searchNote = searchUnavailable
-        ? " Web search was unavailable on the server; questions were generated from AI knowledge."
-        : "";
+        ? " Web search was unavailable; questions were generated from AI knowledge only."
+        : searchSource === "openai"
+          ? " Web search via OpenAI was used for reference material."
+          : searchSource === "wikipedia"
+            ? " Reference material from Wikipedia was used."
+            : searchSource === "brave"
+              ? " Web search (Brave) was used for reference snippets."
+              : searchSource === "duckduckgo"
+                ? " Web search was used for reference snippets."
+                : "";
       setMsg(
         `Showing ${questions.length} new question${questions.length === 1 ? "" : "s"}${skipNote}.${searchNote}`
       );

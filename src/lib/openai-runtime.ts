@@ -10,6 +10,8 @@ import {
 export { LLM_SETTINGS_ID };
 export const DEFAULT_LLM_MODEL = "gpt-4.1-mini";
 export const DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1";
+/** Fast model for OpenAI-hosted web search (Responses API). Override with OPENAI_WEB_SEARCH_MODEL. */
+export const DEFAULT_OPENAI_WEB_SEARCH_MODEL = "gpt-4o-mini";
 
 export type LlmRuntimeConfig = {
   apiKey: string | null;
@@ -314,5 +316,37 @@ export async function callOpenAiChatCompletion(body: Record<string, unknown>): P
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(payload),
+  });
+}
+
+export function openAiBaseUrlSupportsWebSearch(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl.replace(/\/$/, "") + "/").hostname;
+    return host === "api.openai.com";
+  } catch {
+    return false;
+  }
+}
+
+export function resolveOpenAiWebSearchModel(fallbackFromConfig: string): string {
+  const override = process.env.OPENAI_WEB_SEARCH_MODEL?.trim();
+  if (override) return override;
+  if (fallbackFromConfig.includes("search")) return fallbackFromConfig;
+  return DEFAULT_OPENAI_WEB_SEARCH_MODEL;
+}
+
+export async function callOpenAiResponses(body: Record<string, unknown>): Promise<Response> {
+  const { apiKey, baseUrl } = await getLlmRuntimeConfig();
+  if (!apiKey) {
+    throw new Error("Missing API key");
+  }
+
+  return fetch(`${baseUrl}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
   });
 }
