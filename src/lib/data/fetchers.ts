@@ -43,6 +43,13 @@ export type StudentExamSession = {
   startedAt: string;
   submittedAt: string | null;
   violationCount: number;
+  submittedAnswers?: Record<string, string> | null;
+  cbtState?: {
+    markedForReview?: string[];
+    visited?: string[];
+    activeQuestionIndex?: number;
+    instructionsAcknowledged?: boolean;
+  } | null;
 };
 
 export type StudentAvailableExam = {

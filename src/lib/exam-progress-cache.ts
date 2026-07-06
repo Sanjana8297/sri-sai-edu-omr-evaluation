@@ -2,6 +2,8 @@ export type CachedExamProgress = {
   answers: Record<string, string>;
   markedForReview: string[];
   visited: string[];
+  activeQuestionIndex?: number;
+  instructionsAcknowledged?: boolean;
   updatedAt: string;
 };
 

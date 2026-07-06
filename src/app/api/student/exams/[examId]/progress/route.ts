@@ -14,6 +14,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ examI
     answers?: Record<string, string>;
     markedForReview?: string[];
     visited?: string[];
+    activeQuestionIndex?: number;
+    instructionsAcknowledged?: boolean;
   };
   try {
     body = await request.json();
@@ -51,9 +53,17 @@ export async function PATCH(request: Request, context: { params: Promise<{ examI
   const existingState = (sessionRow.cbtState as ExamSessionCbtState | null) ?? {};
 
   const nextAnswers = body.answers ? { ...existingAnswers, ...body.answers } : existingAnswers;
-  const nextState = {
+  const nextState: ExamSessionCbtState = {
     markedForReview: body.markedForReview ?? existingState.markedForReview ?? [],
     visited: body.visited ?? existingState.visited ?? [],
+    activeQuestionIndex:
+      body.activeQuestionIndex !== undefined
+        ? body.activeQuestionIndex
+        : existingState.activeQuestionIndex,
+    instructionsAcknowledged:
+      body.instructionsAcknowledged !== undefined
+        ? body.instructionsAcknowledged
+        : existingState.instructionsAcknowledged,
   };
 
   await saveExamSessionProgress(sessionRow.id, nextAnswers, nextState);

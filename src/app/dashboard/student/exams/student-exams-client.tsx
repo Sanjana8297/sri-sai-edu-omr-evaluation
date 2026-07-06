@@ -36,11 +36,17 @@ export function StudentExamsClient({ initialData }: Props) {
     const list = data?.exams ?? [];
     for (const exam of list) {
       const session = exam.examSessions[0];
-      if (session && isSessionSubmitted(session.status)) {
+      if (session?.status === "IN_PROGRESS") {
+        clearExamSubmittedLocally(exam.id);
+      } else if (session && isSessionSubmitted(session.status)) {
         clearExamSubmittedLocally(exam.id);
       }
     }
-    return list.filter((exam) => !wasExamSubmittedLocally(exam.id));
+    return list.filter((exam) => {
+      const session = exam.examSessions[0];
+      if (session?.status === "IN_PROGRESS") return true;
+      return !wasExamSubmittedLocally(exam.id);
+    });
   }, [data?.exams]);
 
   if (isLoading && !data) return <CardListSkeleton count={2} />;

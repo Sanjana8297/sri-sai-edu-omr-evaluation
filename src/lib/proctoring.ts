@@ -1,4 +1,4 @@
-export const VIOLATION_LIMIT = 1;
+export const VIOLATION_LIMIT = 3;
 
 export type SessionStatus = "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
 

@@ -41,7 +41,7 @@ export async function GET() {
         where: { studentId: me.id },
         orderBy: { startedAt: "desc" },
         take: 1,
-        select: { id: true, status: true, violationCount: true, startedAt: true, submittedAt: true },
+        select: { id: true, status: true, violationCount: true, startedAt: true, submittedAt: true, submittedAnswers: true, cbtState: true },
       },
     },
   });

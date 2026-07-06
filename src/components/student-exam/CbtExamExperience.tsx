@@ -36,7 +36,12 @@ type StartResponse = {
     cameraGranted: boolean | null;
     micGranted: boolean | null;
     submittedAnswers?: Record<string, string> | null;
-    cbtState?: { markedForReview?: string[]; visited?: string[] } | null;
+    cbtState?: {
+      markedForReview?: string[];
+      visited?: string[];
+      activeQuestionIndex?: number;
+      instructionsAcknowledged?: boolean;
+    } | null;
     deadline: string;
   };
 };
@@ -67,6 +72,45 @@ function formatTimer(ms: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function mergeExamProgress(
+  serverAnswers: Record<string, string>,
+  serverState: NonNullable<StartResponse["session"]["cbtState"]>,
+  cached: ReturnType<typeof readCachedProgress>,
+) {
+  // Server is authoritative; local cache overlays unsynced changes from this browser.
+  const answers = { ...serverAnswers, ...(cached?.answers ?? {}) };
+
+  const markedForReview = new Set([
+    ...(serverState.markedForReview ?? []),
+    ...(cached?.markedForReview ?? []),
+  ]);
+  const visited = new Set([...(serverState.visited ?? []), ...(cached?.visited ?? [])]);
+
+  const hasPriorAttempt =
+    Object.keys(serverAnswers).length > 0 ||
+    (serverState.visited?.length ?? 0) > 0 ||
+    serverState.instructionsAcknowledged === true;
+
+  const activeQuestionIndex =
+    serverState.activeQuestionIndex != null
+      ? serverState.activeQuestionIndex
+      : cached?.activeQuestionIndex;
+
+  const instructionsAcknowledged =
+    serverState.instructionsAcknowledged === true ||
+    cached?.instructionsAcknowledged === true ||
+    hasPriorAttempt;
+
+  return {
+    answers,
+    markedForReview,
+    visited,
+    activeQuestionIndex,
+    instructionsAcknowledged,
+    isResume: hasPriorAttempt,
+  };
+}
+
 export function CbtExamExperience({ examId }: { examId: string }) {
   const router = useRouter();
   const [data, setData] = useState<StartResponse | null>(null);
@@ -82,19 +126,25 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   const [syncStatus, setSyncStatus] = useState<"synced" | "syncing" | "offline" | "error">("synced");
   const [fullscreenOk, setFullscreenOk] = useState(false);
   const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
+  const [showFullscreenExitedBanner, setShowFullscreenExitedBanner] = useState(false);
   const [instructionsAcknowledged, setInstructionsAcknowledged] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const finalizedRef = useRef(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fullscreenRetryRef = useRef<number | null>(null);
+  const hasBeenFullscreenRef = useRef(false);
   const answersRef = useRef(answers);
   const markedRef = useRef(markedForReview);
   const visitedRef = useRef(visited);
+  const activeIndexRef = useRef(activeGlobalIndex);
+  const instructionsAckRef = useRef(instructionsAcknowledged);
 
   answersRef.current = answers;
   markedRef.current = markedForReview;
   visitedRef.current = visited;
+  activeIndexRef.current = activeGlobalIndex;
+  instructionsAckRef.current = instructionsAcknowledged;
 
   const settings = data?.exam.cbtSettings;
   const isNeetExam = data?.exam.category === "NEET";
@@ -143,14 +193,17 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     }
     setFullscreenOk(false);
     setNeedsFullscreenGesture(false);
+    setShowFullscreenExitedBanner(false);
   }, [stopFullscreenRetry]);
 
   const enterFullscreen = useCallback(async (): Promise<boolean> => {
     if (finalizedRef.current) return false;
     try {
       await document.documentElement.requestFullscreen();
+      hasBeenFullscreenRef.current = true;
       setFullscreenOk(true);
       setNeedsFullscreenGesture(false);
+      setShowFullscreenExitedBanner(false);
       return true;
     } catch {
       setFullscreenOk(false);
@@ -171,17 +224,35 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     stopMediaAccess();
   }, [exitFullscreenSafe, stopFullscreenRetry, stopMediaAccess]);
 
+  const buildProgressPayload = useCallback(
+    () => ({
+      answers: answersRef.current,
+      markedForReview: [...markedRef.current],
+      visited: [...visitedRef.current],
+      activeQuestionIndex: activeIndexRef.current,
+      instructionsAcknowledged: instructionsAckRef.current,
+    }),
+    [],
+  );
+
+  const cacheProgressLocally = useCallback(() => {
+    writeCachedProgress(examId, {
+      ...buildProgressPayload(),
+      updatedAt: new Date().toISOString(),
+    });
+  }, [buildProgressPayload, examId]);
+
   const syncProgress = useCallback(
     async (force = false) => {
-      if (!examId || finalizedRef.current || !settings?.offlineSyncEnabled) return;
+      if (!examId || finalizedRef.current) return;
+
+      const payload = buildProgressPayload();
+
       if (!navigator.onLine) {
-        setSyncStatus("offline");
-        writeCachedProgress(examId, {
-          answers: answersRef.current,
-          markedForReview: [...markedRef.current],
-          visited: [...visitedRef.current],
-          updatedAt: new Date().toISOString(),
-        });
+        if (settings?.offlineSyncEnabled) {
+          setSyncStatus("offline");
+          cacheProgressLocally();
+        }
         return;
       }
 
@@ -190,26 +261,19 @@ export function CbtExamExperience({ examId }: { examId: string }) {
         const res = await fetch(`/api/student/exams/${examId}/progress`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            answers: answersRef.current,
-            markedForReview: [...markedRef.current],
-            visited: [...visitedRef.current],
-          }),
+          body: JSON.stringify(payload),
+          keepalive: force,
         });
         if (!res.ok) throw new Error("sync failed");
         setSyncStatus("synced");
         if (force) clearCachedProgress(examId);
+        else if (settings?.offlineSyncEnabled) cacheProgressLocally();
       } catch {
         setSyncStatus("error");
-        writeCachedProgress(examId, {
-          answers: answersRef.current,
-          markedForReview: [...markedRef.current],
-          visited: [...visitedRef.current],
-          updatedAt: new Date().toISOString(),
-        });
+        if (settings?.offlineSyncEnabled) cacheProgressLocally();
       }
     },
-    [examId, settings?.offlineSyncEnabled],
+    [buildProgressPayload, cacheProgressLocally, examId, settings?.offlineSyncEnabled],
   );
 
   const scheduleSync = useCallback(() => {
@@ -281,6 +345,14 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     [examId, finalizeExamSession, router],
   );
 
+  const exitExamToResumeLater = useCallback(async () => {
+    if (finalizedRef.current) return;
+    await syncProgress(true);
+    await exitFullscreenSafe();
+    stopMediaAccess();
+    router.push("/dashboard/student/exams");
+  }, [exitFullscreenSafe, router, stopMediaAccess, syncProgress]);
+
   const startFullscreenWatchdog = useCallback(() => {
     stopFullscreenRetry();
     fullscreenRetryRef.current = window.setInterval(() => {
@@ -323,17 +395,36 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     }
 
     const serverAnswers = (json.session.submittedAnswers as Record<string, string> | null) ?? {};
-    const serverState = (json.session.cbtState as { markedForReview?: string[]; visited?: string[] } | null) ?? {};
+    const serverState =
+      (json.session.cbtState as NonNullable<StartResponse["session"]["cbtState"]> | null) ?? {};
     const cached = readCachedProgress(examId);
 
-    const mergedAnswers = { ...serverAnswers, ...(cached?.answers ?? {}) };
-    const mergedMarked = new Set([...(serverState.markedForReview ?? []), ...(cached?.markedForReview ?? [])]);
-    const mergedVisited = new Set([...(serverState.visited ?? []), ...(cached?.visited ?? [])]);
+    const merged = mergeExamProgress(serverAnswers, serverState, cached);
 
     setData(json);
-    setAnswers(mergedAnswers);
-    setMarkedForReview(mergedMarked);
-    setVisited(mergedVisited);
+    setAnswers(merged.answers);
+    setMarkedForReview(merged.markedForReview);
+    setVisited(merged.visited);
+    setInstructionsAcknowledged(merged.instructionsAcknowledged);
+
+    if (merged.activeQuestionIndex != null && merged.activeQuestionIndex >= 0) {
+      setActiveGlobalIndex(merged.activeQuestionIndex);
+    }
+
+    // Persist merged state back to server so resume works across devices/browsers.
+    if (merged.isResume) {
+      void fetch(`/api/student/exams/${examId}/progress`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          answers: merged.answers,
+          markedForReview: [...merged.markedForReview],
+          visited: [...merged.visited],
+          activeQuestionIndex: merged.activeQuestionIndex ?? 0,
+          instructionsAcknowledged: merged.instructionsAcknowledged,
+        }),
+      });
+    }
 
     if (isSessionSubmitted(json.session.status)) {
       finalizedRef.current = true;
@@ -405,10 +496,18 @@ export function CbtExamExperience({ examId }: { examId: string }) {
   useEffect(() => {
     void startSession();
     return () => {
+      if (!finalizedRef.current) {
+        void syncProgress(true);
+      }
       stopFullscreenRetry();
       stopMediaAccess();
     };
-  }, [startSession, stopFullscreenRetry, stopMediaAccess]);
+  }, [startSession, stopFullscreenRetry, stopMediaAccess, syncProgress]);
+
+  useEffect(() => {
+    if (flatQuestions.length === 0) return;
+    setActiveGlobalIndex((idx) => Math.min(Math.max(0, idx), flatQuestions.length - 1));
+  }, [flatQuestions.length]);
 
   useEffect(() => {
     if (!data || finalizedRef.current) return;
@@ -426,8 +525,11 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     if (!data || finalizedRef.current || !settings) return;
 
     const onVisibility = () => {
-      if (document.hidden && settings.blockTabSwitch) {
-        void sendEvent("TAB_HIDDEN", { hiddenAt: new Date().toISOString() });
+      if (document.hidden) {
+        void syncProgress(true);
+        if (settings.blockTabSwitch) {
+          void sendEvent("TAB_HIDDEN", { hiddenAt: new Date().toISOString() });
+        }
       }
     };
     const onBlur = () => {
@@ -440,13 +542,17 @@ export function CbtExamExperience({ examId }: { examId: string }) {
       }
       if (!document.fullscreenElement) {
         setFullscreenOk(false);
-        if (settings.requireFullscreen) {
-          void sendEvent("FULLSCREEN_EXIT", { at: new Date().toISOString() });
+        if (hasBeenFullscreenRef.current && settings.requireFullscreen) {
+          setShowFullscreenExitedBanner(true);
+          setNeedsFullscreenGesture(true);
+          void sendEvent("FULLSCREEN_EXIT", { at: new Date().toISOString(), accidental: true });
+          void syncProgress(true);
         }
-        void ensureFullscreen();
       } else {
+        hasBeenFullscreenRef.current = true;
         setFullscreenOk(true);
         setNeedsFullscreenGesture(false);
+        setShowFullscreenExitedBanner(false);
       }
     };
     const onClipboard = (e: ClipboardEvent) => {
@@ -456,8 +562,12 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     };
     const onOnline = () => void syncProgress(true);
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      void syncProgress(true);
       e.preventDefault();
       e.returnValue = "";
+    };
+    const onPageHide = () => {
+      void syncProgress(true);
     };
 
     document.addEventListener("visibilitychange", onVisibility);
@@ -468,6 +578,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
     document.addEventListener("paste", onClipboard);
     window.addEventListener("online", onOnline);
     window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", onPageHide);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
@@ -478,6 +589,7 @@ export function CbtExamExperience({ examId }: { examId: string }) {
       document.removeEventListener("paste", onClipboard);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [data, ensureFullscreen, sendEvent, settings, syncProgress]);
 
@@ -557,7 +669,10 @@ export function CbtExamExperience({ examId }: { examId: string }) {
             <button
               type="button"
               className={dashBtnPrimary}
-              onClick={() => setInstructionsAcknowledged(true)}
+              onClick={() => {
+                setInstructionsAcknowledged(true);
+                scheduleSync();
+              }}
             >
               I have read the instructions — Begin exam
             </button>
@@ -582,20 +697,18 @@ export function CbtExamExperience({ examId }: { examId: string }) {
             <span className="text-xs text-[var(--muted)]">Time left </span>
             <strong className="tabular-nums text-lg">{remainingMs == null ? "—" : formatTimer(remainingMs)}</strong>
           </div>
-          {settings?.offlineSyncEnabled ? (
-            <span className="text-xs text-[var(--muted)]">
-              Sync:{" "}
-              <strong>
-                {syncStatus === "synced"
-                  ? "Online"
-                  : syncStatus === "syncing"
-                    ? "Saving…"
-                    : syncStatus === "offline"
-                      ? "Offline (cached)"
-                      : "Retry pending"}
-              </strong>
-            </span>
-          ) : null}
+          <span className="text-xs text-[var(--muted)]">
+            Sync:{" "}
+            <strong>
+              {syncStatus === "synced"
+                ? "Saved"
+                : syncStatus === "syncing"
+                  ? "Saving…"
+                  : syncStatus === "offline"
+                    ? "Offline (cached)"
+                    : "Retry pending"}
+            </strong>
+          </span>
           <span className="text-xs">
             Answered <strong>{answeredCount}</strong> / {flatQuestions.length}
             {markedCount > 0 ? (
@@ -615,22 +728,28 @@ export function CbtExamExperience({ examId }: { examId: string }) {
         <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
       ) : null}
 
-      {!fullscreenOk ? (
-        <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+      {showFullscreenExitedBanner && settings?.requireFullscreen ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
           <span>
-            {needsFullscreenGesture
-              ? "This exam must run in fullscreen. Click below to continue."
-              : "Returning to fullscreen…"}
+            Fullscreen is exited. Re-enter fullscreen to continue, or save and return to the exam list to resume
+            later.
           </span>
-          {needsFullscreenGesture ? (
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="rounded border border-amber-400 px-3 py-1 text-xs font-medium"
+              className={dashBtnSecondary}
+              onClick={() => void exitExamToResumeLater()}
+            >
+              Save &amp; exit
+            </button>
+            <button
+              type="button"
+              className="rounded border border-amber-400 bg-white px-3 py-1 text-xs font-medium"
               onClick={() => void enterFullscreen()}
             >
-              Enter fullscreen
+              Re-enter fullscreen
             </button>
-          ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -756,6 +875,13 @@ export function CbtExamExperience({ examId }: { examId: string }) {
                   onClick={toggleMarkForReview}
                 >
                   {markedForReview.has(activeQuestion.id) ? "Unmark review" : "Mark for review"}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+                  onClick={() => void exitExamToResumeLater()}
+                >
+                  Save &amp; exit
                 </button>
                 <button
                   type="button"

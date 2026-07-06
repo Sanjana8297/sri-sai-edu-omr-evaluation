@@ -61,6 +61,10 @@ export async function setExamCbtSettings(examId: string, settings: CbtSettings):
 export type ExamSessionCbtState = {
   markedForReview?: string[];
   visited?: string[];
+  /** 0-based index into flat question list — restored on resume */
+  activeQuestionIndex?: number;
+  /** Skip instruction screen when student returns to an in-progress attempt */
+  instructionsAcknowledged?: boolean;
 };
 
 export async function getExamSessionCbtState(sessionId: string): Promise<ExamSessionCbtState> {

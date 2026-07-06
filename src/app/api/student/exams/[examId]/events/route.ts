@@ -12,8 +12,9 @@ function isStrikeEvent(
   eventType: ProctoringEventType,
   settings: CbtSettings,
 ): boolean {
+  // Fullscreen exit is logged but not penalised — students can re-enter or resume later.
+  if (eventType === "FULLSCREEN_EXIT") return false;
   if (eventType === "TAB_HIDDEN" || eventType === "WINDOW_BLUR") return settings.blockTabSwitch;
-  if (eventType === "FULLSCREEN_EXIT") return settings.requireFullscreen;
   if (eventType === "CLIPBOARD_ATTEMPT") return settings.blockClipboard;
   return false;
 }

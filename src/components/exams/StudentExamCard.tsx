@@ -18,6 +18,11 @@ type AvailableExamCardProps = {
 };
 
 function StudentAvailableExamCardInner({ exam, canTake, inProgress }: AvailableExamCardProps) {
+  const session = exam.examSessions[0];
+  const answerCount = session?.submittedAnswers
+    ? Object.keys(session.submittedAnswers).length
+    : 0;
+
   return (
     <article className={dashCard}>
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -32,7 +37,9 @@ function StudentAvailableExamCardInner({ exam, canTake, inProgress }: AvailableE
           </p>
           {inProgress ? (
             <p className="mt-2 text-sm font-medium text-blue-700 dark:text-blue-300">
-              You have an attempt in progress — resume to continue.
+              You have an attempt in progress
+              {answerCount > 0 ? ` — ${answerCount} answer${answerCount === 1 ? "" : "s"} saved` : ""}
+              . Resume to continue from where you left off.
             </p>
           ) : null}
         </div>
