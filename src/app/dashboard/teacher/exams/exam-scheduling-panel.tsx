@@ -14,6 +14,7 @@ import {
   dashSectionTitle,
   dashSelect,
 } from "@/lib/dashboard-ui";
+import { isExamListedInScheduling } from "@/lib/exam-scheduling-visibility";
 
 type Paper = { id: string; title: string; category: string };
 type TeacherOption = { id: string; name: string; category: string };
@@ -86,7 +87,7 @@ export function ExamSchedulingPanel({
   const [title, setTitle] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
-  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [durationMinutes, setDurationMinutes] = useState(180);
   const [isPublished, setIsPublished] = useState(true);
   const [reviewExamId, setReviewExamId] = useState("");
   const [reviews, setReviews] = useState<SessionReview[]>([]);
@@ -150,6 +151,10 @@ export function ExamSchedulingPanel({
     () => teachers.find((teacher) => teacher.id === teacherId) ?? null,
     [teacherId, teachers]
   );
+  const scheduledExams = useMemo(
+    () => exams.filter((exam) => isExamListedInScheduling(exam.endTime)),
+    [exams]
+  );
 
   async function createExam(e: React.FormEvent) {
     e.preventDefault();
@@ -186,7 +191,7 @@ export function ExamSchedulingPanel({
     setTitle("");
     setStartTime("");
     setEndTime("");
-    setDurationMinutes(60);
+    setDurationMinutes(180);
     await load();
   }
 
@@ -290,39 +295,39 @@ export function ExamSchedulingPanel({
               placeholder="Exam title"
               required
             />
-            <label className="block text-sm text-[var(--muted)]">
-              Starts at
+            <label className="block text-sm">
+              <span className="mb-1 block text-[var(--muted)]">Starts at</span>
               <input
                 type="datetime-local"
-                className={`${dashInput} mt-1`}
+                className={dashInput}
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
                 required
               />
             </label>
-            <label className="block text-sm text-[var(--muted)]">
-              Ends at
+            <label className="block text-sm">
+              <span className="mb-1 block text-[var(--muted)]">Ends at</span>
               <input
                 type="datetime-local"
-                className={`${dashInput} mt-1`}
+                className={dashInput}
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
                 required
               />
             </label>
-            <label className="block text-sm text-[var(--muted)]">
-              Duration (minutes)
+            <label className="block text-sm">
+              <span className="mb-1 block text-[var(--muted)]">Duration (minutes)</span>
               <input
                 type="number"
                 min={1}
                 max={480}
-                className={`${dashInput} mt-1`}
+                className={dashInput}
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(Number(e.target.value))}
                 required
               />
             </label>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
               <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} />
               Publish immediately
             </label>
@@ -348,23 +353,38 @@ export function ExamSchedulingPanel({
         <div className={dashPanel}>
           <h2 className={dashSectionTitle}>Scheduled Exams</h2>
           <div className="mt-4 space-y-3">
-            {exams.length === 0 ? <p className="text-sm text-[var(--muted)]">No exams scheduled yet.</p> : null}
-            {exams.map((exam) => (
+            {scheduledExams.length === 0 ? (
+              <p className="text-sm text-[var(--muted)]">No exams scheduled yet.</p>
+            ) : null}
+            {scheduledExams.map((exam) => (
               <article key={exam.id} className={dashBlock}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="font-semibold">{exam.title}</h3>
-                    <p className="text-sm text-[var(--muted)]">
-                      {exam.questionPaper.title} · {exam.category}
+                    <p className="text-sm">
+                      <span className="text-[var(--muted)]">Paper · </span>
+                      <span className="text-[var(--foreground)]">
+                        {exam.questionPaper.title} · {exam.category}
+                      </span>
                     </p>
                     {exam.teacher ? (
-                      <p className="text-sm text-[var(--muted)]">Teacher: {exam.teacher.name}</p>
+                      <p className="text-sm">
+                        <span className="text-[var(--muted)]">Teacher: </span>
+                        <span className="text-[var(--foreground)]">{exam.teacher.name}</span>
+                      </p>
                     ) : null}
-                    <p className="mt-1 text-sm text-[var(--muted)]">
-                      {new Date(exam.startTime).toLocaleString()} to {new Date(exam.endTime).toLocaleString()}
+                    <p className="mt-1 text-sm">
+                      <span className="text-[var(--muted)]">Window · </span>
+                      <span className="text-[var(--foreground)]">
+                        {new Date(exam.startTime).toLocaleString()} to{" "}
+                        {new Date(exam.endTime).toLocaleString()}
+                      </span>
                     </p>
-                    <p className="text-sm text-[var(--muted)]">
-                      Duration: {exam.durationMinutes} min · Sessions: {exam._count.examSessions}
+                    <p className="text-sm">
+                      <span className="text-[var(--muted)]">Duration · </span>
+                      <span className="text-[var(--foreground)]">{exam.durationMinutes} min</span>
+                      <span className="text-[var(--muted)]"> · Sessions · </span>
+                      <span className="text-[var(--foreground)]">{exam._count.examSessions}</span>
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

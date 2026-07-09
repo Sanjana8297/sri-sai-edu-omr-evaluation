@@ -65,10 +65,10 @@ export const dashBtnSm = `${dashBtnBase} ${btnSecondaryColors} px-2.5 py-1.5 tex
 /* ── Form controls ──────────────────────────────────────────── */
 
 export const dashInput =
-  "w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm transition-colors duration-200 focus:border-[color-mix(in_srgb,var(--accent)_40%,var(--border))] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--accent)_15%,transparent)]";
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors duration-200 focus:border-[color-mix(in_srgb,var(--accent)_40%,var(--border))] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--accent)_15%,transparent)]";
 
 export const dashSelect =
-  "min-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm transition-colors duration-200 focus:border-[color-mix(in_srgb,var(--accent)_40%,var(--border))] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--accent)_15%,transparent)]";
+  "min-w-[8rem] rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors duration-200 focus:border-[color-mix(in_srgb,var(--accent)_40%,var(--border))] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--accent)_15%,transparent)]";
 
 export const dashFilterPill =
   "rounded-full border border-[var(--btn-secondary-border)] bg-[var(--btn-secondary-bg)] px-3 py-1 text-xs font-medium text-[var(--btn-secondary-text)] transition-all duration-200 hover:border-[var(--accent)] hover:bg-[var(--btn-secondary-hover-bg)]";
