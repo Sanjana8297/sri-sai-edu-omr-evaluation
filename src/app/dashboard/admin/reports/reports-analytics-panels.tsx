@@ -685,26 +685,26 @@ export function ResultScoreReportsPanel({
         </div>
 
         {!hasPerformance ? (
-          <NoExamDataNote />
-        ) : (
-          <>
+                <NoExamDataNote />
+              ) : (
+                <>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-5">
               <div className="flex flex-wrap gap-2">
-                {(["ALL", "JEE", "NEET"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
+                    {(["ALL", "JEE", "NEET"] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
                     className={trackFilter === t ? dashFilterPillActive : dashFilterPill}
-                    onClick={() => setTrackFilter(t)}
-                  >
-                    {t === "ALL" ? "All tracks" : t}
-                  </button>
-                ))}
-              </div>
+                        onClick={() => setTrackFilter(t)}
+                      >
+                        {t === "ALL" ? "All tracks" : t}
+                      </button>
+                    ))}
+                  </div>
               <p className="text-xs text-[var(--muted)]">
                 Click a student row to open their full report
               </p>
-            </div>
+                  </div>
             <RankListTable
               embedded
               maxHeightClass="max-h-[28rem]"
@@ -736,35 +736,35 @@ export function ResultScoreReportsPanel({
                 </h3>
                 <p className={dashCardMeta}>Preview and print a summary for one student</p>
               </div>
-              <button
-                type="button"
+                  <button
+                    type="button"
                 className={dashBtnSecondary}
                 onClick={() => setReportCardOpen(false)}
                 aria-label="Close"
               >
                 ✕
-              </button>
-            </div>
+                  </button>
+                </div>
             <label
               className={`${dashLabel} mb-1.5 block normal-case`}
               htmlFor={config.reportStudentSelectId}
             >
               Student
             </label>
-            <select
+          <select
               id={config.reportStudentSelectId}
               className={`${dashSelect} w-full`}
-              value={reportStudentId}
-              onChange={(e) => setReportStudentId(e.target.value)}
-            >
-              <option value="">Select student</option>
-              {data?.students.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.category})
-                </option>
-              ))}
-            </select>
-            {reportStudent ? (
+            value={reportStudentId}
+            onChange={(e) => setReportStudentId(e.target.value)}
+          >
+            <option value="">Select student</option>
+            {data?.students.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.category})
+              </option>
+            ))}
+          </select>
+          {reportStudent ? (
               <div id={config.reportCardElementId} className={`${dashBlock} mt-5 print:border-black`}>
                 <h4 className={dashCardTitle}>{reportStudent.name}</h4>
                 <p className={`${dashCardMeta} text-xs`}>
@@ -782,45 +782,45 @@ export function ResultScoreReportsPanel({
                       <th className="text-left">Exam</th>
                       <th className="text-left">Date</th>
                       <th className="text-right">Score</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reportAttempts.map((a) => (
-                      <tr key={a.id} className="border-t border-[var(--border)]">
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportAttempts.map((a) => (
+                    <tr key={a.id} className="border-t border-[var(--border)]">
                         <td className="py-2">{a.title}</td>
                         <td className="py-2">{new Date(a.examDate).toLocaleDateString()}</td>
                         <td className="py-2 text-right tabular-nums">
-                          {a.marksObtained}/{a.maxMarks} ({a.percentage}%)
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <button
-                  type="button"
+                        {a.marksObtained}/{a.maxMarks} ({a.percentage}%)
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button
+                type="button"
                   className={`${dashBtnSecondary} mt-4 text-xs print:hidden`}
-                  onClick={() => {
+                onClick={() => {
                     const el = document.getElementById(config.reportCardElementId);
-                    if (!el) return;
-                    const w = window.open("", "_blank");
-                    if (!w) return;
+                  if (!el) return;
+                  const w = window.open("", "_blank");
+                  if (!w) return;
                     w.document.write(
                       `<html><head><title>Report - ${reportStudent.name}</title></head><body>${el.innerHTML}</body></html>`
                     );
-                    w.document.close();
-                    w.print();
-                  }}
-                >
-                  Print report card (PDF)
-                </button>
-              </div>
-            ) : (
+                  w.document.close();
+                  w.print();
+                }}
+              >
+                Print report card (PDF)
+              </button>
+            </div>
+          ) : (
               <p className={`${dashCardMeta} mt-4`}>Select a student to view their report card.</p>
-            )}
+          )}
           </div>
         </div>
       ) : null}
-    </div>
+        </div>
   );
 }
 
@@ -901,7 +901,7 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                   {bucket.track}
                 </p>
-                <ul className="space-y-2">
+          <ul className="space-y-2">
                   {bucket.subjects.map((w) => {
                     const severity = severityFor(w.avg);
                     return (
@@ -919,13 +919,13 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
                         >
                           {severity.label}
                         </span>
-                      </li>
+              </li>
                     );
                   })}
                 </ul>
               </div>
-            ))}
-          </div>
+                ))}
+              </div>
           )}
           <Link
             href={`${ANALYTICS_DETAIL_BASE}/weak-chapters`}
@@ -943,7 +943,7 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
               <div key={track} className={`${dashBlock} p-3`}>
                 <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{track}</p>
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <div>
+            <div>
                     <p className="text-2xl font-semibold">
                       {trendSummary[track].avgImprovement == null
                         ? "—"
@@ -968,7 +968,7 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
                       title={`${value}%`}
                     />
                   ))}
-                </div>
+              </div>
                 <div className="mt-1 flex gap-1.5">
                   {trendSummary[track].sparkline.map((value, idx) => (
                     <span
@@ -978,8 +978,8 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
                       {value}%
                     </span>
                   ))}
-                </div>
-              </div>
+            </div>
+                    </div>
             ))}
           </div>
           <Link
@@ -999,13 +999,13 @@ export function PerformanceAnalyticsPanel({ resetKey }: { resetKey?: string }) {
               <p className="text-3xl font-semibold">{cutoffSummary.NEET.latestAvg ?? "—"}</p>
               <p className="text-xs text-emerald-600 dark:text-emerald-400">Above cutoff: {cutoffSummary.NEET.above}</p>
               <p className="text-xs text-red-600 dark:text-red-400">Below cutoff: {cutoffSummary.NEET.below}</p>
-            </div>
+              </div>
             <div className="rounded-lg bg-[var(--background)] p-3">
               <p className="text-xs text-[var(--muted)]">JEE Mains cut-off</p>
               <p className="text-3xl font-semibold">{cutoffSummary.JEE.latestAvg ?? "—"}</p>
               <p className="text-xs text-emerald-600 dark:text-emerald-400">Above cutoff: {cutoffSummary.JEE.above}</p>
               <p className="text-xs text-red-600 dark:text-red-400">Below cutoff: {cutoffSummary.JEE.below}</p>
-            </div>
+        </div>
           </div>
           <div className="mt-4 rounded-lg bg-violet-100 px-3 py-2 text-sm text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
             AI predicts {cutoffSummary.aiPrediction} students could cross JEE cutoff with 3 more full-length tests.

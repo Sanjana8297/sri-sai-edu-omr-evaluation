@@ -1,35 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSetDashboardPage } from "@/components/dashboard/DashboardPageContext";
-import { parseQuestionPaperContentWithOptions, normalizeOptionAnswerToLetter } from "@/lib/exam-paper-parser";
-import { formatQuestionTextForDisplay } from "@/lib/question-text";
+import { ExamPaperAnalysis, type ExamAnalysisDetail } from "@/components/reports/ExamPaperAnalysis";
+import { collectIncorrectQuestions } from "@/lib/analysis-notes-utils";
 
-type ExamDetail = {
-  id: string;
-  status: "SUBMITTED" | "AUTO_SUBMITTED";
-  submittedAt: string | null;
-  scoreObtained: number;
-  scoreMax: number;
-  submittedAnswers: Record<string, string>;
-  exam: {
-    id: string;
-    title: string;
-    category: string;
-    questionContent: string;
-    keyContent: string;
-  };
-};
+const EXPLANATIONS_CACHE_PREFIX = "analysis-notes-explanations:v6:";
 
-function normalizeAnswer(value: string | undefined, asMcqLetter: boolean): string {
-  if (!value?.trim()) return "";
-  return asMcqLetter ? normalizeOptionAnswerToLetter(value) : value.trim();
+type ExamDetail = ExamAnalysisDetail;
+
+function readExplanationCache(sessionId: string): Record<string, string> {
+  try {
+    const cached = sessionStorage.getItem(`${EXPLANATIONS_CACHE_PREFIX}${sessionId}`);
+    if (!cached) return {};
+    const parsed = JSON.parse(cached) as Record<string, string>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
-function optionLabel(optionText: string): string {
-  const m = optionText.match(/^([A-H])[\.\)]/i);
-  return m?.[1]?.toUpperCase() ?? "";
+function writeExplanationCache(sessionId: string, explanations: Record<string, string>) {
+  try {
+    sessionStorage.setItem(`${EXPLANATIONS_CACHE_PREFIX}${sessionId}`, JSON.stringify(explanations));
+  } catch {
+    // ignore quota errors
+  }
 }
 
 export default function StudentAnalysisNoteDetailPage() {
@@ -40,6 +37,10 @@ export default function StudentAnalysisNoteDetailPage() {
   const [detail, setDetail] = useState<ExamDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [explanations, setExplanations] = useState<Record<string, string>>({});
+  const [explanationLoadingKeys, setExplanationLoadingKeys] = useState<Record<string, boolean>>({});
+  const [explanationsError, setExplanationsError] = useState<string | null>(null);
+  const generationRunRef = useRef(0);
 
   const loadDetail = useCallback(async () => {
     if (!sessionId) {
@@ -64,121 +65,130 @@ export default function StudentAnalysisNoteDetailPage() {
     }
   }, [sessionId]);
 
+  const loadExplanationsProgressively = useCallback(
+    async (examDetail: ExamDetail) => {
+      if (!sessionId) return;
+
+      const runId = ++generationRunRef.current;
+      const wrongQuestions = collectIncorrectQuestions({
+        questionContent: examDetail.exam.questionContent,
+        keyContent: examDetail.exam.keyContent,
+        submittedAnswers: examDetail.submittedAnswers,
+      });
+
+      if (wrongQuestions.length === 0) {
+        setExplanations({});
+        setExplanationLoadingKeys({});
+        return;
+      }
+
+      const cached = readExplanationCache(sessionId);
+      const pending = wrongQuestions.filter((q) => !cached[q.key]);
+
+      setExplanations(cached);
+      setExplanationsError(null);
+      setExplanationLoadingKeys(
+        Object.fromEntries(pending.map((q) => [q.key, true]))
+      );
+
+      if (pending.length === 0) return;
+
+      const accumulated = { ...cached };
+
+      for (const question of pending) {
+        if (generationRunRef.current !== runId) return;
+
+        try {
+          const res = await fetch(
+            `/api/student/exams/session/${encodeURIComponent(sessionId)}/explanations`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ questionKey: question.key }),
+            }
+          );
+          const json = await res.json();
+
+          if (generationRunRef.current !== runId) return;
+
+          if (!res.ok) {
+            setExplanationsError(json.error ?? "Could not generate AI explanation");
+            setExplanationLoadingKeys((prev) => {
+              const next = { ...prev };
+              delete next[question.key];
+              return next;
+            });
+            continue;
+          }
+
+          const text = json.explanations?.[question.key] as string | undefined;
+          if (text) {
+            accumulated[question.key] = text;
+            setExplanations((prev) => ({ ...prev, [question.key]: text }));
+            writeExplanationCache(sessionId, accumulated);
+          }
+        } catch {
+          if (generationRunRef.current !== runId) return;
+          setExplanationsError("Network error while generating explanations.");
+        } finally {
+          if (generationRunRef.current !== runId) return;
+          setExplanationLoadingKeys((prev) => {
+            const next = { ...prev };
+            delete next[question.key];
+            return next;
+          });
+        }
+      }
+    },
+    [sessionId]
+  );
+
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
 
-  const { sections: parsedSections, answerKey } = useMemo(
-    () =>
-      detail
-        ? parseQuestionPaperContentWithOptions(detail.exam.questionContent, detail.exam.keyContent)
-        : { sections: [], answerKey: {} as Record<string, string> },
-    [detail]
-  );
+  useEffect(() => {
+    if (detail) {
+      void loadExplanationsProgressively(detail);
+    }
+    return () => {
+      generationRunRef.current += 1;
+    };
+  }, [detail, loadExplanationsProgressively]);
 
   useSetDashboardPage({
     title: "Analysis Notes",
-    subtitle: "Question-wise review of your submitted exam",
+    subtitle: "Question-wise review with AI explanations for incorrect answers",
   });
 
   return (
-      <div className="space-y-4">
-        <button
-          type="button"
-          onClick={() => router.push("/dashboard/student/analysis-notes")}
-          className="text-sm font-medium text-[var(--accent)] hover:underline"
-        >
-          ← Back to analysis notes
-        </button>
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={() => router.push("/dashboard/student/analysis-notes")}
+        className="text-sm font-medium text-[var(--accent)] hover:underline"
+      >
+        ← Back to analysis notes
+      </button>
 
-        {loading ? (
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 text-sm text-[var(--muted)]">
-            Loading paper analysis...
-          </div>
-        ) : null}
+      {loading ? (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 text-sm text-[var(--muted)]">
+          Loading paper analysis...
+        </div>
+      ) : null}
 
-        {error ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">{error}</div>
+      ) : null}
 
-        {detail ? (
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5">
-            <h3 className="text-base font-semibold">
-              {detail.exam.title} · Detailed Analysis
-            </h3>
-            <p className="mt-1 text-sm text-[var(--muted)]">
-              {detail.exam.category} · {detail.status} · Submitted:{" "}
-              {detail.submittedAt ? new Date(detail.submittedAt).toLocaleString() : "N/A"}
-            </p>
-            <p className="mt-1 text-sm text-[var(--muted)]">
-              Score: {detail.scoreObtained}/{detail.scoreMax}
-            </p>
-
-            <div className="mt-4 space-y-4">
-              {parsedSections.map((section) => (
-                <section
-                  key={section.name}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"
-                >
-                  <h4 className="font-semibold">{section.name}</h4>
-                  <div className="mt-3 space-y-3">
-                    {section.questions.map((q) => {
-                      const qKey = `${section.name}::${q.indexInSection}`;
-                      const isMcq = q.options.length > 0;
-                      const selected = normalizeAnswer(detail.submittedAnswers[qKey], isMcq);
-                      const expected = normalizeAnswer(answerKey[qKey], isMcq);
-                      const correct = selected && expected && selected === expected;
-
-                      return (
-                        <article key={q.id} className="rounded-md border border-[var(--border)] bg-[var(--card)] p-3">
-                          <p className="whitespace-pre-wrap text-sm font-medium">
-                            Q{q.indexInSection}. {formatQuestionTextForDisplay(q.prompt)}
-                          </p>
-
-                          {q.options.length > 0 ? (
-                            <ul className="mt-2 space-y-1 text-sm">
-                              {q.options.map((opt) => {
-                                const label = optionLabel(opt);
-                                const isChosen = selected === label;
-                                const isCorrect = expected === label;
-                                const displayOpt = formatQuestionTextForDisplay(opt);
-                                return (
-                                  <li
-                                    key={`${q.id}-${opt}`}
-                                    className={[
-                                      "rounded px-2 py-1 whitespace-pre-wrap",
-                                      isCorrect ? "bg-emerald-100 text-emerald-800" : "",
-                                      isChosen && !isCorrect ? "bg-red-100 text-red-700" : "",
-                                      !isChosen && !isCorrect ? "text-[var(--foreground)]" : "",
-                                    ].join(" ")}
-                                  >
-                                    {displayOpt}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          ) : null}
-
-                          <p className="mt-2 text-xs text-[var(--muted)]">
-                            Your answer:{" "}
-                            <strong className={correct ? "text-emerald-700" : "text-red-700"}>
-                              {selected || "Not answered"}
-                            </strong>
-                            {" · "}
-                            Correct answer: <strong className="text-emerald-700">{expected || "N/A"}</strong>
-                          </p>
-                        </article>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </div>
+      {detail ? (
+        <ExamPaperAnalysis
+          detail={detail}
+          explanations={explanations}
+          explanationLoadingKeys={explanationLoadingKeys}
+          explanationsError={explanationsError}
+        />
+      ) : null}
+    </div>
   );
 }
-

@@ -90,7 +90,7 @@ export const adminNavItems: NavItem[] = [
 ];
 
 export const studentNavItems: NavItem[] = [
-  { href: "/dashboard/student/performance-summary", label: "Performance summary" },
+  { href: "/dashboard/student", label: "Performance summary" },
   { href: "/dashboard/student/exams", label: "Take exam" },
   { href: "/dashboard/student/exam-history", label: "Exam history" },
   { href: "/dashboard/student/analysis-notes", label: "Analysis notes" },

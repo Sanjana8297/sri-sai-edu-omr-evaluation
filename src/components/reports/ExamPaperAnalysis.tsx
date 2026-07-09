@@ -37,7 +37,21 @@ function optionLabel(optionText: string): string {
  * Question-wise review of a submitted exam session. Shared between the student
  * "Analysis Notes" feature and the admin Result & Score Reports student view.
  */
-export function ExamPaperAnalysis({ detail }: { detail: ExamAnalysisDetail }) {
+export function ExamPaperAnalysis({
+  detail,
+  explanations,
+  explanationLoadingKeys,
+  explanationsError,
+}: {
+  detail: ExamAnalysisDetail;
+  explanations?: Record<string, string>;
+  explanationLoadingKeys?: Record<string, boolean>;
+  explanationsError?: string | null;
+}) {
+  const showAiExplanations =
+    explanations !== undefined ||
+    Boolean(explanationLoadingKeys && Object.keys(explanationLoadingKeys).length > 0) ||
+    Boolean(explanationsError);
   const { sections: parsedSections, answerKey } = useMemo(
     () => parseQuestionPaperContentWithOptions(detail.exam.questionContent, detail.exam.keyContent),
     [detail]
@@ -107,6 +121,27 @@ export function ExamPaperAnalysis({ detail }: { detail: ExamAnalysisDetail }) {
                       {" · "}
                       Correct answer: <strong className="text-emerald-700">{expected || "N/A"}</strong>
                     </p>
+
+                    {!correct && showAiExplanations ? (
+                      <div className="mt-3 rounded-md border border-violet-200 bg-violet-50 px-3 py-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-violet-800">
+                          AI explanation
+                        </p>
+                        {explanationLoadingKeys?.[qKey] ? (
+                          <p className="mt-1 text-sm text-violet-900">Generating explanation…</p>
+                        ) : explanationsError && !explanations?.[qKey] ? (
+                          <p className="mt-1 text-sm text-red-700">{explanationsError}</p>
+                        ) : explanations?.[qKey] ? (
+                          <p className="mt-1 whitespace-pre-wrap text-sm text-violet-950">
+                            {explanations[qKey]}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-sm text-violet-900">
+                            No explanation available for this question.
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}

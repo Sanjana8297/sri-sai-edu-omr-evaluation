@@ -54,7 +54,7 @@ export function prefetchDashboardRoute(queryClient: QueryClient, href: string) {
         queryFn: fetchStudentExams,
         staleTime: 5 * 60_000,
       }),
-    "/dashboard/student/performance-summary": () =>
+    "/dashboard/student": () =>
       Promise.all([
         queryClient.prefetchQuery({
           queryKey: dataKeys.me,

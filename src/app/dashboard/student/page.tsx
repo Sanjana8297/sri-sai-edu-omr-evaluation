@@ -1,5 +1,7 @@
-import { redirect } from "next/navigation";
+import { getStudentExamsHistoryServer } from "@/lib/server/dashboard-data";
+import { StudentPerformanceSummaryClient } from "./student-performance-summary-client";
 
-export default function StudentDashboardPage() {
-  redirect("/dashboard/student/performance-summary");
+export default async function StudentDashboardPage() {
+  const initialData = await getStudentExamsHistoryServer();
+  return <StudentPerformanceSummaryClient initialData={initialData ?? undefined} />;
 }

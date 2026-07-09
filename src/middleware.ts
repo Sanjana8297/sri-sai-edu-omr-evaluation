@@ -31,7 +31,7 @@ export async function middleware(request: NextRequest) {
             ? "/dashboard/admin"
             : role === "TEACHER"
               ? "/dashboard/teacher"
-              : "/dashboard/student/performance-summary";
+              : "/dashboard/student";
         return NextResponse.redirect(new URL(dest, request.url));
       }
     }
@@ -54,7 +54,7 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/dashboard/teacher") && role !== "TEACHER") {
       return NextResponse.redirect(
         new URL(
-          role === "ADMIN" ? "/dashboard/admin" : "/dashboard/student/performance-summary",
+          role === "ADMIN" ? "/dashboard/admin" : "/dashboard/student",
           request.url,
         ),
       );

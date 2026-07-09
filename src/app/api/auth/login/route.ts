@@ -21,7 +21,7 @@ function roleRedirect(role: Role): string {
     ? "/dashboard/admin"
     : role === "TEACHER"
       ? "/dashboard/teacher"
-      : "/dashboard/student/performance-summary";
+      : "/dashboard/student";
 }
 
 type LoginLookup =
