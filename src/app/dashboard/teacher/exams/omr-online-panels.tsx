@@ -28,9 +28,12 @@ import {
 } from "@/lib/jee-advance-exam-structure";
 import type { JeeAdvanceSubjectConfig, OmrExamPreset } from "@/lib/omr-template";
 import {
+  buildOmrBundlePdfBlob,
+  buildOmrSheetPdfBlob,
   downloadOmrBundlePdf,
   downloadOmrSheetPdf,
   OMR_LAYOUT,
+  printPdfBlob,
   type OmrTrack,
 } from "@/lib/omr-pdf";
 
@@ -128,6 +131,8 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
   const [flagBlankRoll, setFlagBlankRoll] = useState(true);
   const [scanStatus, setScanStatus] = useState<string | null>(null);
   const [bundleCopies, setBundleCopies] = useState(30);
+  const [bundlePrintFormat, setBundlePrintFormat] = useState<"omr" | "full">("full");
+  const [bundlePageSize, setBundlePageSize] = useState<"a4" | "b4">("a4");
   const [bundleLoading, setBundleLoading] = useState(false);
   const [bundleMsg, setBundleMsg] = useState<string | null>(null);
   const [bundleErr, setBundleErr] = useState<string | null>(null);
@@ -155,6 +160,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       questionCount: layout.questions,
       sectionsLabel: layout.sections,
       copies: bundleCopies,
+      pageSize: bundlePageSize,
       advance:
         examPreset === "JEE_ADVANCE"
           ? {
@@ -164,8 +170,32 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
             }
           : undefined,
     }),
-    [omrTrack, rollDigits, layout, bundleCopies, examPreset, advanceSubjects]
+    [omrTrack, rollDigits, layout, bundleCopies, bundlePageSize, examPreset, advanceSubjects]
   );
+
+  const loadPaperForBundle = useCallback(async () => {
+    if (!bundlePaper) return null;
+    const res = await fetch(`/api/teacher/question-papers/${encodeURIComponent(bundlePaper)}`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.error ?? "Could not load question paper");
+    }
+    const paper = json.paper as {
+      title: string;
+      questionContent: string;
+      keyContent?: string | null;
+      questionPaperUrl?: string | null;
+    };
+    if (!paper.questionContent?.trim() && paper.questionPaperUrl) {
+      throw new Error(
+        "This paper is stored as an uploaded file only. Add question text in the paper editor to include it in the bundle, or download the file from Archived Question Papers."
+      );
+    }
+    if (!paper.questionContent?.trim()) {
+      throw new Error("This question paper has no text content to bundle.");
+    }
+    return paper;
+  }, [bundlePaper]);
 
   const downloadOmrOnly = useCallback(async () => {
     if (!bundlePaper) return;
@@ -189,23 +219,8 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     setBundleErr(null);
     setBundleMsg(null);
     try {
-      const res = await fetch(`/api/teacher/question-papers/${encodeURIComponent(bundlePaper)}`);
-      const json = await res.json();
-      if (!res.ok) {
-        setBundleErr(json.error ?? "Could not load question paper");
-        return;
-      }
-      const paper = json.paper as { title: string; questionContent: string; keyContent?: string | null; questionPaperUrl?: string | null };
-      if (!paper.questionContent?.trim() && paper.questionPaperUrl) {
-        setBundleErr(
-          "This paper is stored as an uploaded file only. Add question text in the paper editor to include it in the bundle, or download the file from Archived Question Papers."
-        );
-        return;
-      }
-      if (!paper.questionContent?.trim()) {
-        setBundleErr("This question paper has no text content to bundle.");
-        return;
-      }
+      const paper = await loadPaperForBundle();
+      if (!paper) return;
       await downloadOmrBundlePdf({
         ...buildOmrOpts(paper.title),
         questionContent: paper.questionContent,
@@ -217,7 +232,45 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     } finally {
       setBundleLoading(false);
     }
-  }, [bundlePaper, buildOmrOpts]);
+  }, [bundlePaper, buildOmrOpts, loadPaperForBundle]);
+
+  const printBundle = useCallback(async () => {
+    if (!bundlePaper) return;
+    setBundleLoading(true);
+    setBundleErr(null);
+    setBundleMsg(null);
+    try {
+      let blob: Blob;
+      if (bundlePrintFormat === "omr") {
+        const title = selectedPaper?.title ?? "OMR Sheet";
+        blob = await buildOmrSheetPdfBlob(buildOmrOpts(title));
+      } else {
+        const paper = await loadPaperForBundle();
+        if (!paper) return;
+        blob = await buildOmrBundlePdfBlob({
+          ...buildOmrOpts(paper.title),
+          questionContent: paper.questionContent,
+          keyContent: paper.keyContent ?? null,
+        });
+      }
+      await printPdfBlob(blob);
+      setBundleMsg(
+        `Print dialog opened for ${bundlePrintFormat === "omr" ? "OMR sheets" : "full bundle"} (${bundleCopies} OMR ${bundleCopies === 1 ? "copy" : "copies"}, ${bundlePageSize.toUpperCase()}). Choose a connected printer and confirm.`
+      );
+    } catch (e) {
+      setBundleErr(e instanceof Error ? e.message : "Could not print. Try downloading the PDF instead.");
+    } finally {
+      setBundleLoading(false);
+    }
+  }, [
+    bundlePaper,
+    bundlePrintFormat,
+    bundleCopies,
+    bundlePageSize,
+    selectedPaper,
+    buildOmrOpts,
+    loadPaperForBundle,
+  ]);
 
   useEffect(() => {
     if (templateQueryLoading) {
@@ -423,16 +476,51 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                 max={100}
                 value={bundleCopies}
                 onChange={(e) => setBundleCopies(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                className={`${dashInput} mt-1`}
               />
             </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs text-[var(--muted)]">
+                Print / download format
+                <select
+                  value={bundlePrintFormat}
+                  onChange={(e) => setBundlePrintFormat(e.target.value as "omr" | "full")}
+                  className={`${dashSelect} mt-1 w-full`}
+                >
+                  <option value="full">Full bundle (question paper + OMR)</option>
+                  <option value="omr">OMR sheets only</option>
+                </select>
+              </label>
+              <label className="block text-xs text-[var(--muted)]">
+                Page size
+                <select
+                  value={bundlePageSize}
+                  onChange={(e) => setBundlePageSize(e.target.value as "a4" | "b4")}
+                  className={`${dashSelect} mt-1 w-full`}
+                >
+                  <option value="a4">A4</option>
+                  <option value="b4">B4</option>
+                </select>
+              </label>
+            </div>
             <p className="text-xs text-[var(--muted)]">
               Uses track & roll columns from OMR template designer ({omrTrack}, {rollDigits} digits).
+              The PDF is laid out for {bundlePageSize.toUpperCase()} and includes {bundleCopies} OMR{" "}
+              {bundleCopies === 1 ? "sheet" : "sheets"}; print once from a connected printer in the system
+              dialog.
             </p>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 className={dashBtnPrimary}
+                disabled={!bundlePaper || bundleLoading}
+                onClick={() => void printBundle()}
+              >
+                {bundleLoading ? "Preparing…" : "Print"}
+              </button>
+              <button
+                type="button"
+                className={dashBtnSecondary}
                 disabled={!bundlePaper || bundleLoading}
                 onClick={() => void downloadOmrOnly()}
               >
@@ -440,7 +528,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50"
+                className={dashBtnSecondary}
                 disabled={!bundlePaper || bundleLoading}
                 onClick={() => void downloadFullBundle()}
               >

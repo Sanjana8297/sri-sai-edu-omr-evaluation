@@ -25,6 +25,8 @@ import {
 
 export type OmrTrack = "NEET" | "JEE" | "JEE_MAINS" | "JEE_ADVANCE";
 
+export type OmrPageSize = "a4" | "b4";
+
 export type OmrPdfOptions = {
   track: OmrTrack;
   rollDigits: number;
@@ -33,8 +35,25 @@ export type OmrPdfOptions = {
   sectionsLabel: string;
   /** Number of duplicate OMR sheets (for separate students). */
   copies?: number;
+  /** PDF page size — content layout scales to fit. */
+  pageSize?: OmrPageSize;
   advance?: OmrTemplateSettings["advance"];
 };
+
+/** ISO sizes in points (jsPDF unit). */
+const PAGE_SIZE_PT: Record<OmrPageSize, [number, number]> = {
+  a4: [595.28, 841.89],
+  b4: [708.66, 1000.63],
+};
+
+function jsPdfFormat(pageSize: OmrPageSize = "a4"): [number, number] {
+  return PAGE_SIZE_PT[pageSize];
+}
+
+/** Scale UI metrics from A4 so B4 spreads content across the larger sheet. */
+function layoutScaleForWidth(pageW: number): number {
+  return pageW / PAGE_SIZE_PT.a4[0];
+}
 
 const OMR_LAYOUT: Record<OmrTrack, { questions: number; sections: string }> = {
   NEET: { questions: 200, sections: "Physics · Chemistry · Botany · Zoology (50 each)" },
@@ -691,14 +710,15 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
   const layout = OMR_LAYOUT[opts.track];
   const questionCount = opts.questionCount || layout.questions;
   const rollDigits = Math.min(Math.max(opts.rollDigits, 6), 12);
-  const margin = 36;
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
+  const scale = layoutScaleForWidth(pageW);
+  const margin = 36 * scale;
   const copies = Math.min(Math.max(opts.copies ?? 1, 1), 100);
   let needNewPage = options?.prependNewPage ?? false;
 
   for (let copy = 0; copy < copies; copy++) {
-    if (needNewPage) doc.addPage();
+    if (needNewPage) doc.addPage(jsPdfFormat(opts.pageSize ?? "a4"));
     needNewPage = true;
 
     let y = margin;
@@ -709,39 +729,39 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
       const heading =
         copies > 1 ? `${opts.paperTitle} - OMR (${copy + 1}/${copies})` : `${opts.paperTitle} - OMR Sheet`;
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
+      doc.setFontSize(14 * scale);
       doc.text(heading, margin, y);
-      y += 18;
+      y += 18 * scale;
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
+      doc.setFontSize(9 * scale);
       doc.text(`Track: ${opts.track} - ${layout.sections}`, margin, y);
-      y += 12;
+      y += 12 * scale;
       doc.text("Fill roll number in the grid below. Mark one bubble per question (A-D).", margin, y);
-      y += 16;
+      y += 16 * scale;
     }
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
+    doc.setFontSize(10 * scale);
     doc.text("Roll number", margin, y);
-    y += 10;
+    y += 10 * scale;
 
     const gridLeft = margin;
-    const colW = 22;
-    const rowH = 16;
-    const bubbleR = 4.5;
+    const colW = 22 * scale;
+    const rowH = 16 * scale;
+    const bubbleR = 4.5 * scale;
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
+    doc.setFontSize(8 * scale);
     for (let col = 0; col < rollDigits; col++) {
       const x = gridLeft + col * colW + colW / 2;
       doc.text(String(col + 1), x, y, { align: "center" });
     }
-    y += 10;
+    y += 10 * scale;
 
     for (let digit = 0; digit <= 9; digit++) {
       const rowCenterY = y + bubbleR;
-      doc.text(String(digit), gridLeft - 12, rowCenterY + 2, { align: "right" });
+      doc.text(String(digit), gridLeft - 12 * scale, rowCenterY + 2 * scale, { align: "right" });
       for (let col = 0; col < rollDigits; col++) {
         const cx = gridLeft + col * colW + colW / 2;
         drawBubble(doc, cx, rowCenterY, bubbleR);
@@ -749,26 +769,31 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
       y += rowH;
     }
 
-    y += 12;
+    y += 12 * scale;
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
+    doc.setFontSize(10 * scale);
     doc.text(
       isAnyJeeTrack(opts.track) ? "Responses (Objective marking)" : "Responses (A-D)",
       margin,
       y
     );
-    y += 14;
+    y += 14 * scale;
 
     const cols = opts.track === "NEET" ? 4 : 3;
     drawOmrResponseGrid(doc, questionCount, cols, margin, pageW, pageH, y);
   }
 }
 
-export async function downloadOmrSheetPdf(opts: OmrPdfOptions): Promise<void> {
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
+export async function buildOmrSheetPdfBlob(opts: OmrPdfOptions): Promise<Blob> {
+  const doc = new jsPDF({ unit: "pt", format: jsPdfFormat(opts.pageSize ?? "a4") });
   await addOmrPages(doc, opts);
+  return doc.output("blob");
+}
+
+export async function downloadOmrSheetPdf(opts: OmrPdfOptions): Promise<void> {
+  const blob = await buildOmrSheetPdfBlob(opts);
   const name = slugify(opts.paperTitle || "omr");
-  doc.save(`${name}-omr.pdf`);
+  triggerBlobDownload(blob, `${name}-omr.pdf`);
 }
 
 async function addQuestionPaperPages(
@@ -777,23 +802,24 @@ async function addQuestionPaperPages(
   questionContent: string,
   keyContent?: string | null
 ): Promise<void> {
-  const margin = 44;
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
+  const scale = layoutScaleForWidth(pageW);
+  const margin = 44 * scale;
   const maxW = pageW - 2 * margin;
-  const lineStep = 13;
+  const lineStep = 13 * scale;
   let y = margin;
 
   const needSpace = (extra: number) => {
     if (y + extra > pageH - margin) {
-      doc.addPage();
+      doc.addPage(jsPdfFormat(opts.pageSize ?? "a4"));
       y = margin;
     }
   };
 
   const writeBlock = (text: string, fontSize: number, style: "normal" | "bold") => {
     doc.setFont("helvetica", style);
-    doc.setFontSize(fontSize);
+    doc.setFontSize(fontSize * scale);
     const lines = doc.splitTextToSize(text, maxW);
     const arr = Array.isArray(lines) ? lines : [String(lines)];
     for (const line of arr) {
@@ -956,14 +982,91 @@ async function addQuestionPaperPages(
   }
 }
 
+export async function buildOmrBundlePdfBlob(
+  opts: OmrPdfOptions & { questionContent: string; keyContent?: string | null }
+): Promise<Blob> {
+  const doc = new jsPDF({ unit: "pt", format: jsPdfFormat(opts.pageSize ?? "a4") });
+  await addQuestionPaperPages(doc, opts, opts.questionContent, opts.keyContent);
+  await addOmrPages(doc, opts, { prependNewPage: true });
+  return doc.output("blob");
+}
+
 export async function downloadOmrBundlePdf(
   opts: OmrPdfOptions & { questionContent: string; keyContent?: string | null }
 ): Promise<void> {
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  await addQuestionPaperPages(doc, opts, opts.questionContent, opts.keyContent);
-  await addOmrPages(doc, opts, { prependNewPage: true });
+  const blob = await buildOmrBundlePdfBlob(opts);
   const name = slugify(opts.paperTitle || "exam-bundle");
-  doc.save(`${name}-bundle.pdf`);
+  triggerBlobDownload(blob, `${name}-bundle.pdf`);
+}
+
+/** Open the PDF in a hidden frame and invoke the system print dialog (lists connected printers). */
+export async function printPdfBlob(blob: Blob): Promise<void> {
+  const url = URL.createObjectURL(blob);
+
+  await new Promise<void>((resolve, reject) => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("title", "Print OMR bundle");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+
+    let settled = false;
+    const cleanup = () => {
+      window.setTimeout(() => {
+        URL.revokeObjectURL(url);
+        iframe.remove();
+      }, 60_000);
+    };
+
+    const fail = (message: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(message));
+    };
+
+    iframe.onload = () => {
+      window.setTimeout(() => {
+        try {
+          const win = iframe.contentWindow;
+          if (!win) {
+            fail("Could not open print preview.");
+            return;
+          }
+          win.focus();
+          win.print();
+          if (!settled) {
+            settled = true;
+            resolve();
+            cleanup();
+          }
+        } catch {
+          fail("Printing was blocked. Allow pop-ups/printing for this site, or download the PDF and print it.");
+        }
+      }, 400);
+    };
+
+    iframe.onerror = () => fail("Could not load PDF for printing.");
+    document.body.appendChild(iframe);
+    iframe.src = url;
+  });
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 export { OMR_LAYOUT };
