@@ -3,14 +3,16 @@
 import { useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { dashTable, dashTableHead, dashTableWrap } from "@/lib/dashboard-ui";
-import { StudentRow } from "./StudentRow";
+import { dashTable, dashTableHead } from "@/lib/dashboard-ui";
+import { StudentRow, STUDENT_TABLE_COLS } from "./StudentRow";
 import type { TeacherStudent } from "@/lib/data/fetchers";
 
 type StudentTableProps = {
   students: TeacherStudent[];
   threshold?: number;
   emptyMessage?: string;
+  /** When true, skip the outer card wrapper (parent already provides one). */
+  embedded?: boolean;
   renderActions: (student: TeacherStudent) => ReactNode;
 };
 
@@ -18,6 +20,7 @@ export function StudentTable({
   students,
   threshold = 50,
   emptyMessage = "No students match your search.",
+  embedded = false,
   renderActions,
 }: StudentTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -51,10 +54,13 @@ export function StudentTable({
     );
   }
 
+  const tableClass = `${dashTable} table-fixed w-full`;
+
   if (!useVirtual) {
     return (
-      <div className={dashTableWrap}>
-        <table className={dashTable}>
+      <div className={embedded ? "overflow-x-auto" : undefined}>
+        <table className={tableClass}>
+          {STUDENT_TABLE_COLS}
           {header}
           <tbody>
             {students.map((student) => (
@@ -67,8 +73,11 @@ export function StudentTable({
   }
 
   return (
-    <div className={dashTableWrap}>
-      <table className={dashTable}>{header}</table>
+    <div>
+      <table className={tableClass}>
+        {STUDENT_TABLE_COLS}
+        {header}
+      </table>
       <div ref={parentRef} className="max-h-[70vh] overflow-y-auto">
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -76,7 +85,7 @@ export function StudentTable({
             return (
               <table
                 key={student.id}
-                className={dashTable}
+                className={tableClass}
                 style={{
                   position: "absolute",
                   top: 0,
@@ -85,6 +94,7 @@ export function StudentTable({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
+                {STUDENT_TABLE_COLS}
                 <tbody>
                   <StudentRow student={student} actions={renderActions(student)} />
                 </tbody>

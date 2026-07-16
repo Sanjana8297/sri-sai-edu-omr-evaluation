@@ -45,7 +45,14 @@ export async function GET() {
 
   const student = await prisma.student.findUnique({
     where: { id: session.sub },
-    select: { id: true, email: true, name: true, category: true, teacherId: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      category: true,
+      teacherId: true,
+      mustChangePassword: true,
+    },
   });
   if (!student) {
     return NextResponse.json({ user: null }, { status: 200 });

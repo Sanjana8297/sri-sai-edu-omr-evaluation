@@ -47,19 +47,23 @@ model Teacher {
 }
 
 model Student {
-  id           String        @id @default(cuid())
-  email        String?       @unique
-  username     String?       @unique
-  passwordHash String
-  name         String
-  category     String
-  year         Int?
-  teacherId    String
-  teacher      Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  examAttempts ExamAttempt[]
-  examSessions ExamSession[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id                 String        @id @default(cuid())
+  email              String?       @unique
+  username           String?       @unique
+  passwordHash       String
+  /// True until the student sets their own password on first login.
+  mustChangePassword Boolean       @default(true)
+  /// Set on successful login. Null means the student has never signed in.
+  lastLoginAt        DateTime?
+  name               String
+  category           String
+  year               Int?
+  teacherId          String
+  teacher            Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  examAttempts       ExamAttempt[]
+  examSessions       ExamSession[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 }
 
 model QuestionPaper {

@@ -98,6 +98,7 @@ export async function POST(request: Request) {
         email: ids.email,
         username: ids.username,
         passwordHash,
+        mustChangePassword: true,
         name,
         category,
         teacherId: teacher.id,

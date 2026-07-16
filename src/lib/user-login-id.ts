@@ -7,25 +7,34 @@ export type AccountIdentifiers = {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
+/** Zero-width / invisible chars that often sneak in from copy-paste or Office docs. */
+const INVISIBLE_CHARS_RE = /[\u200B-\u200D\uFEFF\u00AD\u2060]/g;
 
 export function isValidEmail(value: string): boolean {
   return EMAIL_RE.test(value.trim().toLowerCase());
 }
 
 export function isValidUsername(value: string): boolean {
-  return USERNAME_RE.test(value.trim().toLowerCase());
+  return USERNAME_RE.test(normalizeUsername(value));
 }
 
 export function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
+  return value.replace(INVISIBLE_CHARS_RE, "").normalize("NFKC").trim().toLowerCase();
 }
 
 export function normalizeUsername(value: string): string {
-  return value.trim().toLowerCase();
+  return value
+    .replace(INVISIBLE_CHARS_RE, "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
 }
 
-export function parseLoginIdentifier(raw: string): { kind: "email"; value: string } | { kind: "username"; value: string } | null {
-  const trimmed = raw.trim();
+export function parseLoginIdentifier(
+  raw: string
+): { kind: "email"; value: string } | { kind: "username"; value: string } | null {
+  const trimmed = raw.replace(INVISIBLE_CHARS_RE, "").normalize("NFKC").trim();
   if (!trimmed) return null;
   if (trimmed.includes("@")) {
     const email = normalizeEmail(trimmed);
@@ -39,8 +48,29 @@ export function resolveAccountIdentifiers(input: {
   email?: string | null;
   username?: string | null;
 }): { ids: AccountIdentifiers; error: string | null } {
-  const rawEmail = input.email?.trim() ?? "";
-  const rawUsername = input.username?.trim() ?? "";
+  let rawEmail = (input.email ?? "").replace(INVISIBLE_CHARS_RE, "").normalize("NFKC").trim();
+  let rawUsername = (input.username ?? "").replace(INVISIBLE_CHARS_RE, "").normalize("NFKC").trim();
+
+  // Teachers often type a plain username into the email box — treat it as username.
+  if (rawEmail && !rawEmail.includes("@") && !rawUsername) {
+    rawUsername = rawEmail;
+    rawEmail = "";
+  }
+
+  // Browser autofill often drops an email into the username box — treat it as email.
+  if (rawUsername.includes("@")) {
+    if (!rawEmail) {
+      rawEmail = rawUsername;
+      rawUsername = "";
+    } else if (normalizeEmail(rawEmail) === normalizeEmail(rawUsername)) {
+      rawUsername = "";
+    } else {
+      return {
+        ids: { email: null, username: null },
+        error: "Username cannot contain @. Clear the Username field or enter a plain username like sanjana.",
+      };
+    }
+  }
 
   let email: string | null = null;
   let username: string | null = null;
@@ -58,7 +88,8 @@ export function resolveAccountIdentifiers(input: {
     if (!isValidUsername(normalized)) {
       return {
         ids: { email: null, username: null },
-        error: "Username must be 3–32 characters and use only letters, numbers, dots, hyphens, or underscores",
+        error:
+          "Username must be 3–32 characters and use only letters, numbers, dots, hyphens, or underscores",
       };
     }
     username = normalized;

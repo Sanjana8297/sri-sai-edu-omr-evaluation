@@ -237,6 +237,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
         </div>
         <StudentTable
           students={filtered}
+          embedded
           renderActions={(s) => (
             <>
               <button
@@ -272,33 +273,44 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
 
       {createOpen ? (
         <Modal title="Create a new Student" onClose={closeCreateModal}>
-          <form className="grid gap-3 sm:grid-cols-2" onSubmit={createStudent}>
+          <form className="grid gap-3 sm:grid-cols-2" onSubmit={createStudent} autoComplete="off">
             <input
               className={`${dashInput} sm:col-span-2`}
+              name="student-display-name"
               placeholder="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              autoComplete="off"
               required
             />
             <input
               className={dashInput}
-              type="email"
+              type="text"
+              inputMode="email"
+              name="student-email"
               placeholder="Email (optional if username set)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="off"
             />
             <input
               className={dashInput}
+              type="text"
+              name="student-username"
               placeholder="Username (optional if email set)"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
             />
             <input
               className={`${dashInput} sm:col-span-2`}
               type="password"
+              name="student-temp-password"
               placeholder="Temporary password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
               required
             />
             <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--muted)]">

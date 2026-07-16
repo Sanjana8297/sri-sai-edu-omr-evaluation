@@ -17,6 +17,8 @@ export type SessionPayload = {
   email: string;
   role: Role;
   name: string;
+  /** Present for students who must set a new password before using the dashboard. */
+  mustChangePassword?: boolean;
 };
 
 export async function createSessionToken(payload: SessionPayload) {
@@ -24,6 +26,7 @@ export async function createSessionToken(payload: SessionPayload) {
     email: payload.email,
     role: payload.role,
     name: payload.name,
+    ...(payload.mustChangePassword ? { mustChangePassword: true } : {}),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
@@ -40,7 +43,13 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
     const role = payload.role as Role;
     const name = payload.name as string;
     if (!sub || !email || !role || !name) return null;
-    return { sub, email, role, name };
+    return {
+      sub,
+      email,
+      role,
+      name,
+      mustChangePassword: payload.mustChangePassword === true,
+    };
   } catch {
     return null;
   }

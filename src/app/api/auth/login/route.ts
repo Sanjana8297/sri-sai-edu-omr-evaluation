@@ -16,12 +16,14 @@ async function verifyPasswordOrLegacyPlainText(
   return inputPassword === storedPasswordHash;
 }
 
-function roleRedirect(role: Role): string {
+function roleRedirect(role: Role, mustChangePassword = false): string {
   return role === "ADMIN"
     ? "/dashboard/admin"
     : role === "TEACHER"
       ? "/dashboard/teacher"
-      : "/dashboard/student";
+      : mustChangePassword
+        ? "/dashboard/student/change-password"
+        : "/dashboard/student";
 }
 
 type LoginLookup =
@@ -156,16 +158,26 @@ export async function POST(request: Request) {
     }
     if (!student.passwordHash.startsWith("$2")) {
       const upgradedHash = await bcrypt.hash(password, 10);
-      await prisma.student.update({ where: { id: student.id }, data: { passwordHash: upgradedHash } });
+      await prisma.student.update({
+        where: { id: student.id },
+        data: { passwordHash: upgradedHash, lastLoginAt: new Date() },
+      });
+    } else {
+      await prisma.student.update({
+        where: { id: student.id },
+        data: { lastLoginAt: new Date() },
+      });
     }
+    const mustChangePassword = student.mustChangePassword;
     const token = await createSessionToken({
       sub: student.id,
       email: sessionLoginLabel(student),
       role: "STUDENT",
       name: student.name,
+      mustChangePassword,
     });
     await setSessionCookie(token);
-    return NextResponse.json({ ok: true, redirect: roleRedirect("STUDENT") });
+    return NextResponse.json({ ok: true, redirect: roleRedirect("STUDENT", mustChangePassword) });
   } catch (error) {
     console.error("POST /api/auth/login failed:", error);
     return NextResponse.json({ error: "Unable to sign in right now. Please try again." }, { status: 500 });
