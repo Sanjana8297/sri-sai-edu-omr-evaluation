@@ -106,8 +106,11 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
+  const [rollNumber, setRollNumber] = useState("");
   const [password, setPassword] = useState("");
   const [year, setYear] = useState<"1" | "2">("1");
+  const [rollEdit, setRollEdit] = useState("");
+  const [rollSaving, setRollSaving] = useState(false);
 
   useAutoClearMessage(success, setSuccess);
 
@@ -117,7 +120,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
   }, [queryClient, refetch]);
 
   const filtered = students.filter((s) =>
-    `${s.name} ${s.email ?? ""} ${s.username ?? ""} ${s.year ?? ""} ${s.createdAt}`
+    `${s.name} ${s.email ?? ""} ${s.username ?? ""} ${s.rollNumber ?? ""} ${s.year ?? ""} ${s.createdAt}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
@@ -149,6 +152,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
     setName("");
     setEmail("");
     setUsername("");
+    setRollNumber("");
     setPassword("");
     setYear("1");
   }
@@ -168,6 +172,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
         name,
         email: email.trim() || undefined,
         username: username.trim() || undefined,
+        rollNumber: rollNumber.trim() || undefined,
         password,
         year: Number(year),
       }),
@@ -180,6 +185,29 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
     closeCreateModal();
     setSuccess(`Student "${j?.user?.name ?? name}" created.`);
     await load();
+  }
+
+  async function saveRollNumber() {
+    if (!editStudent) return;
+    setRollSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/teacher/students/${encodeURIComponent(editStudent.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rollNumber: rollEdit.trim() || null }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        setError(typeof j.error === "string" ? j.error : "Could not update roll number");
+        return;
+      }
+      await load();
+      setEditStudent((prev) => (prev ? { ...prev, rollNumber: j?.student?.rollNumber ?? null } : prev));
+      setSuccess(`Roll number updated for ${editStudent.name}.`);
+    } finally {
+      setRollSaving(false);
+    }
   }
 
   async function deleteStudent(student: TeacherStudent) {
@@ -247,6 +275,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
                 title="Edit credentials"
                 onClick={() => {
                   setEditStudent(s);
+                  setRollEdit(s.rollNumber ?? "");
                   setError(null);
                   setSuccess(null);
                 }}
@@ -305,6 +334,16 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
             />
             <input
               className={`${dashInput} sm:col-span-2`}
+              type="text"
+              name="student-roll-number"
+              placeholder="Roll number (used to match scanned OMR sheets)"
+              value={rollNumber}
+              onChange={(e) => setRollNumber(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <input
+              className={`${dashInput} sm:col-span-2`}
               type="password"
               name="student-temp-password"
               placeholder="Temporary password"
@@ -338,6 +377,30 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
 
       {editStudent && editCredentialAccount ? (
         <Modal title={`Edit credentials — ${editCredentialAccount.name}`} onClose={closeEditModal}>
+          <div className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+            <label className="block text-sm font-medium">Roll number</label>
+            <p className="mb-2 text-xs text-[var(--muted)]">
+              Used to auto-match scanned OMR sheets to this student.
+            </p>
+            <div className="flex gap-2">
+              <input
+                className={dashInput}
+                type="text"
+                value={rollEdit}
+                placeholder="e.g. NEET-0001"
+                onChange={(e) => setRollEdit(e.target.value)}
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                className={dashBtnPrimary}
+                disabled={rollSaving || rollEdit.trim() === (editStudent.rollNumber ?? "").trim()}
+                onClick={() => void saveRollNumber()}
+              >
+                {rollSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
           <ResetCredentialsForm
             accounts={[]}
             fixedAccount={editCredentialAccount}

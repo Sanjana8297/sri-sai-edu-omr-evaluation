@@ -83,6 +83,111 @@ function isAnyJeeTrack(track: OmrTrack): boolean {
 
 const SRI_SAI_LOGO_SRC = "/images/Sri-Sai-logo.png";
 
+/** Pink accent matching the official Sri Sai OMR sheet. */
+const OMR_PINK: [number, number, number] = [201, 32, 99];
+const OMR_PINK_SOFT: [number, number, number] = [252, 228, 236];
+
+function omrResponseColumns(track: OmrTrack): number {
+  return track === "NEET" ? 4 : 3;
+}
+
+function trackBannerLabel(track: OmrTrack): string {
+  if (track === "NEET") return "NEET";
+  if (track === "JEE_ADVANCE") return "JEE ADVANCED";
+  return "JEE";
+}
+
+function drawTimingMarks(doc: jsPDF, pageW: number, pageH: number, markW: number) {
+  const markH = 10;
+  const gap = 4;
+  const step = markH + gap;
+  doc.setFillColor(0, 0, 0);
+  for (let y = 8, i = 0; y + markH < pageH - 8; y += step, i++) {
+    if (i % 2 === 0) {
+      doc.rect(0, y, markW, markH, "F");
+      doc.rect(pageW - markW, y, markW, markH, "F");
+    }
+  }
+}
+
+function drawPinkBubble(doc: jsPDF, cx: number, cy: number, radius: number) {
+  doc.setDrawColor(...OMR_PINK);
+  doc.setLineWidth(0.9);
+  doc.circle(cx, cy, radius, "S");
+  doc.setDrawColor(0, 0, 0);
+}
+
+/**
+ * Column-major response grid (matches Sri Sai sheet): each column has consecutive
+ * question numbers going down. Row count = ceil(questionCount / columns).
+ */
+function drawTrackResponseGrid(
+  doc: jsPDF,
+  questionCount: number,
+  cols: number,
+  areaX: number,
+  areaY: number,
+  areaW: number,
+  areaH: number
+): void {
+  const rows = Math.max(1, Math.ceil(questionCount / cols));
+  const colGap = 6;
+  const colW = (areaW - colGap * (cols - 1)) / cols;
+  const headerH = 14;
+  // A/B/C/D letters are drawn once per column in this strip (not per row),
+  // so bubbles never collide with the labels of the previous question.
+  const optionLabelH = 10;
+  const usableH = areaH - headerH - optionLabelH;
+  const rowH = Math.min(14, Math.max(7.5, usableH / rows));
+  // Keep vertical padding inside every row so adjacent bubbles never touch.
+  const bubbleR = Math.min(4.2, (rowH - 3) / 2);
+  const labelFs = Math.max(5.5, Math.min(7, rowH * 0.55));
+  const qFs = Math.max(5.5, Math.min(8, rowH * 0.6));
+
+  for (let c = 0; c < cols; c++) {
+    const x0 = areaX + c * (colW + colGap);
+    // Column header
+    doc.setFillColor(...OMR_PINK);
+    doc.rect(x0, areaY, colW, headerH, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text("Responses", x0 + colW / 2, areaY + 10, { align: "center" });
+    doc.setTextColor(0, 0, 0);
+
+    const qRight = x0 + 18;
+    const firstCx = qRight + 10 + bubbleR;
+    const pitch = Math.min(16, (colW - (firstCx - x0) - bubbleR - 4) / 3);
+
+    // Option letters drawn once under the header, aligned with the bubble columns.
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(labelFs);
+    doc.setTextColor(...OMR_PINK);
+    for (let o = 0; o < 4; o++) {
+      const cx = firstCx + o * pitch;
+      doc.text(["A", "B", "C", "D"][o], cx, areaY + headerH + optionLabelH - 2.5, {
+        align: "center",
+      });
+    }
+    doc.setTextColor(0, 0, 0);
+
+    const startQ = c * rows + 1;
+    for (let r = 0; r < rows; r++) {
+      const qNum = startQ + r;
+      if (qNum > questionCount) break;
+      const rowTop = areaY + headerH + optionLabelH + r * rowH;
+      const cy = rowTop + rowH / 2;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(qFs);
+      doc.text(String(qNum), qRight, cy + 2, { align: "right" });
+
+      for (let o = 0; o < 4; o++) {
+        drawPinkBubble(doc, firstCx + o * pitch, cy, bubbleR);
+      }
+    }
+  }
+}
+
 export const JEE_MAINS_SECTION_COPY = {
   section1: {
     title: "SECTION-I",
@@ -706,14 +811,63 @@ async function addNeetTemplateTopBlock(
   return y + 18;
 }
 
+function drawRollNumberGrid(
+  doc: jsPDF,
+  rollDigits: number,
+  x: number,
+  y: number,
+  scale: number
+): number {
+  const colW = 18 * scale;
+  const rowH = 14 * scale;
+  const bubbleR = 4 * scale;
+  const labelFs = Math.max(6, 7.5 * scale);
+
+  doc.setFillColor(...OMR_PINK);
+  doc.rect(x, y, rollDigits * colW + 22 * scale, 12 * scale, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8 * scale);
+  doc.text("ROLL NUMBER", x + 6 * scale, y + 9 * scale);
+  doc.setTextColor(0, 0, 0);
+  y += 16 * scale;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(labelFs);
+  for (let col = 0; col < rollDigits; col++) {
+    const cx = x + 18 * scale + col * colW + colW / 2;
+    doc.text(String(col + 1), cx, y, { align: "center" });
+  }
+  y += 8 * scale;
+
+  for (let digit = 0; digit <= 9; digit++) {
+    const cy = y + bubbleR;
+    doc.setFontSize(labelFs);
+    doc.text(String(digit), x + 12 * scale, cy + 2 * scale, { align: "right" });
+    for (let col = 0; col < rollDigits; col++) {
+      const cx = x + 18 * scale + col * colW + colW / 2;
+      drawPinkBubble(doc, cx, cy, bubbleR);
+    }
+    y += rowH;
+  }
+  return y;
+}
+
+/**
+ * Programmatic Sri Sai–styled OMR sheet. Column count follows the track
+ * (NEET: 4, JEE tracks: 3); row count = ceil(questionCount / columns).
+ * Used by Download OMR PDF, Download full bundle, and Print.
+ */
 async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependNewPage?: boolean }): Promise<void> {
   const layout = OMR_LAYOUT[opts.track];
-  const questionCount = opts.questionCount || layout.questions;
+  const questionCount = Math.max(1, opts.questionCount || layout.questions);
   const rollDigits = Math.min(Math.max(opts.rollDigits, 6), 12);
+  const cols = omrResponseColumns(opts.track);
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const scale = layoutScaleForWidth(pageW);
-  const margin = 36 * scale;
+  const markW = 10 * scale;
+  const margin = 28 * scale + markW;
   const copies = Math.min(Math.max(opts.copies ?? 1, 1), 100);
   let needNewPage = options?.prependNewPage ?? false;
 
@@ -721,66 +875,110 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
     if (needNewPage) doc.addPage(jsPdfFormat(opts.pageSize ?? "a4"));
     needNewPage = true;
 
-    let y = margin;
+    drawTimingMarks(doc, pageW, pageH, markW);
 
-    if (isJeeAdvanceTrack(opts.track) || isJeeMainsTrack(opts.track) || isNeetTrack(opts.track)) {
-      y = await addOmrSheetHeader(doc, opts, margin, pageW);
-    } else {
-      const heading =
-        copies > 1 ? `${opts.paperTitle} - OMR (${copy + 1}/${copies})` : `${opts.paperTitle} - OMR Sheet`;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(14 * scale);
-      doc.text(heading, margin, y);
-      y += 18 * scale;
+    // Soft pink page wash (light)
+    doc.setFillColor(...OMR_PINK_SOFT);
+    doc.rect(markW, 0, pageW - markW * 2, pageH, "F");
+    doc.setFillColor(255, 255, 255);
+    doc.rect(margin - 4 * scale, 10 * scale, pageW - 2 * (margin - 4 * scale), pageH - 20 * scale, "F");
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9 * scale);
-      doc.text(`Track: ${opts.track} - ${layout.sections}`, margin, y);
-      y += 12 * scale;
-      doc.text("Fill roll number in the grid below. Mark one bubble per question (A-D).", margin, y);
-      y += 16 * scale;
-    }
+    let y = 16 * scale;
+    const contentW = pageW - 2 * margin;
 
+    // Header: logo + institute + track banner
+    const logoH = await addInstituteLogo(doc, margin, y, 150 * scale, 48 * scale);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10 * scale);
-    doc.text("Roll number", margin, y);
-    y += 10 * scale;
-
-    const gridLeft = margin;
-    const colW = 22 * scale;
-    const rowH = 16 * scale;
-    const bubbleR = 4.5 * scale;
-
+    doc.setFontSize(11 * scale);
+    doc.setTextColor(...OMR_PINK);
+    doc.text("SRI SAI EDUCATIONAL INSTITUTIONS", margin + 158 * scale, y + 16 * scale);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8 * scale);
-    for (let col = 0; col < rollDigits; col++) {
-      const x = gridLeft + col * colW + colW / 2;
-      doc.text(String(col + 1), x, y, { align: "center" });
-    }
-    y += 10 * scale;
+    doc.setTextColor(60, 60, 60);
+    doc.text("OMR RESPONSE SHEET", margin + 158 * scale, y + 28 * scale);
 
-    for (let digit = 0; digit <= 9; digit++) {
-      const rowCenterY = y + bubbleR;
-      doc.text(String(digit), gridLeft - 12 * scale, rowCenterY + 2 * scale, { align: "right" });
-      for (let col = 0; col < rollDigits; col++) {
-        const cx = gridLeft + col * colW + colW / 2;
-        drawBubble(doc, cx, rowCenterY, bubbleR);
-      }
-      y += rowH;
-    }
-
-    y += 12 * scale;
+    const bannerW = 110 * scale;
+    const bannerH = 28 * scale;
+    doc.setFillColor(...OMR_PINK);
+    doc.roundedRect(pageW - margin - bannerW, y + 4 * scale, bannerW, bannerH, 3, 3, "F");
+    doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10 * scale);
+    doc.setFontSize(12 * scale);
+    doc.text(trackBannerLabel(opts.track), pageW - margin - bannerW / 2, y + 4 * scale + bannerH / 2 + 4 * scale, {
+      align: "center",
+    });
+    doc.setTextColor(0, 0, 0);
+
+    y += Math.max(logoH, bannerH) + 12 * scale;
+
+    // Exam meta strip
+    doc.setFillColor(...OMR_PINK);
+    doc.rect(margin, y, contentW, 16 * scale, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8 * scale);
+    const copyLabel = copies > 1 ? `  ·  Copy ${copy + 1}/${copies}` : "";
     doc.text(
-      isAnyJeeTrack(opts.track) ? "Responses (Objective marking)" : "Responses (A-D)",
+      `${opts.paperTitle || "Exam"}  ·  ${questionCount} Q  ·  ${cols} columns × ${Math.ceil(questionCount / cols)} rows${copyLabel}`,
+      margin + 6 * scale,
+      y + 11 * scale
+    );
+    doc.setTextColor(0, 0, 0);
+    y += 22 * scale;
+
+    // Short instructions
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7 * scale);
+    doc.setTextColor(40, 40, 40);
+    doc.text(
+      "Use HB pencil / blue-black pen. Darken one bubble fully per question. Do not fold or staple this sheet.",
       margin,
       y
     );
-    y += 14 * scale;
+    y += 12 * scale;
 
-    const cols = opts.track === "NEET" ? 4 : 3;
-    drawOmrResponseGrid(doc, questionCount, cols, margin, pageW, pageH, y);
+    // Roll + name fields side by side
+    const rollBottom = drawRollNumberGrid(doc, rollDigits, margin, y, scale);
+    const fieldsX = margin + rollDigits * 18 * scale + 40 * scale;
+    const fieldsW = Math.max(120 * scale, pageW - margin - fieldsX);
+    let fy = y;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8 * scale);
+    doc.setTextColor(...OMR_PINK);
+    doc.text("CANDIDATE DETAILS", fieldsX, fy + 10 * scale);
+    doc.setTextColor(0, 0, 0);
+    fy += 18 * scale;
+    const fieldLines = ["Name: ________________________________", "Exam / Paper: ________________________", "Date: ____________  Batch: ___________"];
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8 * scale);
+    for (const line of fieldLines) {
+      doc.text(line, fieldsX, fy);
+      fy += 16 * scale;
+    }
+    doc.setFontSize(7 * scale);
+    doc.setTextColor(80, 80, 80);
+    doc.text(layout.sections, fieldsX, fy, { maxWidth: fieldsW });
+    doc.setTextColor(0, 0, 0);
+
+    y = Math.max(rollBottom, fy) + 10 * scale;
+
+    // Response grid fills remaining space above footer
+    const footerH = 36 * scale;
+    const gridH = Math.max(80 * scale, pageH - y - footerH - margin);
+    drawTrackResponseGrid(doc, questionCount, cols, margin, y, contentW, gridH);
+
+    // Footer signatures
+    const footY = pageH - margin - 8 * scale;
+    doc.setDrawColor(...OMR_PINK);
+    doc.setLineWidth(0.6);
+    doc.line(margin, footY - 18 * scale, margin + 140 * scale, footY - 18 * scale);
+    doc.line(pageW - margin - 140 * scale, footY - 18 * scale, pageW - margin, footY - 18 * scale);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7 * scale);
+    doc.setTextColor(...OMR_PINK);
+    doc.text("Candidate signature", margin, footY - 6 * scale);
+    doc.text("Invigilator signature", pageW - margin, footY - 6 * scale, { align: "right" });
+    doc.setTextColor(0, 0, 0);
   }
 }
 

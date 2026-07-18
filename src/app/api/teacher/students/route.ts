@@ -19,7 +19,16 @@ export async function GET() {
 
   const students = await prisma.student.findMany({
     where: { teacherId: session.sub },
-    select: { id: true, name: true, email: true, username: true, category: true, year: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      username: true,
+      rollNumber: true,
+      category: true,
+      year: true,
+      createdAt: true,
+    },
     orderBy: { name: "asc" },
   });
   return NextResponse.json({ students, teacher: { category: me.category } });
@@ -43,6 +52,7 @@ export async function POST(request: Request) {
     password?: string;
     name?: string;
     year?: number | string;
+    rollNumber?: string;
   };
   try {
     body = await request.json();
@@ -75,12 +85,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Email or username already in use" }, { status: 409 });
   }
 
+  const rollNumber = body.rollNumber?.trim() || null;
+  if (rollNumber) {
+    const clash = await prisma.student.findFirst({
+      where: { teacherId: me.id, rollNumber },
+      select: { id: true },
+    });
+    if (clash) {
+      return NextResponse.json(
+        { error: "Another of your students already uses this roll number" },
+        { status: 409 }
+      );
+    }
+  }
+
   const passwordHash = await bcrypt.hash(password, 10);
 
   const student = await prisma.student.create({
     data: {
       email: ids.email,
       username: ids.username,
+      rollNumber,
       passwordHash,
       mustChangePassword: true,
       name,
@@ -88,7 +113,7 @@ export async function POST(request: Request) {
       year: studentYear,
       teacherId: me.id,
     },
-    select: { id: true, email: true, username: true, name: true, category: true, year: true },
+    select: { id: true, email: true, username: true, rollNumber: true, name: true, category: true, year: true },
   });
 
   return NextResponse.json({ user: { ...student, role: "STUDENT" as const } });

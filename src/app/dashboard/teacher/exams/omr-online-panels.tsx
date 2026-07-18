@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
 import { useMeQuery } from "@/hooks/data/use-me";
 import { useTeacherQuestionPapersQuery } from "@/hooks/data/use-teacher-question-papers";
+import { useTeacherStudentsQuery } from "@/hooks/data/use-teacher-students";
+import { displayLoginId } from "@/lib/user-login-id";
 import {
   useTeacherCbtSettingsQuery,
   useTeacherOmrTemplateQuery,
@@ -37,7 +39,45 @@ import {
   type OmrTrack,
 } from "@/lib/omr-pdf";
 
-type Paper = { id: string; title: string; category: string };
+type Paper = { id: string; title: string; category: string; hasAnswerKey: boolean };
+
+type OmrMatchedStudent = {
+  id: string;
+  name: string;
+  rollNumber: string | null;
+  matchedBy: "rollNumber" | "username" | "email";
+};
+
+type OmrEvaluationResult = {
+  paper: { id: string; title: string };
+  track: string;
+  rollNumber: string | null;
+  rollDigits?: Array<{
+    position: number;
+    digit: number | null;
+    confidence: number;
+    flagged: boolean;
+  }>;
+  matchedStudent: OmrMatchedStudent | null;
+  submittedAnswers: Record<string, string>;
+  score: {
+    obtained: number;
+    maximum: number;
+    correct: number;
+    wrong: number;
+    unanswered: number;
+    flagged: number;
+  };
+  issues: string[];
+  breakdown: Array<{
+    question: number;
+    detected: string | null;
+    expected: string;
+    status: "correct" | "wrong" | "unanswered";
+    confidence: number;
+    flagged: boolean;
+  }>;
+};
 
 function ToggleRow({
   label,
@@ -119,17 +159,28 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
         id: p.id,
         title: p.title,
         category: p.category,
+        hasAnswerKey: Boolean(p.keyContent?.trim()),
       })),
     [papersData?.papers]
   );
   const { data: meData } = useMeQuery();
   const { data: templateData, isLoading: templateQueryLoading } = useTeacherOmrTemplateQuery();
+  const [scanPaper, setScanPaper] = useState("");
+  const [scanFile, setScanFile] = useState<File | null>(null);
   const [scanName, setScanName] = useState<string | null>(null);
-  const [sensitivity, setSensitivity] = useState(72);
+  const [sensitivity, setSensitivity] = useState(80);
   const [flagSmudge, setFlagSmudge] = useState(true);
   const [flagDoubleMark, setFlagDoubleMark] = useState(true);
   const [flagBlankRoll, setFlagBlankRoll] = useState(true);
   const [scanStatus, setScanStatus] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanResult, setScanResult] = useState<OmrEvaluationResult | null>(null);
+  const [scanStudentId, setScanStudentId] = useState("");
+  const [scanSaving, setScanSaving] = useState(false);
+  const [scanSavedMsg, setScanSavedMsg] = useState<string | null>(null);
+  const { data: studentsData } = useTeacherStudentsQuery();
+  const students = useMemo(() => studentsData?.students ?? [], [studentsData?.students]);
   const [bundleCopies, setBundleCopies] = useState(30);
   const [bundlePrintFormat, setBundlePrintFormat] = useState<"omr" | "full">("full");
   const [bundlePageSize, setBundlePageSize] = useState<"a4" | "b4">("a4");
@@ -362,14 +413,88 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     }
   }, [examPreset, rollDigits, advanceSubjects]);
 
-  function runDetection() {
-    if (!scanName) {
-      setScanStatus("Upload or capture an OMR sheet first.");
+  async function runDetection() {
+    if (!scanPaper) {
+      setScanError("Select the question paper whose answer key should be used.");
       return;
     }
-    setScanStatus(
-      `Scan queued at ${sensitivity}% sensitivity — review flagged bubbles after processing.`,
-    );
+    if (!scanFile) {
+      setScanError("Upload or capture an OMR sheet image first.");
+      return;
+    }
+
+    setScanLoading(true);
+    setScanError(null);
+    setScanStatus("Reading marked bubbles and evaluating against the selected answer key…");
+    setScanResult(null);
+    setScanSavedMsg(null);
+    setScanStudentId("");
+    try {
+      const form = new FormData();
+      form.set("paperId", scanPaper);
+      form.set("sensitivity", String(sensitivity));
+      form.set("image", scanFile);
+      const res = await fetch("/api/teacher/omr-detect", {
+        method: "POST",
+        body: form,
+      });
+      const json = (await res.json()) as OmrEvaluationResult & { error?: string };
+      if (!res.ok) {
+        throw new Error(json.error ?? "Could not evaluate the OMR sheet.");
+      }
+      setScanResult(json);
+      setScanStudentId(json.matchedStudent?.id ?? "");
+      setScanStatus(
+        `Evaluation complete: ${json.score.obtained}/${json.score.maximum} marks.`
+      );
+      if (json.matchedStudent) {
+        // A student matched the detected roll number — save the score automatically.
+        await saveScoreToStudent(json, json.matchedStudent.id);
+      }
+    } catch (error) {
+      setScanStatus(null);
+      setScanError(error instanceof Error ? error.message : "Could not evaluate the OMR sheet.");
+    } finally {
+      setScanLoading(false);
+    }
+  }
+
+  async function saveScoreToStudent(result: OmrEvaluationResult, studentId: string) {
+    if (!studentId) {
+      setScanError("Select the student this OMR sheet belongs to.");
+      return;
+    }
+    setScanSaving(true);
+    setScanError(null);
+    setScanSavedMsg(null);
+    try {
+      const res = await fetch("/api/teacher/omr-record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paperId: result.paper.id,
+          studentId,
+          submittedAnswers: result.submittedAnswers,
+          rollNumber: result.rollNumber,
+        }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        student?: { name: string };
+        score?: { obtained: number; maximum: number };
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "Could not save the score.");
+      }
+      setScanSavedMsg(
+        `Saved ${json.score?.obtained}/${json.score?.maximum} to ${json.student?.name}'s profile. ` +
+          "It now appears in their exam history and Analysis Notes."
+      );
+    } catch (error) {
+      setScanError(error instanceof Error ? error.message : "Could not save the score.");
+    } finally {
+      setScanSaving(false);
+    }
   }
 
   function renderFeature(id: string, actions: { openFeature: (id: string) => void }) {
@@ -504,10 +629,11 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
               </label>
             </div>
             <p className="text-xs text-[var(--muted)]">
-              Uses track & roll columns from OMR template designer ({omrTrack}, {rollDigits} digits).
-              The PDF is laid out for {bundlePageSize.toUpperCase()} and includes {bundleCopies} OMR{" "}
-              {bundleCopies === 1 ? "sheet" : "sheets"}; print once from a connected printer in the system
-              dialog.
+              OMR grid matches the selected track ({omrTrack}): {layout.questions} questions in{" "}
+              {omrTrack === "NEET" ? 4 : 3} columns ×{" "}
+              {Math.ceil(layout.questions / (omrTrack === "NEET" ? 4 : 3))} rows, scaled to{" "}
+              {bundlePageSize.toUpperCase()}. Includes {bundleCopies} OMR{" "}
+              {bundleCopies === 1 ? "sheet" : "sheets"} for Print / Download.
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -542,28 +668,65 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       case "capture":
         return (
           <div className="space-y-3">
+            <label className="block text-xs text-[var(--muted)]">
+              Question paper and answer key
+              <select
+                value={scanPaper}
+                onChange={(e) => {
+                  setScanPaper(e.target.value);
+                  setScanResult(null);
+                  setScanStatus(null);
+                  setScanError(null);
+                }}
+                className={`${dashSelect} mt-1 w-full`}
+              >
+                <option value="">Select a question paper</option>
+                {papers.map((paper) => (
+                  <option key={paper.id} value={paper.id} disabled={!paper.hasAnswerKey}>
+                    {paper.title} ({paper.category})
+                    {paper.hasAnswerKey ? "" : " — no answer key"}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block">
+                The saved answer key for this paper will be fetched securely and used for scoring.
+              </span>
+            </label>
             <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] px-4 py-8 text-center text-sm text-[var(--muted)] hover:border-[var(--accent)]">
-              <span className="font-medium text-[var(--foreground)]">Drop image or PDF</span>
-              <span className="mt-1 text-xs">JPG, PNG, or multi-page PDF</span>
+              <span className="font-medium text-[var(--foreground)]">Choose OMR image</span>
+              <span className="mt-1 text-xs">JPG, PNG, or WebP · maximum 15 MB</span>
               <input
                 type="file"
-                accept="image/*,.pdf"
+                accept="image/jpeg,image/png,image/webp"
                 className="sr-only"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
+                  setScanFile(file ?? null);
                   setScanName(file?.name ?? null);
                   setScanStatus(null);
+                  setScanError(null);
+                  setScanResult(null);
                 }}
               />
             </label>
             {scanName ? <p className="text-xs text-[var(--muted)]">Selected: {scanName}</p> : null}
-            <button
-              type="button"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              onClick={() => setScanName("webcam-capture-preview.jpg")}
-            >
+            <label className="block w-full cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-center text-sm">
               Open camera capture
-            </button>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  setScanFile(file ?? null);
+                  setScanName(file?.name ?? null);
+                  setScanStatus(null);
+                  setScanError(null);
+                  setScanResult(null);
+                }}
+              />
+            </label>
             <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
               <label className="block text-xs text-[var(--muted)]">
                 Detection sensitivity ({sensitivity}%)
@@ -579,12 +742,167 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
               <button
                 type="button"
                 className={`${dashBtnPrimary} mt-3 w-full`}
-                onClick={runDetection}
+                onClick={() => void runDetection()}
+                disabled={scanLoading || !scanPaper || !scanFile}
               >
-                Run bubble detection
+                {scanLoading ? "Detecting and scoring…" : "Detect bubbles and calculate score"}
               </button>
               {scanStatus ? <p className="mt-3 text-xs text-[var(--muted)]">{scanStatus}</p> : null}
+              {scanError ? <p className="mt-3 text-xs text-red-600">{scanError}</p> : null}
             </div>
+            {scanResult ? (
+              <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+                <div>
+                  <p className="text-xs text-[var(--muted)]">Evaluation result</p>
+                  <p className="text-lg font-bold text-[var(--foreground)]">
+                    {scanResult.score.obtained} / {scanResult.score.maximum}
+                  </p>
+                  <p className="text-xs text-[var(--muted)]">
+                    {scanResult.paper.title}
+                    {scanResult.rollNumber ? ` · Roll ${scanResult.rollNumber}` : ""}
+                  </p>
+                  {scanResult.rollDigits && scanResult.rollDigits.length > 0 ? (
+                    <p className="mt-1 font-mono text-[11px] text-[var(--muted)]">
+                      Roll grid (col→digit):{" "}
+                      {scanResult.rollDigits
+                        .map((d) => `${d.position}:${d.digit ?? "—"}`)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
+                  <div className="rounded-md bg-emerald-50 p-2 text-emerald-800">
+                    <strong className="block text-base">{scanResult.score.correct}</strong>
+                    Correct
+                  </div>
+                  <div className="rounded-md bg-red-50 p-2 text-red-800">
+                    <strong className="block text-base">{scanResult.score.wrong}</strong>
+                    Wrong
+                  </div>
+                  <div className="rounded-md bg-amber-50 p-2 text-amber-800">
+                    <strong className="block text-base">{scanResult.score.unanswered}</strong>
+                    Unanswered
+                  </div>
+                  <div className="rounded-md bg-slate-100 p-2 text-slate-800">
+                    <strong className="block text-base">{scanResult.score.flagged}</strong>
+                    Review
+                  </div>
+                </div>
+                {scanResult.issues.length > 0 ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                    <p className="font-semibold">Detection notes</p>
+                    <ul className="mt-1 list-disc pl-4">
+                      {scanResult.issues.map((issue, index) => (
+                        <li key={`${issue}-${index}`}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {scanResult.matchedStudent ? (
+                  <div className="rounded-md border border-[var(--border)] bg-[var(--card)] p-3">
+                    <p className="text-xs font-semibold text-[var(--foreground)]">
+                      Saved to student profile
+                    </p>
+                    {scanSaving ? (
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        Saving score to {scanResult.matchedStudent.name}
+                        {scanResult.rollNumber ? ` (roll ${scanResult.rollNumber})` : ""}…
+                      </p>
+                    ) : scanSavedMsg ? (
+                      <p className="mt-1 text-xs text-emerald-700">{scanSavedMsg}</p>
+                    ) : (
+                      <p className="mt-1 text-xs text-red-600">
+                        {scanError ?? "The score could not be saved automatically."}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-xs font-semibold text-amber-900">
+                      {scanResult.rollNumber
+                        ? `No student profile matches the detected roll number "${scanResult.rollNumber}".`
+                        : "No roll number could be detected on this sheet."}
+                    </p>
+                    <p className="mt-1 text-xs text-amber-800">
+                      Select the student to link this exam attempt to, then save the score.
+                    </p>
+                    <select
+                      value={scanStudentId}
+                      onChange={(e) => {
+                        setScanStudentId(e.target.value);
+                        setScanSavedMsg(null);
+                      }}
+                      className={`${dashSelect} mt-2 w-full`}
+                    >
+                      <option value="">Select student</option>
+                      {students.map((student) => (
+                        <option key={student.id} value={student.id}>
+                          {student.name}
+                          {student.rollNumber ? ` · Roll ${student.rollNumber}` : ""}
+                          {` · ${displayLoginId(student)}`}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className={`${dashBtnPrimary} mt-3 w-full`}
+                      disabled={scanSaving || !scanStudentId}
+                      onClick={() => void saveScoreToStudent(scanResult, scanStudentId)}
+                    >
+                      {scanSaving ? "Saving…" : "Save score to selected student"}
+                    </button>
+                    {scanSavedMsg ? (
+                      <p className="mt-2 text-xs text-emerald-700">{scanSavedMsg}</p>
+                    ) : null}
+                  </div>
+                )}
+                <details>
+                  <summary className="cursor-pointer text-sm font-medium">Question-wise evaluation</summary>
+                  <div className="mt-2 max-h-72 overflow-auto rounded-md border border-[var(--border)]">
+                    <table className="w-full text-left text-xs">
+                      <thead className="sticky top-0 bg-[var(--background)]">
+                        <tr>
+                          <th className="px-2 py-1.5">Q</th>
+                          <th className="px-2 py-1.5">Detected</th>
+                          <th className="px-2 py-1.5">Answer</th>
+                          <th className="px-2 py-1.5">Result</th>
+                          <th className="px-2 py-1.5">Confidence</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scanResult.breakdown.map((item) => (
+                          <tr key={item.question} className="border-t border-[var(--border)]">
+                            <td className="px-2 py-1.5">{item.question}</td>
+                            <td className="px-2 py-1.5">{item.detected ?? "—"}</td>
+                            <td className="px-2 py-1.5">{item.expected}</td>
+                            <td
+                              className={`px-2 py-1.5 font-medium ${
+                                item.status === "correct"
+                                  ? "text-emerald-700"
+                                  : item.status === "wrong"
+                                    ? "text-red-700"
+                                    : "text-amber-700"
+                              }`}
+                            >
+                              {item.status}
+                              {item.flagged ? " · review" : ""}
+                            </td>
+                            <td className="px-2 py-1.5">{Math.round(item.confidence * 100)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+                <p className="text-[11px] text-[var(--muted)]">
+                  Scoring follows the {scanResult.track.replace("_", " ")} marking scheme
+                  {scanResult.track === "JEE_ADVANCE"
+                    ? " (per-section: Section I +3/−1, Section II +4/−2, Section III +4/0)."
+                    : " (+4 correct, −1 wrong for MCQs, 0 for unanswered)."}
+                  {" "}Review all flagged bubbles before saving the score.
+                </p>
+              </div>
+            ) : null}
           </div>
         );
       case "flags":

@@ -50,6 +50,8 @@ model Student {
   id                 String        @id @default(cuid())
   email              String?       @unique
   username           String?       @unique
+  /// Optional roll/enrolment number used to match scanned OMR sheets to a student.
+  rollNumber         String?
   passwordHash       String
   /// True until the student sets their own password on first login.
   mustChangePassword Boolean       @default(true)
@@ -64,6 +66,8 @@ model Student {
   examSessions       ExamSession[]
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
+
+  @@index([teacherId, rollNumber])
 }
 
 model QuestionPaper {

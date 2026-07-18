@@ -14,9 +14,10 @@ function formatStudentYear(student: TeacherStudent): string {
 /** Shared column widths so header + every row stay aligned (including virtualized tables). */
 export const STUDENT_TABLE_COLS = (
   <colgroup>
-    <col className="w-[40%]" />
-    <col className="w-[35%]" />
-    <col className="w-[10%]" />
+    <col className="w-[32%]" />
+    <col className="w-[30%]" />
+    <col className="w-[15%]" />
+    <col className="w-[8%]" />
     <col className="w-[15%]" />
   </colgroup>
 );
@@ -38,6 +39,14 @@ export const StudentRow = memo(function StudentRow({ student, actions }: Student
       <td className="max-w-0">
         <span className="block truncate font-mono text-xs sm:text-sm" title={loginId}>
           {loginId}
+        </span>
+      </td>
+      <td className="max-w-0">
+        <span
+          className="block truncate font-mono text-xs sm:text-sm"
+          title={student.rollNumber ?? undefined}
+        >
+          {student.rollNumber?.trim() ? student.rollNumber : "—"}
         </span>
       </td>
       <td className="whitespace-nowrap">{formatStudentYear(student)}</td>

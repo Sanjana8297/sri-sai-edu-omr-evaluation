@@ -26,6 +26,7 @@ export type TeacherStudent = {
   name: string;
   email: string | null;
   username: string | null;
+  rollNumber: string | null;
   category: string | null;
   year: number | null;
   createdAt: string;

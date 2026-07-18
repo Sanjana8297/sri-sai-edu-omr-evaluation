@@ -38,6 +38,7 @@ export function StudentTable({
       <tr>
         <th className="text-left">Name</th>
         <th className="text-left">Login ID</th>
+        <th className="text-left">Roll no.</th>
         <th className="text-left">Year</th>
         <th className="text-right">Actions</th>
       </tr>
