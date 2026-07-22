@@ -1,4 +1,5 @@
 import { callOpenAiChatCompletion } from "@/lib/openai-runtime";
+import { readRollFromUploadedImage } from "@/lib/omr-roll-opencv";
 
 export type DetectedAnswer = {
   question: number;
@@ -8,6 +9,8 @@ export type DetectedAnswer = {
 };
 
 export type OmrVisionResult = {
+  /** Handwritten name from the CANDIDATE DETAILS "Name:" line. */
+  studentName: string | null;
   rollNumber: string | null;
   answers: DetectedAnswer[];
   issues: string[];
@@ -109,7 +112,7 @@ function isValidAnswerItem(
   return true;
 }
 
-function parseVisionJson(content: string): Omit<OmrVisionResult, "rollNumber" | "rollDigits"> & {
+function parseVisionJson(content: string): {
   answers: DetectedAnswer[];
   issues: string[];
 } {
@@ -395,8 +398,18 @@ async function detectRollNumberGridSlice(input: {
           required: ["position", "digit", "confidence", "flagged"],
           properties: {
             // Allow 1..totalDigits so we can remap relative indices if needed.
-            position: { type: "integer", minimum: 1, maximum: totalDigits },
-            digit: { type: ["integer", "null"], minimum: 0, maximum: 9 },
+            position: {
+              type: "integer",
+              minimum: 1,
+              maximum: totalDigits,
+              description: "Printed column label above the filled bubble.",
+            },
+            digit: {
+              type: ["integer", "null"],
+              minimum: 0,
+              maximum: 9,
+              description: "Printed row label beside the filled bubble.",
+            },
             confidence: { type: "number", minimum: 0, maximum: 1 },
             flagged: { type: "boolean" },
           },
@@ -422,7 +435,8 @@ async function detectRollNumberGridSlice(input: {
     `YOUR TASK: Read column position(s) ${positionList} only.\n` +
     `Start at ${leftOrdinal} and move right through the requested columns.\n` +
     `Return exactly ${count} objects with position set to the absolute header number(s): ${positionList}.\n` +
-    "For each column, choose the darkest filled row among 0–9.\n" +
+    "For each column, pair the TOP column label (position) with the LEFT row label (digit) of its darkest fill.\n" +
+    "Example: row label 7 filled below column label 3 means position=3, digit=7.\n" +
     "digit=null only if empty or double-marked (flagged=true).\n" +
     `Sensitivity: ${sensitivity}%.`;
 
@@ -532,15 +546,141 @@ function ordinalSuffix(n: number): string {
 }
 
 /**
- * Read each roll column individually (most reliable). Vision models skew left or right
- * when asked for many columns at once.
+ * Read the full ROLL NUMBER grid in one vision call.
+ * Prefer a cropped roll-region image so the model is not distracted by A–D answers.
+ */
+async function detectRollNumberGridFull(input: {
+  imageUrl: string;
+  rollDigits: number;
+  sensitivity: number;
+}): Promise<{ digits: RollDigitReading[]; issues: string[] }> {
+  const rollDigits = Math.min(12, Math.max(5, input.rollDigits));
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["digits", "issues"],
+    properties: {
+      digits: {
+        type: "array",
+        minItems: rollDigits,
+        maxItems: rollDigits,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["position", "digit", "confidence", "flagged"],
+          properties: {
+            position: {
+              type: "integer",
+              minimum: 1,
+              maximum: rollDigits,
+              description: "The printed column label above this bubble column.",
+            },
+            digit: {
+              type: ["integer", "null"],
+              minimum: 0,
+              maximum: 9,
+              description: "The printed row label beside the filled bubble in this column.",
+            },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            flagged: { type: "boolean" },
+          },
+        },
+      },
+      issues: { type: "array", items: { type: "string" } },
+    },
+  };
+
+  const instructions =
+    "This image is the ROLL NUMBER bubble grid only (or the top-left of an OMR sheet).\n" +
+    `There are exactly ${rollDigits} columns left→right. Top headers 1…${rollDigits} are positions.\n` +
+    "Left labels 0…9 are digit values (top=0 … bottom=9).\n" +
+    "For EACH filled bubble, pair its LEFT row label with its TOP column label.\n" +
+    "Row labels are fixed: top row = 0, then 1,2,3,4,5,6,7,8, bottom row = 9.\n" +
+    "Example: a filled bubble on row label 7 under column label 3 means position=3, digit=7.\n" +
+    "Never use the row number as the position and never use the column header as the digit.\n" +
+    "Never shift row labels (do not read row 7 as 6 or 8).\n" +
+    "digit=null only if empty or double-marked (set flagged=true).\n" +
+    `Return exactly ${rollDigits} digit objects with positions 1…${rollDigits}.\n` +
+    "Ignore A–D exam responses and handwritten boxes.\n" +
+    `Sensitivity: ${input.sensitivity}%.`;
+
+  const response = await callOpenAiChatCompletion({
+    temperature: 0,
+    top_p: 1,
+    seed: DETECTION_SEED,
+    max_tokens: 1200,
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "omr_roll_number_full", strict: true, schema },
+    },
+    messages: [
+      {
+        role: "system",
+        content:
+          "You read OMR roll-number grids. Column headers are positions; row labels are digits 0–9.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: instructions },
+          { type: "image_url", image_url: { url: input.imageUrl, detail: "high" } },
+        ],
+      },
+    ],
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`AI roll-number detection failed (${response.status}): ${message.slice(0, 300)}`);
+  }
+
+  const payload = (await response.json()) as OpenAiResponse;
+  const content = payload.choices?.[0]?.message?.content;
+  if (!content) throw new Error("AI returned no roll-number detection result.");
+
+  let parsed: { digits?: unknown[]; issues?: unknown };
+  try {
+    parsed = JSON.parse(content) as { digits?: unknown[]; issues?: unknown };
+  } catch {
+    throw new Error("AI returned an invalid roll-number result.");
+  }
+
+  const byPos = new Map<number, RollDigitReading>();
+  for (const item of Array.isArray(parsed.digits) ? parsed.digits : []) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const position = Number(row.position);
+    if (!Number.isInteger(position) || position < 1 || position > rollDigits) continue;
+    if (byPos.has(position)) continue;
+    byPos.set(position, {
+      position,
+      digit: normalizeRollDigit(row.digit),
+      confidence: clampConfidence(row.confidence),
+      flagged: Boolean(row.flagged),
+    });
+  }
+
+  const digits: RollDigitReading[] = Array.from({ length: rollDigits }, (_, i) => {
+    const position = i + 1;
+    return byPos.get(position) ?? { position, digit: null, confidence: 0, flagged: true };
+  });
+
+  const issues = Array.isArray(parsed.issues)
+    ? parsed.issues.filter((i): i is string => typeof i === "string").slice(0, 10)
+    : [];
+
+  return { digits, issues };
+}
+
+/**
+ * Read each roll column individually (fallback when a full-grid read is incomplete).
  */
 async function detectRollNumberGrid(input: {
   imageUrl: string;
   rollDigits: number;
   sensitivity: number;
 }): Promise<{ digits: RollDigitReading[]; issues: string[] }> {
-  const rollDigits = Math.min(12, Math.max(6, input.rollDigits));
+  const rollDigits = Math.min(12, Math.max(5, input.rollDigits));
   const issues: string[] = [];
   const digits: RollDigitReading[] = [];
 
@@ -608,40 +748,267 @@ export type DetectOmrBubblesInput = {
 };
 
 /**
+ * Read the handwritten name on the OMR "CANDIDATE DETAILS" Name line.
+ * This runs before roll/bubble work so sheets can be matched to student profiles by name.
+ */
+async function detectStudentNameFromSheet(imageUrl: string): Promise<{
+  name: string | null;
+  issues: string[];
+}> {
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["studentName", "confidence", "issues"],
+    properties: {
+      studentName: { type: ["string", "null"] },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+      issues: { type: "array", items: { type: "string" } },
+    },
+  };
+
+  const response = await callOpenAiChatCompletion({
+    temperature: 0,
+    top_p: 1,
+    seed: DETECTION_SEED,
+    max_tokens: 400,
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "omr_student_name", strict: true, schema },
+    },
+    messages: [
+      {
+        role: "system",
+        content:
+          "You read handwritten student names from OMR answer sheets. " +
+          "Return only the name written on the Name line — never invent one.",
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text:
+              "Find the CANDIDATE DETAILS block near the top of this OMR sheet " +
+              '(next to the ROLL NUMBER grid). Read the handwritten text on the "Name:" line. ' +
+              "Return studentName as the full name exactly as written (fix obvious letter confusions only if clear). " +
+              "If the Name line is blank, illegible, or missing, return studentName null and explain in issues. " +
+              "Do not return roll numbers, exam titles, dates, batch codes, or printed labels as the name.",
+          },
+          { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+        ],
+      },
+    ],
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Name detection failed (${response.status}): ${message.slice(0, 300)}`);
+  }
+
+  const payload = (await response.json()) as OpenAiResponse;
+  const content = payload.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("AI returned no name-detection result.");
+  }
+
+  let parsed: { studentName?: unknown; confidence?: unknown; issues?: unknown };
+  try {
+    parsed = JSON.parse(content) as typeof parsed;
+  } catch {
+    throw new Error("AI returned an invalid name-detection result.");
+  }
+
+  const rawName =
+    typeof parsed.studentName === "string" ? parsed.studentName.trim().replace(/\s+/g, " ") : "";
+  const confidence = clampConfidence(parsed.confidence);
+  const issues = Array.isArray(parsed.issues)
+    ? parsed.issues.filter((item): item is string => typeof item === "string")
+    : [];
+
+  if (!rawName || confidence < 0.35) {
+    return {
+      name: null,
+      issues: issues.length > 0 ? issues : ["Could not read a clear student name from the Name line."],
+    };
+  }
+
+  // Reject values that look like rolls / placeholders rather than names.
+  if (/^\d+$/.test(rawName) || /^(name|n\/a|na|none|-|—|_+)$/i.test(rawName)) {
+    return {
+      name: null,
+      issues: ["Name line did not contain a usable handwritten student name."],
+    };
+  }
+
+  return { name: rawName, issues };
+}
+
+/**
  * High-accuracy OMR detection:
- * 1) Read the ROLL NUMBER grid (column headers = positions, row labels = 0–9 values).
- * 2) Read each response column separately (smaller ranges → fewer misses).
- * 3) Re-read any blank / low-confidence questions in a focused fill-in pass.
- * 4) Merge with a second full-column pass when question count is moderate, for stability.
+ * 1) Read the handwritten student name from CANDIDATE DETAILS (for profile matching).
+ * 2) Read the ROLL NUMBER grid from the uploaded image (OpenCV first, AI fallback).
+ * 3) Read each response column separately (smaller ranges → fewer misses).
+ * 4) Re-read any blank / low-confidence questions in a focused fill-in pass.
+ * 5) Merge with a second full-column pass when question count is moderate, for stability.
  */
 export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<OmrVisionResult> {
   const { questionCount, columns, sensitivity } = input;
-  const rollDigitCount = Math.min(12, Math.max(6, input.rollDigits ?? 10));
+  const rollDigitCount = Math.min(12, Math.max(5, input.rollDigits ?? 10));
   const rows = Math.max(1, Math.ceil(questionCount / columns));
   const imageUrl = `data:${input.imageMime};base64,${input.imageBytes.toString("base64")}`;
 
   const issues: string[] = [];
 
-  // --- Dedicated roll-number grid read (chunked columns; do not infer from A–D) ---
-  let rollDigits: RollDigitReading[] = [];
-  let rollNumber: string | null = null;
+  // Name first — used to match the sheet to an existing student profile.
+  let studentName: string | null = null;
   try {
-    const rollPass = await detectRollNumberGrid({
-      imageUrl,
-      rollDigits: rollDigitCount,
-      sensitivity,
-    });
-    rollDigits = rollPass.digits;
-    issues.push(...rollPass.issues);
-    const assembled = assembleRollNumberFromDigits(rollDigits);
-    rollNumber = assembled.rollNumber;
-    issues.push(...assembled.issues);
+    const namePass = await detectStudentNameFromSheet(imageUrl);
+    studentName = namePass.name;
+    issues.push(...namePass.issues);
+    if (studentName) {
+      issues.push(`Detected student name: ${studentName}.`);
+    }
   } catch (error) {
     issues.push(
       error instanceof Error
-        ? `Roll-number detection issue: ${error.message}`
-        : "Roll-number detection failed."
+        ? `Name detection issue: ${error.message}`
+        : "Name detection failed."
     );
+  }
+
+  // Prefer OpenCV on the uploaded sheet bytes (temp file only — no fixed path).
+  // Keep confident OpenCV digits; only AI-fill blank / low-confidence positions.
+  let rollDigits: RollDigitReading[] = [];
+  let rollNumber: string | null = null;
+  let rollFromOpencv = false;
+  let rollCropUrl: string | null = null;
+
+  try {
+    const opencv = await readRollFromUploadedImage({
+      imageBytes: input.imageBytes,
+      imageMime: input.imageMime,
+      columns: rollDigitCount,
+    });
+    if (opencv) {
+      rollDigits = opencv.digits;
+      const assembled = assembleRollNumberFromDigits(rollDigits);
+      rollNumber = opencv.rollNumber ?? assembled.rollNumber;
+      issues.push(...opencv.issues);
+      if (opencv.cropDataUrl) rollCropUrl = opencv.cropDataUrl;
+      const markedCount = rollDigits.filter(
+        (d) => d.digit != null && !d.flagged && d.confidence >= 0.5
+      ).length;
+      if (rollNumber) {
+        rollFromOpencv = true;
+        issues.push("Roll number read with OpenCV from the uploaded OMR image.");
+      } else if (markedCount > 0) {
+        issues.push(
+          `OpenCV read ${markedCount}/${rollDigitCount} roll columns; filling remaining with AI.`
+        );
+      } else {
+        issues.push(...assembled.issues);
+      }
+    }
+  } catch (error) {
+    issues.push(
+      error instanceof Error
+        ? `OpenCV roll read skipped: ${error.message}`
+        : "OpenCV roll read skipped."
+    );
+  }
+
+  if (!rollFromOpencv) {
+    const rollImageUrl = rollCropUrl ?? imageUrl;
+    const missingPositions = rollDigits
+      .filter((d) => d.digit == null || d.flagged || d.confidence < 0.45)
+      .map((d) => d.position);
+    const needsFullRead = rollDigits.length === 0 || missingPositions.length === rollDigitCount;
+
+    try {
+      if (needsFullRead) {
+        const fullPass = await detectRollNumberGridFull({
+          imageUrl: rollImageUrl,
+          rollDigits: rollDigitCount,
+          sensitivity,
+        });
+        rollDigits = fullPass.digits;
+        issues.push(...fullPass.issues);
+      } else if (missingPositions.length > 0) {
+        // Re-read only the remaining columns with the same column→row-label logic.
+        const byPos = new Map(rollDigits.map((d) => [d.position, d]));
+        for (const position of missingPositions) {
+          const slice = await detectRollNumberGridSlice({
+            imageUrl: rollImageUrl,
+            startPos: position,
+            endPos: position,
+            totalDigits: rollDigitCount,
+            sensitivity: Math.min(100, sensitivity + 8),
+          });
+          issues.push(...slice.issues);
+          const reading = slice.digits[0];
+          if (reading && reading.digit != null) {
+            byPos.set(position, reading);
+          }
+        }
+        rollDigits = Array.from({ length: rollDigitCount }, (_, i) => {
+          const position = i + 1;
+          return (
+            byPos.get(position) ?? {
+              position,
+              digit: null,
+              confidence: 0,
+              flagged: true,
+            }
+          );
+        });
+      }
+
+      let assembled = assembleRollNumberFromDigits(rollDigits);
+      rollNumber = assembled.rollNumber;
+      issues.push(...assembled.issues);
+
+      if (!rollNumber) {
+        const rollPass = await detectRollNumberGrid({
+          imageUrl: rollImageUrl,
+          rollDigits: rollDigitCount,
+          sensitivity,
+        });
+        // Prefer already-confident OpenCV digits over a weaker full AI pass.
+        const merged = new Map(rollDigits.map((d) => [d.position, d]));
+        for (const d of rollPass.digits) {
+          const prev = merged.get(d.position);
+          if (
+            !prev ||
+            prev.digit == null ||
+            prev.flagged ||
+            prev.confidence < d.confidence
+          ) {
+            merged.set(d.position, d);
+          }
+        }
+        rollDigits = Array.from({ length: rollDigitCount }, (_, i) => {
+          const position = i + 1;
+          return (
+            merged.get(position) ?? {
+              position,
+              digit: null,
+              confidence: 0,
+              flagged: true,
+            }
+          );
+        });
+        issues.push(...rollPass.issues);
+        assembled = assembleRollNumberFromDigits(rollDigits);
+        rollNumber = assembled.rollNumber;
+        issues.push(...assembled.issues);
+      }
+    } catch (error) {
+      issues.push(
+        error instanceof Error
+          ? `Roll-number detection issue: ${error.message}`
+          : "Roll-number detection failed."
+      );
+    }
   }
 
   const firstPass: DetectedAnswer[] = [];
@@ -746,6 +1113,7 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
 
   const uniqueIssues = [...new Set(issues)].slice(0, 20);
   return {
+    studentName,
     rollNumber,
     rollDigits,
     answers: finalAnswers,

@@ -91,7 +91,7 @@ export function parseOmrTemplateSettings(raw: unknown): OmrTemplateSettings {
   return {
     track,
     rollDigits:
-      Number.isFinite(rollDigits) && rollDigits >= 6 && rollDigits <= 12
+      Number.isFinite(rollDigits) && rollDigits >= 5 && rollDigits <= 12
         ? Math.round(rollDigits)
         : DEFAULT_OMR_TEMPLATE.rollDigits,
     examPreset,

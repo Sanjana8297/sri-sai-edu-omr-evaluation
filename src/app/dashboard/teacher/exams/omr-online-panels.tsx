@@ -45,12 +45,13 @@ type OmrMatchedStudent = {
   id: string;
   name: string;
   rollNumber: string | null;
-  matchedBy: "rollNumber" | "username" | "email";
+  matchedBy: "name" | "rollNumber" | "username" | "email";
 };
 
 type OmrEvaluationResult = {
   paper: { id: string; title: string };
   track: string;
+  studentName: string | null;
   rollNumber: string | null;
   rollDigits?: Array<{
     position: number;
@@ -347,7 +348,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       const s = json.settings;
       setExamPreset(clampPresetToTeacher(trackToPreset(s.examPreset ?? s.track), track));
       if (typeof s.rollDigits === "number" && !Number.isNaN(s.rollDigits)) {
-        setRollDigits(Math.min(12, Math.max(6, s.rollDigits)));
+        setRollDigits(Math.min(12, Math.max(5, s.rollDigits)));
       }
       if (Array.isArray(s.advance?.subjects) && s.advance.subjects.length > 0) {
         setAdvanceSubjects(s.advance.subjects);
@@ -361,7 +362,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     setTemplateSaving(true);
     setTemplateMsg(null);
     setTemplateErr(null);
-    const roll = Math.min(12, Math.max(6, rollDigits));
+    const roll = Math.min(12, Math.max(5, rollDigits));
     if (examPreset === "JEE_ADVANCE") {
       for (const s of advanceSubjects) {
         const err = validateSubjectSectionCounts(s.sectionCounts);
@@ -425,7 +426,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
 
     setScanLoading(true);
     setScanError(null);
-    setScanStatus("Reading marked bubbles and evaluating against the selected answer key…");
+    setScanStatus("Reading student name, then scoring bubbles against the answer key…");
     setScanResult(null);
     setScanSavedMsg(null);
     setScanStudentId("");
@@ -448,7 +449,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
         `Evaluation complete: ${json.score.obtained}/${json.score.maximum} marks.`
       );
       if (json.matchedStudent) {
-        // A student matched the detected roll number — save the score automatically.
+        // Matched by name (preferred) or roll — save analysis notes to that student's profile.
         await saveScoreToStudent(json, json.matchedStudent.id);
       }
     } catch (error) {
@@ -476,6 +477,8 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
           studentId,
           submittedAnswers: result.submittedAnswers,
           rollNumber: result.rollNumber,
+          studentName: result.studentName,
+          issues: result.issues,
         }),
       });
       const json = (await res.json()) as {
@@ -524,12 +527,12 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
               Roll number columns
               <input
                 type="number"
-                min={6}
+                min={5}
                 max={12}
                 value={rollDigits}
                 onChange={(e) =>
                   {
-                    setRollDigits(Math.min(12, Math.max(6, Number(e.target.value) || 10)));
+                    setRollDigits(Math.min(12, Math.max(5, Number(e.target.value) || 10)));
                     setTemplateSavedForNextStep(false);
                   }
                 }
@@ -759,13 +762,14 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   </p>
                   <p className="text-xs text-[var(--muted)]">
                     {scanResult.paper.title}
+                    {scanResult.studentName ? ` · Name ${scanResult.studentName}` : ""}
                     {scanResult.rollNumber ? ` · Roll ${scanResult.rollNumber}` : ""}
                   </p>
                   {scanResult.rollDigits && scanResult.rollDigits.length > 0 ? (
                     <p className="mt-1 font-mono text-[11px] text-[var(--muted)]">
-                      Roll grid (col→digit):{" "}
+                      Roll grid (column position → bubbled row label):{" "}
                       {scanResult.rollDigits
-                        .map((d) => `${d.position}:${d.digit ?? "—"}`)
+                        .map((d) => `P${d.position}→${d.digit ?? "—"}`)
                         .join(" · ")}
                     </p>
                   ) : null}
@@ -788,16 +792,6 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                     Review
                   </div>
                 </div>
-                {scanResult.issues.length > 0 ? (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                    <p className="font-semibold">Detection notes</p>
-                    <ul className="mt-1 list-disc pl-4">
-                      {scanResult.issues.map((issue, index) => (
-                        <li key={`${issue}-${index}`}>{issue}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
                 {scanResult.matchedStudent ? (
                   <div className="rounded-md border border-[var(--border)] bg-[var(--card)] p-3">
                     <p className="text-xs font-semibold text-[var(--foreground)]">
@@ -805,8 +799,13 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                     </p>
                     {scanSaving ? (
                       <p className="mt-1 text-xs text-[var(--muted)]">
-                        Saving score to {scanResult.matchedStudent.name}
-                        {scanResult.rollNumber ? ` (roll ${scanResult.rollNumber})` : ""}…
+                        Saving analysis notes to {scanResult.matchedStudent.name}
+                        {scanResult.matchedStudent.matchedBy === "name"
+                          ? " (matched by name)"
+                          : scanResult.rollNumber
+                            ? ` (roll ${scanResult.rollNumber})`
+                            : ""}
+                        …
                       </p>
                     ) : scanSavedMsg ? (
                       <p className="mt-1 text-xs text-emerald-700">{scanSavedMsg}</p>
@@ -819,9 +818,11 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                 ) : (
                   <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
                     <p className="text-xs font-semibold text-amber-900">
-                      {scanResult.rollNumber
-                        ? `No student profile matches the detected roll number "${scanResult.rollNumber}".`
-                        : "No roll number could be detected on this sheet."}
+                      {scanResult.studentName
+                        ? `No student profile matches the detected name "${scanResult.studentName}".`
+                        : scanResult.rollNumber
+                          ? `No student profile matches the detected roll number "${scanResult.rollNumber}".`
+                          : "Could not detect a student name or roll number on this sheet."}
                     </p>
                     <p className="mt-1 text-xs text-amber-800">
                       Select the student to link this exam attempt to, then save the score.

@@ -6,7 +6,7 @@ import {
 } from "@/lib/exam-paper-parser";
 import { detectOmrBubbles } from "@/lib/omr-bubble-detect";
 import { resolveTrackForPaper, scoreAnswersForTrack } from "@/lib/omr-scoring";
-import { matchStudentByRoll } from "@/lib/omr-student-match";
+import { matchStudentForOmr } from "@/lib/omr-student-match";
 import { getAiConfigError } from "@/lib/ai-paper-config";
 import { getTeacherOmrTemplate } from "@/lib/omr-template-db";
 import { prisma } from "@/lib/prisma";
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
   const columns = paper.category === "NEET" ? 4 : 3;
   const bytes = Buffer.from(await image.arrayBuffer());
   const omrTemplate = await getTeacherOmrTemplate(session.sub);
-  const rollDigits = Math.min(12, Math.max(6, omrTemplate.rollDigits ?? 10));
+  const rollDigits = Math.min(12, Math.max(5, omrTemplate.rollDigits ?? 10));
 
   let vision;
   try {
@@ -159,11 +159,15 @@ export async function POST(request: Request) {
   const unanswered = breakdown.filter((item) => item.status === "unanswered").length;
   const flagged = breakdown.filter((item) => item.flagged).length;
 
-  const matchedStudent = await matchStudentByRoll(session.sub, vision.rollNumber);
+  const matchedStudent = await matchStudentForOmr(session.sub, {
+    studentName: vision.studentName,
+    rollNumber: vision.rollNumber,
+  });
 
   return NextResponse.json({
     paper: { id: paper.id, title: paper.title },
     track,
+    studentName: vision.studentName,
     rollNumber: vision.rollNumber,
     rollDigits: vision.rollDigits ?? [],
     matchedStudent,

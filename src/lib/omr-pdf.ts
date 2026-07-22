@@ -861,7 +861,7 @@ function drawRollNumberGrid(
 async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependNewPage?: boolean }): Promise<void> {
   const layout = OMR_LAYOUT[opts.track];
   const questionCount = Math.max(1, opts.questionCount || layout.questions);
-  const rollDigits = Math.min(Math.max(opts.rollDigits, 6), 12);
+  const rollDigits = Math.min(Math.max(opts.rollDigits, 5), 12);
   const cols = omrResponseColumns(opts.track);
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();

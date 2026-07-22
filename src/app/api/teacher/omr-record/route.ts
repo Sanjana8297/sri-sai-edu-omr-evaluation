@@ -18,6 +18,8 @@ export async function POST(request: Request) {
     studentId?: string;
     submittedAnswers?: Record<string, string>;
     rollNumber?: string | null;
+    studentName?: string | null;
+    issues?: string[];
   };
   try {
     body = await request.json();
@@ -83,10 +85,23 @@ export async function POST(request: Request) {
 
   const now = new Date();
   const examTitle = `${paper.title} ${OMR_SUFFIX}`;
-  const analysis =
+  const detectedName = body.studentName?.trim() || null;
+  const detectedRoll = body.rollNumber?.trim() || null;
+  const issueNotes = Array.isArray(body.issues)
+    ? body.issues
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .slice(0, 8)
+    : [];
+  const analysisParts = [
     `OMR scan scored on ${now.toLocaleString()} — ${correct} correct, ${wrong} wrong, ` +
-    `${unanswered} unanswered (${obtained}/${scoreMax}).` +
-    (body.rollNumber?.trim() ? ` Detected roll: ${body.rollNumber.trim()}.` : "");
+      `${unanswered} unanswered (${obtained}/${scoreMax}).`,
+  ];
+  if (detectedName) analysisParts.push(`Detected name: ${detectedName}.`);
+  if (detectedRoll) analysisParts.push(`Detected roll: ${detectedRoll}.`);
+  if (issueNotes.length > 0) {
+    analysisParts.push(`Detection notes: ${issueNotes.join(" ")}`);
+  }
+  const analysis = analysisParts.join(" ");
 
   const result = await prisma.$transaction(async (tx) => {
     // Reuse a dedicated OMR exam per question paper so re-scans update the same session.

@@ -20,11 +20,14 @@ export const metadata: Metadata = {
   description: "Login, performance tracking, and question papers",
   icons: {
     icon: [
-      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
+      { url: "/favicon.ico?v=3", sizes: "any" },
+      { url: "/favicon-96x96.png?v=3", sizes: "96x96", type: "image/png" },
+      { url: "/web-app-manifest-192x192.png?v=3", sizes: "192x192", type: "image/png" },
+      { url: "/web-app-manifest-512x512.png?v=3", sizes: "512x512", type: "image/png" },
     ],
-    apple: [{ url: "/apple-touch-icon.png", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png?v=3", sizes: "180x180", type: "image/png" }],
   },
+  manifest: "/site.webmanifest",
 };
 
 export default function RootLayout({
