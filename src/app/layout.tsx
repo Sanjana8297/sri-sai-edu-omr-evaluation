@@ -16,8 +16,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "JEE & NEET Coaching Portal",
+  title: "Sri Sai Educational Institutions",
   description: "Login, performance tracking, and question papers",
+  applicationName: "Sri Sai Educational Institutions",
   icons: {
     icon: [
       { url: "/favicon.ico?v=3", sizes: "any" },
