@@ -16,9 +16,28 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sri Sai Educational Institutions",
-  description: "Login, performance tracking, and question papers",
+  metadataBase: new URL("https://srisaiyanam.com"),
+  title: {
+    default: "Sri Sai Educational Institutions",
+    template: "%s | Sri Sai Educational Institutions",
+  },
+  description:
+    "Sri Sai Educational Institutions, Yanam — student login, exams, and performance tracking.",
   applicationName: "Sri Sai Educational Institutions",
+  openGraph: {
+    title: "Sri Sai Educational Institutions",
+    description:
+      "Sri Sai Educational Institutions, Yanam — student login, exams, and performance tracking.",
+    siteName: "Sri Sai Educational Institutions",
+    type: "website",
+    url: "https://srisaiyanam.com",
+  },
+  twitter: {
+    card: "summary",
+    title: "Sri Sai Educational Institutions",
+    description:
+      "Sri Sai Educational Institutions, Yanam — student login, exams, and performance tracking.",
+  },
   icons: {
     icon: [
       { url: "/favicon.ico?v=3", sizes: "any" },

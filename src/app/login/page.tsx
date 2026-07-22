@@ -64,7 +64,7 @@ export default function LoginPage() {
         </Link>
         <h1 className="text-2xl font-semibold text-[var(--foreground)]">Sign in</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          JEE & NEET coaching portal. Accounts are created by your administrator.
+          Sri Sai Educational Institutions. Accounts are created by your administrator.
         </p>
         <form className="mt-8 space-y-4" onSubmit={onSubmit}>
           <div>
