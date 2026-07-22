@@ -45,10 +45,11 @@ function PreviewHeader({
     <div className="flex items-start justify-between gap-4 border-2 border-black p-3">
       <div className="w-[240px] max-w-full">
         <Image
-          src="/images/Sri-Sai-logo.png"
+          src="/images/Sri-Sai-logo.png?v=20260722b"
           alt="Sri Sai Educational Institutions"
           width={240}
           height={85}
+          unoptimized
           className="h-auto w-full object-contain"
         />
       </div>

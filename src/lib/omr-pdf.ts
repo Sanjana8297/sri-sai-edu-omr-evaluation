@@ -81,7 +81,7 @@ function isAnyJeeTrack(track: OmrTrack): boolean {
   return isJeeMainsTrack(track) || isJeeAdvanceTrack(track);
 }
 
-const SRI_SAI_LOGO_SRC = "/images/Sri-Sai-logo.png";
+const SRI_SAI_LOGO_SRC = "/images/Sri-Sai-logo.png?v=20260722b";
 
 /** Pink accent matching the official Sri Sai OMR sheet. */
 const OMR_PINK: [number, number, number] = [201, 32, 99];

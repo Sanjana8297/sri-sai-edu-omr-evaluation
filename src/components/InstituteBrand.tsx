@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { INSTITUTE_LOGO_SRC } from "@/lib/institute-brand";
 
 type InstituteBrandProps = {
   /** Smaller text for dashboard sidebars and exam headers */
@@ -8,44 +8,72 @@ type InstituteBrandProps = {
   onDark?: boolean;
 };
 
+/**
+ * Institute lockup: circular seal + SriSai wordmark
+ * (Educational Institutions / tagline / High School | Junior College | Academy).
+ */
 export function InstituteBrand({ compact = false, className = "", onDark = false }: InstituteBrandProps) {
-  const subtitleColor = onDark ? "text-indigo-200" : "text-indigo-600";
-  const nameColor = onDark
-    ? "text-white"
-    : compact
-      ? "text-[var(--foreground)]"
-      : "text-blue-950";
+  const nameColor = onDark ? "text-white" : "text-[#1a4fb8]";
+  const institutionsColor = onDark ? "text-red-300" : "text-[#e31c23]";
+  const taglineColor = onDark ? "text-indigo-100" : "text-neutral-800";
+  const levelsColor = onDark ? "text-indigo-100" : "text-neutral-900";
+  const ruleColor = onDark ? "bg-sky-300/80" : "bg-[#1a4fb8]/60";
+  const pipeColor = onDark ? "text-red-300" : "text-[#e31c23]";
+
+  // Explicit sizes so the seal stays visible and roughly matches the wordmark stack height.
+  const logoPx = compact ? 64 : 96;
 
   return (
-    <div className={`flex items-center gap-2.5 sm:gap-3 ${className}`}>
-      <Image
-        src="/images/Sri-Sai-logo.png"
+    <div className={`flex items-center gap-2.5 sm:gap-3.5 ${className}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- plain img avoids fill/aspect collapse */}
+      <img
+        src={INSTITUTE_LOGO_SRC}
         alt="Sri Sai Educational Institutions logo"
-        width={compact ? 40 : 56}
-        height={compact ? 40 : 56}
+        width={logoPx}
+        height={logoPx}
         className={`${
           compact
-            ? "h-9 w-auto shrink-0 object-contain sm:h-10"
-            : "h-10 w-auto shrink-0 object-contain sm:h-14"
+            ? "h-14 w-14 shrink-0 object-contain sm:h-16 sm:w-16"
+            : "h-[4.75rem] w-[4.75rem] shrink-0 object-contain sm:h-24 sm:w-24"
         }${onDark ? " rounded-md bg-white/95 p-0.5 shadow-sm" : ""}`}
-        priority
       />
-      <div className="min-w-0 leading-tight">
+      <div className="flex min-w-0 flex-col justify-center leading-none">
         <p
           className={`${
             compact
-              ? "text-[9px] font-semibold uppercase tracking-[0.15em] sm:text-[10px]"
-              : "text-[11px] font-semibold uppercase tracking-[0.2em] sm:text-xs"
-          } ${subtitleColor}`}
+              ? "text-sm font-extrabold tracking-tight sm:text-base"
+              : "text-xl font-extrabold tracking-tight sm:text-2xl"
+          } ${nameColor}`}
         >
-          Premier Educational Institute
+          SriSai
         </p>
         <p
           className={`${
-            compact ? "text-[11px] font-bold sm:text-xs" : "text-base font-bold sm:text-2xl"
-          } ${nameColor}`}
+            compact
+              ? "mt-0.5 text-[8px] font-semibold uppercase tracking-[0.12em] sm:text-[9px]"
+              : "mt-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] sm:text-[11px]"
+          } ${institutionsColor}`}
         >
-          Jr.KG to INTER
+          Educational Institutions
+        </p>
+        {!compact ? (
+          <div className={`mt-1.5 flex items-center gap-2 ${taglineColor}`}>
+            <span className={`h-px w-4 shrink-0 sm:w-6 ${ruleColor}`} aria-hidden />
+            <p className="truncate text-[10px] italic leading-none sm:text-xs">
+              Redefining Education - Inspiring Excellence
+            </p>
+            <span className={`h-px w-4 shrink-0 sm:w-6 ${ruleColor}`} aria-hidden />
+          </div>
+        ) : null}
+        <p
+          className={`${
+            compact
+              ? "mt-1 text-[8px] font-medium sm:text-[9px]"
+              : "mt-1.5 text-[10px] font-medium sm:text-xs"
+          } ${levelsColor}`}
+        >
+          High School <span className={pipeColor}>|</span> Junior College{" "}
+          <span className={pipeColor}>|</span> Academy
         </p>
       </div>
     </div>
