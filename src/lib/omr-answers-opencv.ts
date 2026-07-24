@@ -10,6 +10,9 @@ export type OpencvDetectedAnswer = {
   answer: "A" | "B" | "C" | "D" | null;
   confidence: number;
   flagged: boolean;
+  /** Multi-mark or outside-circle — keep unanswered; do not let AI invent a letter. */
+  lockUnanswered?: boolean;
+  status?: "marked" | "blank" | "ambiguous" | "outside";
 };
 
 export type OpencvAnswersResult = {
@@ -28,6 +31,7 @@ type PythonAnswerJson = {
     status?: string;
     confidence?: number;
     flagged?: boolean;
+    lockUnanswered?: boolean;
   }>;
   issues?: string[];
   error?: string;
@@ -115,13 +119,32 @@ function mapAnswers(
       typeof item.confidence === "number" && Number.isFinite(item.confidence)
         ? Math.min(1, Math.max(0, item.confidence))
         : 0;
+    const statusRaw = typeof item.status === "string" ? item.status.toLowerCase() : "";
+    const status =
+      statusRaw === "marked" ||
+      statusRaw === "blank" ||
+      statusRaw === "ambiguous" ||
+      statusRaw === "outside"
+        ? statusRaw
+        : undefined;
+    const lockUnanswered =
+      Boolean(item.lockUnanswered) || status === "ambiguous" || status === "outside";
     const flagged =
       Boolean(item.flagged) ||
-      item.status === "blank" ||
-      item.status === "ambiguous" ||
+      status === "blank" ||
+      status === "ambiguous" ||
+      status === "outside" ||
       answer == null ||
-      confidence < 0.5;
-    byQ.set(question, { question, answer, confidence, flagged });
+      confidence < 0.5 ||
+      lockUnanswered;
+    byQ.set(question, {
+      question,
+      answer: lockUnanswered ? null : answer,
+      confidence: lockUnanswered ? 0 : confidence,
+      flagged,
+      lockUnanswered,
+      status,
+    });
   }
 
   return Array.from({ length: questionCount }, (_, i) => {

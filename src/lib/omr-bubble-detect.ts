@@ -8,6 +8,8 @@ export type DetectedAnswer = {
   answer: "A" | "B" | "C" | "D" | null;
   confidence: number;
   flagged: boolean;
+  /** Multi-mark or outside-circle — keep unanswered across AI fill/merge. */
+  lockUnanswered?: boolean;
 };
 
 export type OmrVisionResult = {
@@ -132,6 +134,7 @@ function parseVisionJson(content: string): {
 /**
  * Prefer a filled mark over null when either pass saw a darkened bubble.
  * On letter conflicts, keep the higher-confidence reading and flag for review.
+ * Locked unanswered (multi-mark / outside-circle) always stays null.
  */
 export function mergeDetectedAnswers(
   primary: DetectedAnswer[],
@@ -143,10 +146,26 @@ export function mergeDetectedAnswers(
   for (const item of primary) a.set(item.question, item);
   for (const item of secondary) b.set(item.question, item);
 
+  const lockedNull = (row?: DetectedAnswer): DetectedAnswer | null => {
+    if (!row?.lockUnanswered) return null;
+    return {
+      question: row.question,
+      answer: null,
+      confidence: 0,
+      flagged: true,
+      lockUnanswered: true,
+    };
+  };
+
   const merged: DetectedAnswer[] = [];
   for (let q = 1; q <= questionCount; q++) {
     const left = a.get(q);
     const right = b.get(q);
+    const locked = lockedNull(left) ?? lockedNull(right);
+    if (locked) {
+      merged.push(locked);
+      continue;
+    }
     if (!left && !right) {
       merged.push({ question: q, answer: null, confidence: 0, flagged: true });
       continue;
@@ -157,6 +176,7 @@ export function mergeDetectedAnswers(
         answer: normalizeAnswer(right!.answer),
         confidence: clampConfidence(right!.confidence),
         flagged: Boolean(right!.flagged) || !right!.answer,
+        lockUnanswered: right!.lockUnanswered,
       });
       continue;
     }
@@ -166,6 +186,7 @@ export function mergeDetectedAnswers(
         answer: normalizeAnswer(left.answer),
         confidence: clampConfidence(left.confidence),
         flagged: Boolean(left.flagged) || !left.answer,
+        lockUnanswered: left.lockUnanswered,
       });
       continue;
     }
@@ -304,15 +325,17 @@ async function callBubbleVision(input: {
 
   const fillRules =
     "FILL RULES (apply consistently — same sheet scanned twice must yield the same letters):\n" +
-    "1) Compare the four bubbles in the SAME question row; pick the single darkest interior.\n" +
+    "1) Compare the four bubbles in the SAME question row; pick the single darkest INTERIOR.\n" +
     "2) Printed A/B/C/D glyphs alone are NOT fills — require pencil/pen darkening beyond the letter ink.\n" +
-    "3) If two options are nearly equally dark, return null with flagged=true (do not guess).\n" +
-    "4) If none is clearly darker than the others, return null.\n" +
+    "3) If TWO OR MORE options are bubbled/darkened, return null with flagged=true (multi-mark = unanswered — do not pick one).\n" +
+    "4) Marks outside the printed circle (scribble beside/around the bubble, not filling the interior) count as INVALID — return null.\n" +
+    "5) Only accept a letter when the darkening is clearly INSIDE that option's circle and the other three are blank.\n" +
+    "6) If none is clearly darker than the others, return null.\n" +
     (strictFills
-      ? "5) Sensitivity is LOW: only accept clearly blacked-out bubbles.\n"
+      ? "7) Sensitivity is LOW: only accept clearly blacked-out bubbles.\n"
       : acceptLightFills
-        ? "5) Sensitivity is HIGH: accept light but deliberate pencil shading if it is clearly darker than siblings.\n"
-        : "5) Sensitivity is MEDIUM: accept definite fills; skip faint smudges.\n") +
+        ? "7) Sensitivity is HIGH: accept light but deliberate pencil shading if it is clearly darker than siblings AND inside the circle.\n"
+        : "7) Sensitivity is MEDIUM: accept definite fills; skip faint smudges.\n") +
     `Sensitivity setting: ${sensitivity}%. Never invent answers. Never skip required question numbers.`;
 
   const response = await callOpenAiChatCompletion({
@@ -330,6 +353,7 @@ async function callBubbleVision(input: {
         content:
           "You are a deterministic OMR bubble reader for Sri Sai sheets. " +
           "Report which A–D bubble is filled for each question. " +
+          "Multi-marked questions and marks outside the circle must be null (unanswered). " +
           "Be consistent across rescans: use relative darkness within each question row. " +
           "Missed clear fills are worse than over-flagging uncertain ones.",
       },
@@ -1256,7 +1280,13 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
       Math.max(1, Math.floor(questionCount * 0.15));
 
   let firstPass: DetectedAnswer[] = opencvAnswers
-    ? opencvAnswers.map((a) => ({ ...a }))
+    ? opencvAnswers.map((a) => ({
+        question: a.question,
+        answer: a.lockUnanswered ? null : a.answer,
+        confidence: a.lockUnanswered ? 0 : a.confidence,
+        flagged: a.flagged || Boolean(a.lockUnanswered),
+        lockUnanswered: a.lockUnanswered,
+      }))
     : [];
 
   if (needsAiFullPass || !opencvAnswers) {
@@ -1280,16 +1310,31 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
       aiPass.push(...chunk.answers);
     }
     if (opencvAnswers) {
-      firstPass = mergeDetectedAnswers(opencvAnswers, aiPass, questionCount);
+      firstPass = mergeDetectedAnswers(firstPass, aiPass, questionCount);
       // Prefer OpenCV when both agree or OpenCV is confident — re-apply for consistency.
+      // Locked multi-mark / outside-circle rows stay unanswered.
       firstPass = firstPass.map((merged) => {
         const cv = opencvAnswers!.find((a) => a.question === merged.question);
         if (!cv) return merged;
+        if (cv.lockUnanswered) {
+          return {
+            question: cv.question,
+            answer: null,
+            confidence: 0,
+            flagged: true,
+            lockUnanswered: true,
+          };
+        }
         if (cv.answer != null && cv.confidence >= 0.55 && !cv.flagged) {
           if (merged.answer != null && merged.answer !== cv.answer) {
             return { ...cv, flagged: true, confidence: Math.min(cv.confidence, 0.7) };
           }
-          return cv;
+          return {
+            question: cv.question,
+            answer: cv.answer,
+            confidence: cv.confidence,
+            flagged: cv.flagged,
+          };
         }
         return merged;
       });
@@ -1298,11 +1343,15 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
     }
   }
 
-  // Fill-in pass(es): anything still blank, ambiguous, or very low confidence.
+  // Fill-in pass(es): blank / low-confidence only — never retry locked multi/outside marks.
   let afterFill = firstPass;
   for (let attempt = 0; attempt < 2; attempt++) {
     const needsRetry = afterFill
-      .filter((row) => row.answer == null || row.flagged || row.confidence < 0.5)
+      .filter(
+        (row) =>
+          !row.lockUnanswered &&
+          (row.answer == null || row.flagged || row.confidence < 0.5)
+      )
       .map((row) => row.question)
       .filter((q) => q >= 1 && q <= questionCount);
     if (needsRetry.length === 0) break;
@@ -1330,6 +1379,15 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
     }
 
     afterFill = afterFill.map((row) => {
+      if (row.lockUnanswered) {
+        return {
+          question: row.question,
+          answer: null,
+          confidence: 0,
+          flagged: true,
+          lockUnanswered: true,
+        };
+      }
       const retry = fillMap.get(row.question);
       if (!retry) return row;
       // Keep a confident OpenCV/AI mark unless the retry is clearly better.
@@ -1393,15 +1451,28 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
   const byFinal = new Map(finalAnswers.map((a) => [a.question, a]));
   finalAnswers = Array.from({ length: questionCount }, (_, i) => {
     const question = i + 1;
-    return (
-      byFinal.get(question) ?? {
+    const row = byFinal.get(question);
+    if (!row) {
+      return { question, answer: null, confidence: 0, flagged: true };
+    }
+    if (row.lockUnanswered) {
+      return {
         question,
         answer: null,
         confidence: 0,
         flagged: true,
-      }
-    );
+        lockUnanswered: true,
+      };
+    }
+    return row;
   });
+
+  const lockedCount = finalAnswers.filter((a) => a.lockUnanswered).length;
+  if (lockedCount > 0) {
+    issues.push(
+      `${lockedCount} question(s) left unanswered (multiple bubbles or marks outside the circle).`
+    );
+  }
 
   const uniqueIssues = [...new Set(issues)].slice(0, 24);
   return {

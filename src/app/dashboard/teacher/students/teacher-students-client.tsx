@@ -13,6 +13,7 @@ import {
   dashBtnDanger,
   dashBtnPrimary,
   dashBtnSecondary,
+  dashBtnSm,
   dashInput,
   dashPanel,
   dashTableWrap,
@@ -83,6 +84,8 @@ type TeacherStudentsClientProps = {
   initialData?: Awaited<ReturnType<typeof import("@/lib/data/fetchers").fetchTeacherStudents>>;
 };
 
+const STUDENTS_PER_PAGE = 10;
+
 export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProps) {
   useSetDashboardPage({
     title: "Student Management",
@@ -98,6 +101,7 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
       : null;
 
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editStudent, setEditStudent] = useState<TeacherStudent | null>(null);
@@ -119,11 +123,20 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
     await refetch();
   }, [queryClient, refetch]);
 
-  const filtered = students.filter((s) =>
-    `${s.name} ${s.email ?? ""} ${s.username ?? ""} ${s.rollNumber ?? ""} ${s.year ?? ""} ${s.createdAt}`
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const filtered = useMemo(
+    () =>
+      students.filter((s) =>
+        `${s.name} ${s.email ?? ""} ${s.username ?? ""} ${s.rollNumber ?? ""} ${s.year ?? ""} ${s.createdAt}`
+          .toLowerCase()
+          .includes(query.toLowerCase())
+      ),
+    [students, query]
   );
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / STUDENTS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * STUDENTS_PER_PAGE;
+  const pagedStudents = filtered.slice(pageStart, pageStart + STUDENTS_PER_PAGE);
 
   const editCredentialAccount = useMemo<CredentialAccount | null>(
     () =>
@@ -260,12 +273,21 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
             className={dashInput}
             placeholder="Search students by name, email, username, year..."
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
           />
         </div>
         <StudentTable
-          students={filtered}
+          students={pagedStudents}
           embedded
+          threshold={STUDENTS_PER_PAGE + 1}
+          emptyMessage={
+            query.trim()
+              ? "No students match your search."
+              : "No students assigned to your profile yet."
+          }
           renderActions={(s) => (
             <>
               <button
@@ -295,8 +317,33 @@ export function TeacherStudentsClient({ initialData }: TeacherStudentsClientProp
             </>
           )}
         />
-        <div className="border-t border-[var(--border)] px-4 py-3 text-sm text-[var(--muted)]">
-          Showing {filtered.length} student{filtered.length === 1 ? "" : "s"}
+        <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3 text-sm">
+          <p className="text-[var(--muted)]">
+            {filtered.length === 0
+              ? "Showing 0 students"
+              : `Showing ${pageStart + 1}–${Math.min(pageStart + STUDENTS_PER_PAGE, filtered.length)} of ${filtered.length}`}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={dashBtnSm}
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </button>
+            <span className="px-2 py-1 text-[var(--muted)]">
+              Page {currentPage} of {pageCount}
+            </span>
+            <button
+              type="button"
+              className={dashBtnSm}
+              disabled={currentPage >= pageCount}
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
 

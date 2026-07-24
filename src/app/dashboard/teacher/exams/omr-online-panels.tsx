@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FeatureActivityHub, type ActivityFeature } from "@/components/FeatureActivityHub";
 import { useMeQuery } from "@/hooks/data/use-me";
 import { useTeacherQuestionPapersQuery } from "@/hooks/data/use-teacher-question-papers";
@@ -217,11 +217,14 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanResult, setScanResult] = useState<OmrEvaluationResult | null>(null);
+  const [scanResultOpen, setScanResultOpen] = useState(true);
   const [scanBatch, setScanBatch] = useState<OmrBatchPageResult[]>([]);
   const [scanBatchActive, setScanBatchActive] = useState(0);
   const [scanStudentId, setScanStudentId] = useState("");
   const [scanSaving, setScanSaving] = useState(false);
   const [scanSavedMsg, setScanSavedMsg] = useState<string | null>(null);
+  const scanFileInputRef = useRef<HTMLInputElement>(null);
+  const scanCameraInputRef = useRef<HTMLInputElement>(null);
   const { data: studentsData } = useTeacherStudentsQuery();
   const students = useMemo(() => studentsData?.students ?? [], [studentsData?.students]);
   const [bundleCopies, setBundleCopies] = useState(30);
@@ -609,6 +612,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     setScanResult(null);
     setScanBatch([]);
     setScanBatchActive(0);
+    setScanResultOpen(true);
     setScanSavedMsg(null);
     setScanStudentId("");
 
@@ -629,6 +633,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
         setScanStatus("Reading student name, then scoring bubbles against the answer key…");
         const json = await detectOneSheet(pageFiles[0].file);
         setScanResult(json);
+        setScanResultOpen(true);
         setScanStudentId(json.matchedStudent?.id ?? "");
         setScanStatus(
           `Evaluation complete: ${json.score.obtained}/${json.score.maximum} marks.`
@@ -708,6 +713,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       }
 
       setScanBatchActive(0);
+      setScanResultOpen(true);
       const firstOk = batch.find((p) => p.result);
       if (firstOk?.result) {
         setScanResult(firstOk.result);
@@ -754,9 +760,30 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     }
   }
 
+  function clearScanFile() {
+    setScanFile(null);
+    setScanName(null);
+    setScanStatus(null);
+    setScanError(null);
+    setScanResult(null);
+    setScanResultOpen(true);
+    setScanBatch([]);
+    setScanBatchActive(0);
+    setScanSavedMsg(null);
+    setScanStudentId("");
+    if (scanFileInputRef.current) scanFileInputRef.current.value = "";
+    if (scanCameraInputRef.current) scanCameraInputRef.current.value = "";
+  }
+
   function selectBatchPage(pageIndex: number) {
+    // Clicking the open result card again collapses Evaluation result.
+    if (pageIndex === scanBatchActive && scanResultOpen) {
+      setScanResultOpen(false);
+      return;
+    }
     const page = scanBatch.find((p) => p.pageIndex === pageIndex);
     setScanBatchActive(pageIndex);
+    setScanResultOpen(true);
     setScanResult(page?.result ?? null);
     setScanStudentId(page?.result?.matchedStudent?.id ?? "");
     setScanSavedMsg(page?.savedMsg ?? null);
@@ -922,6 +949,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   if (paper) void lockTemplateFromPaper(paper);
                   setScanResult(null);
                   setScanBatch([]);
+                  setScanResultOpen(true);
                   setScanStatus(null);
                   setScanError(null);
                 }}
@@ -949,6 +977,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                 {OMR_PDF_MAX_PAGES} pages)
               </span>
               <input
+                ref={scanFileInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,application/pdf,.pdf"
                 className="sr-only"
@@ -959,20 +988,61 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   setScanStatus(null);
                   setScanError(null);
                   setScanResult(null);
+                  setScanResultOpen(true);
                   setScanBatch([]);
                   setScanSavedMsg(null);
                 }}
               />
             </label>
-            {scanName ? (
-              <p className="text-xs text-[var(--muted)]">
-                Selected: {scanName}
-                {scanFile && isOmrScanPdf(scanFile) ? " (PDF batch)" : ""}
-              </p>
+            {scanFile && scanName ? (
+              <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5">
+                <span
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-sky-100"
+                  aria-hidden
+                  title="Uploaded file"
+                >
+                  <svg viewBox="0 0 32 32" className="h-6 w-6" role="img">
+                    <path
+                      fill="#38bdf8"
+                      d="M8 2h11l7 7v19a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"
+                    />
+                    <path fill="#0284c7" d="M19 2v7h7z" />
+                    <path
+                      fill="#fff"
+                      d="M10 15h12v1.6H10zm0 4h12v1.6H10zm0 4h8v1.6h-8z"
+                      opacity="0.95"
+                    />
+                  </svg>
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-[var(--foreground)]">
+                    {scanName}
+                  </p>
+                  <p className="text-[11px] text-[var(--muted)]">
+                    {isOmrScanPdf(scanFile) ? "PDF · multi-page batch" : "Image"}
+                    {scanFile.size > 0
+                      ? ` · ${(scanFile.size / (1024 * 1024)).toFixed(scanFile.size >= 1024 * 1024 ? 1 : 2)} MB`
+                      : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--muted)] hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                  onClick={clearScanFile}
+                  aria-label={`Remove ${scanName}`}
+                  title="Remove file"
+                >
+                  <span aria-hidden className="text-sm leading-none">
+                    ×
+                  </span>
+                  Remove
+                </button>
+              </div>
             ) : null}
             <label className="block w-full cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-center text-sm">
               Open camera capture
               <input
+                ref={scanCameraInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
@@ -984,6 +1054,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   setScanStatus(null);
                   setScanError(null);
                   setScanResult(null);
+                  setScanResultOpen(true);
                   setScanBatch([]);
                   setScanSavedMsg(null);
                 }}
@@ -1026,7 +1097,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                 </p>
                 <ul className="max-h-56 space-y-1.5 overflow-auto">
                   {scanBatch.map((page) => {
-                    const active = page.pageIndex === scanBatchActive;
+                    const active = page.pageIndex === scanBatchActive && scanResultOpen;
                     const matchName =
                       page.result?.matchedStudent?.name ??
                       page.result?.studentName ??
@@ -1037,6 +1108,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                         <button
                           type="button"
                           onClick={() => selectBatchPage(page.pageIndex)}
+                          aria-expanded={active}
                           className={`w-full rounded-md border px-3 py-2 text-left text-xs transition ${
                             active
                               ? "border-[var(--accent)] bg-[var(--card)]"
@@ -1069,7 +1141,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
               </div>
             ) : null}
 
-            {scanResult ? (
+            {scanResult && scanResultOpen ? (
               <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
                 <div>
                   <p className="text-xs text-[var(--muted)]">
@@ -1095,7 +1167,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                     </p>
                   ) : null}
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="rounded-md bg-emerald-50 p-2 text-emerald-800">
                     <strong className="block text-base">{scanResult.score.correct}</strong>
                     Correct
@@ -1107,10 +1179,6 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   <div className="rounded-md bg-amber-50 p-2 text-amber-800">
                     <strong className="block text-base">{scanResult.score.unanswered}</strong>
                     Unanswered
-                  </div>
-                  <div className="rounded-md bg-slate-100 p-2 text-slate-800">
-                    <strong className="block text-base">{scanResult.score.flagged}</strong>
-                    Review
                   </div>
                 </div>
                 {scanResult.matchedStudent &&
@@ -1225,7 +1293,6 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                               }`}
                             >
                               {item.status}
-                              {item.flagged ? " · review" : ""}
                             </td>
                             <td className="px-2 py-1.5">{Math.round(item.confidence * 100)}%</td>
                           </tr>
@@ -1238,11 +1305,11 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   Scoring follows the {scanResult.track.replace("_", " ")} marking scheme
                   {scanResult.track === "JEE_ADVANCE"
                     ? " (per-section: Section I +3/−1, Section II +4/−2, Section III +4/0)."
-                    : " (+4 correct, −1 wrong for MCQs, 0 for unanswered)."}{" "}
-                  Review all flagged bubbles before saving the score.
+                    : " (+4 correct, −1 wrong for MCQs, 0 for unanswered)."}
                 </p>
               </div>
-            ) : scanBatch.length > 0 &&
+            ) : scanResultOpen &&
+              scanBatch.length > 0 &&
               scanBatch.find((p) => p.pageIndex === scanBatchActive)?.error ? (
               <p className="text-xs text-red-600">
                 {scanBatch.find((p) => p.pageIndex === scanBatchActive)?.error}

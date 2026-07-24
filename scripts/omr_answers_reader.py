@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 Point = tuple[float, float]
-Status = Literal["marked", "blank", "ambiguous"]
+Status = Literal["marked", "blank", "ambiguous", "outside"]
 OPTIONS = ("A", "B", "C", "D")
 
 
@@ -31,6 +31,13 @@ class AnswerGridConfig:
     min_darkness: float = 0.42
     darkness_margin: float = 0.07
     inner_radius_scale: float = 0.52
+    # Outer ring (just outside the printed circle) used to catch off-bubble marks.
+    outer_ring_inner_scale: float = 0.92
+    outer_ring_outer_scale: float = 1.48
+    # Exterior must exceed this (after baseline) to count as an outside mark.
+    outside_min_darkness: float = 0.18
+    # Exterior must be this much darker than interior to count as outside-only.
+    outside_vs_interior_margin: float = 0.08
 
 
 @dataclass
@@ -42,6 +49,8 @@ class QuestionResult:
     top_darkness: float
     second_darkness: float
     flagged: bool
+    filled_count: int = 0
+    outside_count: int = 0
 
 
 def to_bgr(image: np.ndarray) -> np.ndarray:
@@ -255,9 +264,19 @@ def build_lattice(
     return lattice, median_r
 
 
+def _region_darkness(
+    gray: np.ndarray, mask: np.ndarray, y0: int, x0: int
+) -> float:
+    if not np.any(mask):
+        return 0.0
+    mean = float(gray[y0 : y0 + mask.shape[0], x0 : x0 + mask.shape[1]][mask].mean())
+    return float(np.clip(1.0 - mean / 255.0, 0.0, 1.0))
+
+
 def bubble_darkness(
     gray: np.ndarray, center: Point, radius: float, inner_scale: float
 ) -> float:
+    """Mean darkness inside a disk of radius * inner_scale (bubble interior)."""
     cx, cy = center
     r = max(2.0, radius * inner_scale)
     h, w = gray.shape[:2]
@@ -269,10 +288,31 @@ def bubble_darkness(
         return 0.0
     yy, xx = np.ogrid[y0:y1, x0:x1]
     region = (xx - cx) ** 2 + (yy - cy) ** 2 <= r**2
-    if not np.any(region):
+    return _region_darkness(gray, region, y0, x0)
+
+
+def bubble_ring_darkness(
+    gray: np.ndarray,
+    center: Point,
+    radius: float,
+    inner_scale: float,
+    outer_scale: float,
+) -> float:
+    """Mean darkness in the annulus just outside the printed bubble circle."""
+    cx, cy = center
+    r_in = max(2.0, radius * inner_scale)
+    r_out = max(r_in + 1.0, radius * outer_scale)
+    h, w = gray.shape[:2]
+    x0 = max(0, int(cx - r_out))
+    x1 = min(w, int(cx + r_out) + 1)
+    y0 = max(0, int(cy - r_out))
+    y1 = min(h, int(cy + r_out) + 1)
+    if x1 <= x0 or y1 <= y0:
         return 0.0
-    mean = float(gray[y0:y1, x0:x1][region].mean())
-    return float(np.clip(1.0 - mean / 255.0, 0.0, 1.0))
+    yy, xx = np.ogrid[y0:y1, x0:x1]
+    dist2 = (xx - cx) ** 2 + (yy - cy) ** 2
+    region = (dist2 >= r_in**2) & (dist2 <= r_out**2)
+    return _region_darkness(gray, region, y0, x0)
 
 
 def decode_answers(
@@ -284,8 +324,9 @@ def decode_answers(
     results: list[QuestionResult] = []
     # Collect baseline darkness of "likely empty" options for letter-glyph compensation.
     all_dark: list[float] = []
+    all_ring: list[float] = []
 
-    measurements: list[tuple[int, list[float]]] = []
+    measurements: list[tuple[int, list[float], list[float]]] = []
     for c in range(config.columns):
         for r in range(config.rows):
             q = c * config.rows + r + 1
@@ -297,14 +338,28 @@ def decode_answers(
                 )
                 for o in range(4)
             ]
-            measurements.append((q, darks))
+            rings = [
+                bubble_ring_darkness(
+                    gray,
+                    lattice[c][r][o],
+                    radius,
+                    config.outer_ring_inner_scale,
+                    config.outer_ring_outer_scale,
+                )
+                for o in range(4)
+            ]
+            measurements.append((q, darks, rings))
             all_dark.extend(darks)
+            all_ring.extend(rings)
 
     # Printed letters raise empty-bubble darkness; subtract a soft baseline.
     baseline = float(np.percentile(all_dark, 35)) if all_dark else 0.2
+    ring_baseline = float(np.percentile(all_ring, 40)) if all_ring else 0.15
+    fill_cut = max(config.min_darkness * 0.55, config.min_darkness - 0.12)
 
-    for q, darks in measurements:
+    for q, darks, rings in measurements:
         adjusted = [max(0.0, d - baseline * 0.85) for d in darks]
+        adj_rings = [max(0.0, d - ring_baseline * 0.75) for d in rings]
         ranked = sorted(range(4), key=lambda i: adjusted[i], reverse=True)
         top_i, second_i = ranked[0], ranked[1]
         top = adjusted[top_i]
@@ -312,20 +367,63 @@ def decode_answers(
         margin = top - second
         raw_top = darks[top_i]
 
-        if (
-            raw_top >= config.min_darkness
-            and top >= config.min_darkness * 0.55
+        # Count options that look deliberately filled inside the circle.
+        filled_idxs = [
+            i
+            for i in range(4)
+            if darks[i] >= config.min_darkness * 0.92 and adjusted[i] >= fill_cut
+        ]
+        filled_count = len(filled_idxs)
+
+        # Marks sitting outside the circle (dark ring, weak/empty interior).
+        outside_idxs = [
+            i
+            for i in range(4)
+            if adj_rings[i] >= config.outside_min_darkness
+            and adj_rings[i] >= adjusted[i] + config.outside_vs_interior_margin
+            and adjusted[i] < fill_cut
+        ]
+        outside_count = len(outside_idxs)
+
+        if filled_count >= 2:
+            # More than one option bubbled → treat as unanswered (invalid multi-mark).
+            status: Status = "ambiguous"
+            answer = None
+            confidence = 0.0
+            flagged = True
+        elif outside_count >= 1 and filled_count == 0:
+            # Scribble / shading outside the circle without a proper interior fill.
+            status = "outside"
+            answer = None
+            confidence = 0.0
+            flagged = True
+        elif (
+            filled_count == 1
+            and raw_top >= config.min_darkness
+            and top >= fill_cut
             and margin >= config.darkness_margin
+            and top_i in filled_idxs
         ):
-            status: Status = "marked"
+            status = "marked"
             answer = OPTIONS[top_i]
             confidence = float(np.clip(0.45 + margin * 4.0 + top * 0.35, 0, 1))
             flagged = confidence < 0.55 or margin < config.darkness_margin * 1.15
-        elif raw_top >= config.min_darkness and margin < config.darkness_margin:
+        elif filled_count >= 1 and margin < config.darkness_margin:
             status = "ambiguous"
             answer = None
             confidence = float(np.clip(margin * 6.0, 0, 1))
             flagged = True
+        elif (
+            raw_top >= config.min_darkness
+            and top >= fill_cut
+            and margin >= config.darkness_margin
+            and top_i not in outside_idxs
+        ):
+            # Single clear interior winner (legacy path for borderline fills).
+            status = "marked"
+            answer = OPTIONS[top_i]
+            confidence = float(np.clip(0.45 + margin * 4.0 + top * 0.35, 0, 1))
+            flagged = confidence < 0.55 or margin < config.darkness_margin * 1.15
         else:
             status = "blank"
             answer = None
@@ -341,6 +439,8 @@ def decode_answers(
                 top_darkness=raw_top,
                 second_darkness=darks[second_i],
                 flagged=flagged,
+                filled_count=filled_count,
+                outside_count=outside_count,
             )
         )
     return results
@@ -409,9 +509,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     marked = sum(1 for r in results if r.status == "marked")
     ambiguous = sum(1 for r in results if r.status == "ambiguous")
+    outside = sum(1 for r in results if r.status == "outside")
     blank = sum(1 for r in results if r.status == "blank")
     issues = [
-        f"OpenCV answers: {marked} marked, {ambiguous} ambiguous, {blank} blank "
+        f"OpenCV answers: {marked} marked, {ambiguous} multi/ambiguous, "
+        f"{outside} outside-circle, {blank} blank "
         f"(min_darkness={config.min_darkness:.2f}, margin={config.darkness_margin:.2f})."
     ]
 
@@ -426,6 +528,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "flagged": r.flagged,
                 "topDarkness": round(r.top_darkness, 4),
                 "secondDarkness": round(r.second_darkness, 4),
+                "filledCount": r.filled_count,
+                "outsideCount": r.outside_count,
+                # Lock null when multi-marked or marked outside the circle — do not AI-guess.
+                "lockUnanswered": r.status in ("ambiguous", "outside"),
             }
             for r in results
         ],
