@@ -11,23 +11,20 @@ import {
   useTeacherOmrTemplateQuery,
 } from "@/hooks/data/use-admin-queries";
 import { DEFAULT_CBT_SETTINGS, type CbtSettings } from "@/lib/cbt-settings";
-import { JeeAdvanceStructurePanel } from "@/components/omr/JeeAdvanceStructurePanel";
-import { OmrTemplatePreview } from "@/components/omr/OmrTemplatePreview";
 import type { TeacherTrack } from "@/lib/dashboard-nav";
 import {
   dashBlock,
   dashBtnPrimary,
   dashBtnSecondary,
   dashInput,
-  dashPanel,
   dashSelect,
 } from "@/lib/dashboard-ui";
 import {
   JEE_ADVANCE_EXAM_DURATION_HOURS,
   JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
   buildDefaultAdvanceSubjects,
-  validateSubjectSectionCounts,
 } from "@/lib/jee-advance-exam-structure";
+import { isJeeAdvancePaperContent } from "@/lib/jee-mains-exam-structure";
 import type { JeeAdvanceSubjectConfig, OmrExamPreset } from "@/lib/omr-template";
 import {
   buildOmrBundlePdfBlob,
@@ -35,11 +32,23 @@ import {
   downloadOmrBundlePdf,
   downloadOmrSheetPdf,
   OMR_LAYOUT,
+  printOmrSheet,
   printPdfBlob,
   type OmrTrack,
 } from "@/lib/omr-pdf";
+import {
+  isOmrScanPdf,
+  OMR_PDF_MAX_PAGES,
+  pdfFileToOmrPageImages,
+} from "@/lib/omr-pdf-pages-client";
 
-type Paper = { id: string; title: string; category: string; hasAnswerKey: boolean };
+type Paper = {
+  id: string;
+  title: string;
+  category: string;
+  questionContent: string;
+  hasAnswerKey: boolean;
+};
 
 type OmrMatchedStudent = {
   id: string;
@@ -80,6 +89,15 @@ type OmrEvaluationResult = {
   }>;
 };
 
+type OmrBatchPageResult = {
+  pageIndex: number;
+  pageLabel: string;
+  result: OmrEvaluationResult | null;
+  error: string | null;
+  savedMsg: string | null;
+  saving: boolean;
+};
+
 function ToggleRow({
   label,
   checked,
@@ -99,40 +117,6 @@ function ToggleRow({
 
 type ExamPreset = OmrExamPreset;
 
-const OMR_PRESET_OPTIONS: { value: ExamPreset; label: string; teacherTrack: TeacherTrack }[] = [
-  { value: "NEET", label: "NEET", teacherTrack: "NEET" },
-  { value: "JEE_MAINS", label: "JEE Main", teacherTrack: "JEE" },
-  { value: "JEE_ADVANCE", label: "JEE Advance", teacherTrack: "JEE" },
-];
-
-function presetOptionsForTeacher(teacherTrack: TeacherTrack) {
-  return OMR_PRESET_OPTIONS.filter((option) => option.teacherTrack === teacherTrack);
-}
-
-function clampPresetToTeacher(preset: ExamPreset, teacherTrack: TeacherTrack | null): ExamPreset {
-  if (!teacherTrack) return preset;
-  const options = presetOptionsForTeacher(teacherTrack);
-  return options.some((option) => option.value === preset) ? preset : options[0]?.value ?? preset;
-}
-
-const OMR_ACTIVITIES: ActivityFeature[] = [
-  { id: "template", title: "OMR template designer", description: "NEET / JEE Main / JEE Advance presets" },
-  { id: "bundle", title: "Print-ready OMR + paper bundle", description: "Pair OMR with your question paper" },
-  {
-    id: "capture",
-    title: "Camera / scanner capture + AI bubble-fill detection",
-    description: "Upload sheets, tune detection sensitivity, and run mark detection in one place",
-  },
-  { id: "flags", title: "Error and smudge alert flags", description: "Highlight sheets that need manual review" },
-];
-
-const ONLINE_ACTIVITIES: ActivityFeature[] = [
-  { id: "timer", title: "Timer + auto-submit", description: "Countdown and hard stop at zero" },
-  { id: "palette", title: "Question palette", description: "NTA-style navigation during CBT" },
-  { id: "proctoring", title: "Browser lock / anti-cheat", description: "Proctoring during live attempt" },
-  { id: "offline", title: "Offline fallback sync", description: "Cache answers when connectivity drops" },
-];
-
 function presetToTrack(preset: ExamPreset): OmrTrack {
   if (preset === "JEE_ADVANCE") return "JEE_ADVANCE";
   if (preset === "JEE_MAINS") return "JEE_MAINS";
@@ -145,27 +129,83 @@ function trackToPreset(track: string | undefined): ExamPreset {
   return "NEET";
 }
 
+function clampPresetToTeacher(preset: ExamPreset, teacherTrack: TeacherTrack | null): ExamPreset {
+  if (!teacherTrack) return preset;
+  if (teacherTrack === "NEET") return "NEET";
+  // JEE teachers: Main or Advance only.
+  return preset === "NEET" ? "JEE_MAINS" : preset;
+}
+
+/** Lock OMR sheet layout from the selected paper + teacher profile track. */
+function resolvePresetFromPaper(
+  paper: { category: string; questionContent?: string },
+  teacherTrack: TeacherTrack | null
+): ExamPreset {
+  let preset: ExamPreset;
+  if (paper.category === "NEET") {
+    preset = "NEET";
+  } else if (paper.category === "JEE") {
+    preset = isJeeAdvancePaperContent(paper.questionContent ?? "")
+      ? "JEE_ADVANCE"
+      : "JEE_MAINS";
+  } else {
+    preset = trackToPreset(paper.category);
+  }
+  return clampPresetToTeacher(preset, teacherTrack);
+}
+
+function presetLabel(preset: ExamPreset): string {
+  if (preset === "JEE_ADVANCE") return "JEE Advance";
+  if (preset === "JEE_MAINS") return "JEE Main";
+  return "NEET";
+}
+
+const OMR_ACTIVITIES: ActivityFeature[] = [
+  { id: "bundle", title: "Print-ready OMR + paper bundle", description: "Pair OMR with your question paper" },
+  {
+    id: "capture",
+    title: "Camera / scanner capture + AI bubble-fill detection",
+    description:
+      "Upload an image or multi-page PDF; match each sheet by name/roll and save to student profiles",
+  },
+  { id: "flags", title: "Error and smudge alert flags", description: "Highlight sheets that need manual review" },
+];
+
+const ONLINE_ACTIVITIES: ActivityFeature[] = [
+  { id: "timer", title: "Timer + auto-submit", description: "Countdown and hard stop at zero" },
+  { id: "palette", title: "Question palette", description: "NTA-style navigation during CBT" },
+  { id: "proctoring", title: "Browser lock / anti-cheat", description: "Proctoring during live attempt" },
+  { id: "offline", title: "Offline fallback sync", description: "Cache answers when connectivity drops" },
+];
+
 export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
-  const [teacherTrack, setTeacherTrack] = useState<TeacherTrack | null>(null);
   const [examPreset, setExamPreset] = useState<ExamPreset>("NEET");
-  const [rollDigits, setRollDigits] = useState(10);
+  const [rollDigits, setRollDigits] = useState(5);
   const [advanceSubjects, setAdvanceSubjects] = useState<JeeAdvanceSubjectConfig[]>(
     buildDefaultAdvanceSubjects
   );
   const [bundlePaper, setBundlePaper] = useState("");
   const { data: papersData } = useTeacherQuestionPapersQuery();
-  const papers: Paper[] = useMemo(
-    () =>
-      (papersData?.papers ?? []).map((p) => ({
-        id: p.id,
-        title: p.title,
-        category: p.category,
-        hasAnswerKey: Boolean(p.keyContent?.trim()),
-      })),
-    [papersData?.papers]
-  );
   const { data: meData } = useMeQuery();
   const { data: templateData, isLoading: templateQueryLoading } = useTeacherOmrTemplateQuery();
+
+  const teacherTrack: TeacherTrack | null =
+    meData?.user?.category === "JEE" || meData?.user?.category === "NEET"
+      ? meData.user.category
+      : null;
+
+  const papers: Paper[] = useMemo(() => {
+    const all = (papersData?.papers ?? []).map((p) => ({
+      id: p.id,
+      title: p.title,
+      category: p.category,
+      questionContent: p.questionContent ?? "",
+      hasAnswerKey: Boolean(p.keyContent?.trim()),
+    }));
+    if (!teacherTrack) return all;
+    return all.filter((p) => p.category === teacherTrack);
+  }, [papersData?.papers, teacherTrack]);
+
   const [scanPaper, setScanPaper] = useState("");
   const [scanFile, setScanFile] = useState<File | null>(null);
   const [scanName, setScanName] = useState<string | null>(null);
@@ -177,6 +217,8 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanResult, setScanResult] = useState<OmrEvaluationResult | null>(null);
+  const [scanBatch, setScanBatch] = useState<OmrBatchPageResult[]>([]);
+  const [scanBatchActive, setScanBatchActive] = useState(0);
   const [scanStudentId, setScanStudentId] = useState("");
   const [scanSaving, setScanSaving] = useState(false);
   const [scanSavedMsg, setScanSavedMsg] = useState<string | null>(null);
@@ -188,21 +230,16 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
   const [bundleLoading, setBundleLoading] = useState(false);
   const [bundleMsg, setBundleMsg] = useState<string | null>(null);
   const [bundleErr, setBundleErr] = useState<string | null>(null);
-  const [templateLoading, setTemplateLoading] = useState(true);
-  const [templateSaving, setTemplateSaving] = useState(false);
-  const [templateMsg, setTemplateMsg] = useState<string | null>(null);
-  const [templateErr, setTemplateErr] = useState<string | null>(null);
-  const [templateSavedForNextStep, setTemplateSavedForNextStep] = useState(false);
-
-  const availablePresetOptions = useMemo(
-    () => (teacherTrack ? presetOptionsForTeacher(teacherTrack) : []),
-    [teacherTrack]
-  );
+  const [bundlePreviewUrl, setBundlePreviewUrl] = useState<string | null>(null);
+  const [bundlePreviewLoading, setBundlePreviewLoading] = useState(false);
+  const [bundlePreviewErr, setBundlePreviewErr] = useState<string | null>(null);
 
   const omrTrack = presetToTrack(examPreset);
   const layout = OMR_LAYOUT[omrTrack];
 
   const selectedPaper = papers.find((p) => p.id === bundlePaper);
+  const selectedScanPaper = papers.find((p) => p.id === scanPaper);
+  const lockedFromPaper = selectedPaper ?? selectedScanPaper;
 
   const buildOmrOpts = useCallback(
     (title: string) => ({
@@ -249,6 +286,104 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     return paper;
   }, [bundlePaper]);
 
+  // Live PDF preview of the complete bundle (question paper + OMR) after paper select.
+  useEffect(() => {
+    if (!bundlePaper) {
+      setBundlePreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setBundlePreviewErr(null);
+      setBundlePreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setBundlePreviewLoading(true);
+        setBundlePreviewErr(null);
+        try {
+          // Preview uses 1 OMR copy so generation stays fast; print/download still use bundleCopies.
+          const previewOpts = {
+            track: omrTrack,
+            rollDigits,
+            paperTitle: selectedPaper?.title ?? "OMR Sheet",
+            questionCount: layout.questions,
+            sectionsLabel: layout.sections,
+            copies: 1,
+            pageSize: bundlePageSize,
+            advance:
+              examPreset === "JEE_ADVANCE"
+                ? {
+                    examDurationHours: JEE_ADVANCE_EXAM_DURATION_HOURS,
+                    questionsPerSubject: JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
+                    subjects: advanceSubjects,
+                  }
+                : undefined,
+          };
+
+          let blob: Blob;
+          if (bundlePrintFormat === "omr") {
+            blob = await buildOmrSheetPdfBlob(previewOpts);
+          } else {
+            const paper = await loadPaperForBundle();
+            if (!paper) {
+              throw new Error("Could not load the selected question paper.");
+            }
+            if (cancelled) return;
+            blob = await buildOmrBundlePdfBlob({
+              ...previewOpts,
+              paperTitle: paper.title,
+              questionContent: paper.questionContent,
+              keyContent: paper.keyContent ?? null,
+            });
+          }
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          setBundlePreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return url;
+          });
+        } catch (e) {
+          if (cancelled) return;
+          setBundlePreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return null;
+          });
+          setBundlePreviewErr(
+            e instanceof Error ? e.message : "Could not build the bundle preview."
+          );
+        } finally {
+          if (!cancelled) setBundlePreviewLoading(false);
+        }
+      })();
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    bundlePaper,
+    bundlePrintFormat,
+    bundlePageSize,
+    examPreset,
+    omrTrack,
+    rollDigits,
+    layout.questions,
+    layout.sections,
+    advanceSubjects,
+    selectedPaper?.title,
+    loadPaperForBundle,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (bundlePreviewUrl) URL.revokeObjectURL(bundlePreviewUrl);
+    };
+  }, [bundlePreviewUrl]);
+
   const downloadOmrOnly = useCallback(async () => {
     if (!bundlePaper) return;
     setBundleLoading(true);
@@ -292,20 +427,19 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     setBundleErr(null);
     setBundleMsg(null);
     try {
-      let blob: Blob;
       if (bundlePrintFormat === "omr") {
         const title = selectedPaper?.title ?? "OMR Sheet";
-        blob = await buildOmrSheetPdfBlob(buildOmrOpts(title));
+        await printOmrSheet(buildOmrOpts(title));
       } else {
         const paper = await loadPaperForBundle();
         if (!paper) return;
-        blob = await buildOmrBundlePdfBlob({
+        const blob = await buildOmrBundlePdfBlob({
           ...buildOmrOpts(paper.title),
           questionContent: paper.questionContent,
           keyContent: paper.keyContent ?? null,
         });
+        await printPdfBlob(blob);
       }
-      await printPdfBlob(blob);
       setBundleMsg(
         `Print dialog opened for ${bundlePrintFormat === "omr" ? "OMR sheets" : "full bundle"} (${bundleCopies} OMR ${bundleCopies === 1 ? "copy" : "copies"}, ${bundlePageSize.toUpperCase()}). Choose a connected printer and confirm.`
       );
@@ -325,94 +459,140 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
   ]);
 
   useEffect(() => {
-    if (templateQueryLoading) {
-      setTemplateLoading(true);
-      return;
-    }
-    setTemplateLoading(false);
-    setTemplateErr(null);
+    if (templateQueryLoading) return;
     try {
-      let track: TeacherTrack | null = null;
-      const category = meData?.user?.category;
-      if (category === "JEE" || category === "NEET") {
-        track = category;
-        setTeacherTrack(category);
-      }
-      const json = templateData as { settings?: {
-        track?: string;
-        rollDigits?: number;
-        examPreset?: ExamPreset;
-        advance?: { subjects?: JeeAdvanceSubjectConfig[] };
-      } } | undefined;
-      if (!json?.settings) return;
-      const s = json.settings;
-      setExamPreset(clampPresetToTeacher(trackToPreset(s.examPreset ?? s.track), track));
-      if (typeof s.rollDigits === "number" && !Number.isNaN(s.rollDigits)) {
-        setRollDigits(Math.min(12, Math.max(5, s.rollDigits)));
-      }
-      if (Array.isArray(s.advance?.subjects) && s.advance.subjects.length > 0) {
-        setAdvanceSubjects(s.advance.subjects);
-      }
-    } catch {
-      setTemplateErr("Could not load saved template.");
-    }
-  }, [templateData, templateQueryLoading, meData?.user?.category]);
-
-  const saveOmrTemplate = useCallback(async () => {
-    setTemplateSaving(true);
-    setTemplateMsg(null);
-    setTemplateErr(null);
-    const roll = Math.min(12, Math.max(5, rollDigits));
-    if (examPreset === "JEE_ADVANCE") {
-      for (const s of advanceSubjects) {
-        const err = validateSubjectSectionCounts(s.sectionCounts);
-        if (err) {
-          setTemplateErr(`${s.subject}: ${err}`);
-          setTemplateSaving(false);
-          return;
-        }
-      }
-    }
-    try {
-      const payload: Record<string, unknown> = {
-        track: presetToTrack(examPreset),
-        examPreset,
-        rollDigits: roll,
-      };
-      if (examPreset === "JEE_ADVANCE") {
-        payload.advance = {
-          examDurationHours: JEE_ADVANCE_EXAM_DURATION_HOURS,
-          questionsPerSubject: JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
-          subjects: advanceSubjects,
+      const json = templateData as {
+        settings?: {
+          track?: string;
+          rollDigits?: number;
+          examPreset?: ExamPreset;
+          advance?: { subjects?: JeeAdvanceSubjectConfig[] };
         };
+      } | undefined;
+      const profileDefault: ExamPreset =
+        teacherTrack === "JEE" ? "JEE_MAINS" : "NEET";
+      if (json?.settings) {
+        const s = json.settings;
+        if (!bundlePaper && !scanPaper) {
+          setExamPreset(
+            clampPresetToTeacher(trackToPreset(s.examPreset ?? s.track), teacherTrack)
+          );
+        }
+        setRollDigits(5);
+        if (Array.isArray(s.advance?.subjects) && s.advance.subjects.length > 0) {
+          setAdvanceSubjects(s.advance.subjects);
+        }
+      } else if (!bundlePaper && !scanPaper && teacherTrack) {
+        setExamPreset(profileDefault);
       }
-      const res = await fetch("/api/teacher/omr-template", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setTemplateErr(json.error ?? "Could not save template");
-        return;
-      }
-      if (json.settings?.examPreset || json.settings?.track) {
-        setExamPreset(trackToPreset(json.settings.examPreset ?? json.settings.track));
-      }
-      if (typeof json.settings?.rollDigits === "number") {
-        setRollDigits(json.settings.rollDigits);
-      }
-      if (Array.isArray(json.settings?.advance?.subjects)) {
-        setAdvanceSubjects(json.settings.advance.subjects);
-      }
-      setTemplateSavedForNextStep(true);
-      setTemplateMsg("Template saved. OMR PDF and bundle downloads will use these settings.");
     } catch {
-      setTemplateErr("Network error while saving template.");
-    } finally {
-      setTemplateSaving(false);
+      // Keep defaults.
     }
-  }, [examPreset, rollDigits, advanceSubjects]);
+  }, [templateData, templateQueryLoading, teacherTrack, bundlePaper, scanPaper]);
+
+  const lockTemplateFromPaper = useCallback(
+    async (paper: Paper) => {
+      const preset = resolvePresetFromPaper(paper, teacherTrack);
+      setExamPreset(preset);
+      setRollDigits(5);
+      const subjects =
+        preset === "JEE_ADVANCE"
+          ? advanceSubjects.length > 0
+            ? advanceSubjects
+            : buildDefaultAdvanceSubjects()
+          : advanceSubjects;
+      if (preset === "JEE_ADVANCE" && advanceSubjects.length === 0) {
+        setAdvanceSubjects(subjects);
+      }
+      try {
+        const payload: Record<string, unknown> = {
+          track: presetToTrack(preset),
+          examPreset: preset,
+          rollDigits: 5,
+        };
+        if (preset === "JEE_ADVANCE") {
+          payload.advance = {
+            examDurationHours: JEE_ADVANCE_EXAM_DURATION_HOURS,
+            questionsPerSubject: JEE_ADVANCE_QUESTIONS_PER_SUBJECT,
+            subjects,
+          };
+        }
+        await fetch("/api/teacher/omr-template", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch {
+        // Local lock still applies even if persistence fails.
+      }
+    },
+    [teacherTrack, advanceSubjects]
+  );
+
+  const lockedTemplateBanner = (
+    <div className="rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-xs text-[var(--muted)]">
+      <span className="font-semibold text-[var(--foreground)]">OMR template locked</span>
+      {": "}
+      {presetLabel(examPreset)} · {layout.questions} questions · {omrTrack === "NEET" ? 4 : 3}{" "}
+      columns · 5-digit roll
+      {lockedFromPaper ? (
+        <span>
+          {" "}
+          (from {lockedFromPaper.title}
+          {teacherTrack ? ` · teacher track ${teacherTrack}` : ""})
+        </span>
+      ) : teacherTrack ? (
+        <span> (default for your {teacherTrack} profile — select a paper to refine)</span>
+      ) : null}
+    </div>
+  );
+
+  async function detectOneSheet(imageFile: File): Promise<OmrEvaluationResult> {
+    const form = new FormData();
+    form.set("paperId", scanPaper);
+    form.set("sensitivity", String(sensitivity));
+    form.set("image", imageFile);
+    const res = await fetch("/api/teacher/omr-detect", {
+      method: "POST",
+      body: form,
+    });
+    const json = (await res.json()) as OmrEvaluationResult & { error?: string };
+    if (!res.ok) {
+      throw new Error(json.error ?? "Could not evaluate the OMR sheet.");
+    }
+    return json;
+  }
+
+  async function persistScoreToStudent(
+    result: OmrEvaluationResult,
+    studentId: string
+  ): Promise<{ studentName: string; obtained: number; maximum: number }> {
+    const res = await fetch("/api/teacher/omr-record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paperId: result.paper.id,
+        studentId,
+        submittedAnswers: result.submittedAnswers,
+        rollNumber: result.rollNumber,
+        studentName: result.studentName,
+        issues: result.issues,
+      }),
+    });
+    const json = (await res.json()) as {
+      error?: string;
+      student?: { name: string };
+      score?: { obtained: number; maximum: number };
+    };
+    if (!res.ok) {
+      throw new Error(json.error ?? "Could not save the score.");
+    }
+    return {
+      studentName: json.student?.name ?? "student",
+      obtained: json.score?.obtained ?? result.score.obtained,
+      maximum: json.score?.maximum ?? result.score.maximum,
+    };
+  }
 
   async function runDetection() {
     if (!scanPaper) {
@@ -420,41 +600,127 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       return;
     }
     if (!scanFile) {
-      setScanError("Upload or capture an OMR sheet image first.");
+      setScanError("Upload an OMR sheet image or a multi-page PDF first.");
       return;
     }
 
     setScanLoading(true);
     setScanError(null);
-    setScanStatus("Reading student name, then scoring bubbles against the answer key…");
     setScanResult(null);
+    setScanBatch([]);
+    setScanBatchActive(0);
     setScanSavedMsg(null);
     setScanStudentId("");
+
     try {
-      const form = new FormData();
-      form.set("paperId", scanPaper);
-      form.set("sensitivity", String(sensitivity));
-      form.set("image", scanFile);
-      const res = await fetch("/api/teacher/omr-detect", {
-        method: "POST",
-        body: form,
-      });
-      const json = (await res.json()) as OmrEvaluationResult & { error?: string };
-      if (!res.ok) {
-        throw new Error(json.error ?? "Could not evaluate the OMR sheet.");
+      const pageFiles = isOmrScanPdf(scanFile)
+        ? await (async () => {
+            setScanStatus("Reading PDF pages…");
+            return pdfFileToOmrPageImages(scanFile, {
+              maxPages: OMR_PDF_MAX_PAGES,
+              onProgress: (done, total) => {
+                setScanStatus(`Preparing PDF page ${done} of ${total}…`);
+              },
+            });
+          })()
+        : [{ pageIndex: 0, file: scanFile }];
+
+      if (pageFiles.length === 1 && !isOmrScanPdf(scanFile)) {
+        setScanStatus("Reading student name, then scoring bubbles against the answer key…");
+        const json = await detectOneSheet(pageFiles[0].file);
+        setScanResult(json);
+        setScanStudentId(json.matchedStudent?.id ?? "");
+        setScanStatus(
+          `Evaluation complete: ${json.score.obtained}/${json.score.maximum} marks.`
+        );
+        if (json.matchedStudent) {
+          await saveScoreToStudent(json, json.matchedStudent.id);
+        }
+        return;
       }
-      setScanResult(json);
-      setScanStudentId(json.matchedStudent?.id ?? "");
+
+      const batch: OmrBatchPageResult[] = [];
+      const seenStudentIds = new Set<string>();
+      let matched = 0;
+      let unmatched = 0;
+      let failed = 0;
+
+      for (const page of pageFiles) {
+        const pageLabel = `Page ${page.pageIndex + 1}`;
+        setScanStatus(
+          `Evaluating ${pageLabel} of ${pageFiles.length} (name + roll match)…`
+        );
+        try {
+          const json = await detectOneSheet(page.file);
+          const entry: OmrBatchPageResult = {
+            pageIndex: page.pageIndex,
+            pageLabel,
+            result: json,
+            error: null,
+            savedMsg: null,
+            saving: false,
+          };
+
+          if (json.matchedStudent) {
+            if (seenStudentIds.has(json.matchedStudent.id)) {
+              entry.savedMsg =
+                `Matched ${json.matchedStudent.name}, but another page already saved to this profile — review before overwriting.`;
+              unmatched += 1;
+            } else {
+              entry.saving = true;
+              batch.push(entry);
+              setScanBatch([...batch]);
+              try {
+                const saved = await persistScoreToStudent(json, json.matchedStudent.id);
+                seenStudentIds.add(json.matchedStudent.id);
+                entry.savedMsg = `Saved ${saved.obtained}/${saved.maximum} to ${saved.studentName}.`;
+                matched += 1;
+              } catch (error) {
+                entry.error =
+                  error instanceof Error
+                    ? error.message
+                    : "Matched but could not save the score.";
+                unmatched += 1;
+              } finally {
+                entry.saving = false;
+              }
+              batch[batch.length - 1] = { ...entry };
+              setScanBatch([...batch]);
+              continue;
+            }
+          } else {
+            unmatched += 1;
+          }
+
+          batch.push(entry);
+        } catch (error) {
+          failed += 1;
+          batch.push({
+            pageIndex: page.pageIndex,
+            pageLabel,
+            result: null,
+            error: error instanceof Error ? error.message : "Evaluation failed.",
+            savedMsg: null,
+            saving: false,
+          });
+        }
+        setScanBatch([...batch]);
+      }
+
+      setScanBatchActive(0);
+      const firstOk = batch.find((p) => p.result);
+      if (firstOk?.result) {
+        setScanResult(firstOk.result);
+        setScanBatchActive(firstOk.pageIndex);
+        setScanStudentId(firstOk.result.matchedStudent?.id ?? "");
+        setScanSavedMsg(firstOk.savedMsg);
+      }
       setScanStatus(
-        `Evaluation complete: ${json.score.obtained}/${json.score.maximum} marks.`
+        `Batch complete: ${pageFiles.length} sheet(s) · ${matched} saved · ${unmatched} need review · ${failed} failed.`
       );
-      if (json.matchedStudent) {
-        // Matched by name (preferred) or roll — save analysis notes to that student's profile.
-        await saveScoreToStudent(json, json.matchedStudent.id);
-      }
     } catch (error) {
       setScanStatus(null);
-      setScanError(error instanceof Error ? error.message : "Could not evaluate the OMR sheet.");
+      setScanError(error instanceof Error ? error.message : "Could not evaluate the OMR upload.");
     } finally {
       setScanLoading(false);
     }
@@ -469,29 +735,17 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     setScanError(null);
     setScanSavedMsg(null);
     try {
-      const res = await fetch("/api/teacher/omr-record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paperId: result.paper.id,
-          studentId,
-          submittedAnswers: result.submittedAnswers,
-          rollNumber: result.rollNumber,
-          studentName: result.studentName,
-          issues: result.issues,
-        }),
-      });
-      const json = (await res.json()) as {
-        error?: string;
-        student?: { name: string };
-        score?: { obtained: number; maximum: number };
-      };
-      if (!res.ok) {
-        throw new Error(json.error ?? "Could not save the score.");
-      }
-      setScanSavedMsg(
-        `Saved ${json.score?.obtained}/${json.score?.maximum} to ${json.student?.name}'s profile. ` +
-          "It now appears in their exam history and Analysis Notes."
+      const saved = await persistScoreToStudent(result, studentId);
+      const msg =
+        `Saved ${saved.obtained}/${saved.maximum} to ${saved.studentName}'s profile. ` +
+        "It now appears in their exam history and Analysis Notes.";
+      setScanSavedMsg(msg);
+      setScanBatch((prev) =>
+        prev.map((page) =>
+          page.pageIndex === scanBatchActive
+            ? { ...page, savedMsg: msg, error: null }
+            : page
+        )
       );
     } catch (error) {
       setScanError(error instanceof Error ? error.message : "Could not save the score.");
@@ -500,76 +754,21 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
     }
   }
 
+  function selectBatchPage(pageIndex: number) {
+    const page = scanBatch.find((p) => p.pageIndex === pageIndex);
+    setScanBatchActive(pageIndex);
+    setScanResult(page?.result ?? null);
+    setScanStudentId(page?.result?.matchedStudent?.id ?? "");
+    setScanSavedMsg(page?.savedMsg ?? null);
+    setScanError(page?.error ?? null);
+  }
+
   function renderFeature(id: string, actions: { openFeature: (id: string) => void }) {
     switch (id) {
-      case "template":
-        return (
-          <div className="space-y-3">
-            <label className="block text-xs text-[var(--muted)]">
-              Exam track
-              <select
-                value={examPreset}
-                onChange={(e) => {
-                  setExamPreset(e.target.value as ExamPreset);
-                  setTemplateSavedForNextStep(false);
-                }}
-                disabled={!teacherTrack}
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm disabled:opacity-50"
-              >
-                {availablePresetOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-xs text-[var(--muted)]">
-              Roll number columns
-              <input
-                type="number"
-                min={5}
-                max={12}
-                value={rollDigits}
-                onChange={(e) =>
-                  {
-                    setRollDigits(Math.min(12, Math.max(5, Number(e.target.value) || 10)));
-                    setTemplateSavedForNextStep(false);
-                  }
-                }
-                className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              />
-            </label>
-            {examPreset === "JEE_ADVANCE" ? (
-              <JeeAdvanceStructurePanel subjects={advanceSubjects} onChange={setAdvanceSubjects} />
-            ) : null}
-            <OmrTemplatePreview
-              examPreset={examPreset}
-              rollDigits={rollDigits}
-              questionCount={layout.questions}
-              sectionsLabel={layout.sections}
-              advanceSubjects={examPreset === "JEE_ADVANCE" ? advanceSubjects : undefined}
-            />
-            <button
-              type="button"
-              className={dashBtnPrimary}
-              disabled={templateLoading || templateSaving}
-              onClick={() => void saveOmrTemplate()}
-            >
-              {templateSaving ? "Saving…" : "Save template"}
-            </button>
-            {!templateSavedForNextStep ? (
-              <p className="text-xs text-[var(--muted)]">Save the template, then use Next to open the paper bundle activity.</p>
-            ) : null}
-            {templateLoading ? (
-              <p className="text-xs text-[var(--muted)]">Loading saved template…</p>
-            ) : null}
-            {templateMsg ? <p className="text-xs text-emerald-700">{templateMsg}</p> : null}
-            {templateErr ? <p className="text-xs text-red-600">{templateErr}</p> : null}
-          </div>
-        );
       case "bundle":
         return (
           <div className="space-y-3">
+            {lockedTemplateBanner}
             <label className="block text-xs text-[var(--muted)]">
               Question paper
               <select
@@ -578,11 +777,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   const id = e.target.value;
                   setBundlePaper(id);
                   const paper = papers.find((p) => p.id === id);
-                  if (paper?.category === "JEE" || paper?.category === "NEET") {
-                    setExamPreset(
-                      clampPresetToTeacher(trackToPreset(paper.category), teacherTrack)
-                    );
-                  }
+                  if (paper) void lockTemplateFromPaper(paper);
                   setBundleMsg(null);
                   setBundleErr(null);
                 }}
@@ -595,6 +790,11 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   </option>
                 ))}
               </select>
+              <span className="mt-1 block">
+                Papers match your teacher profile track
+                {teacherTrack ? ` (${teacherTrack})` : ""}. Selecting a paper locks the OMR
+                layout automatically.
+              </span>
             </label>
             <label className="block text-xs text-[var(--muted)]">
               OMR copies
@@ -666,18 +866,62 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
             </div>
             {bundleMsg ? <p className="text-xs text-emerald-700">{bundleMsg}</p> : null}
             {bundleErr ? <p className="text-xs text-red-600">{bundleErr}</p> : null}
+
+            {bundlePaper ? (
+              <div className="space-y-2 pt-1">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-xs font-semibold text-[var(--foreground)]">
+                    {bundlePrintFormat === "omr" ? "OMR sheet preview" : "Complete bundle preview"}
+                  </p>
+                  <p className="text-[11px] text-[var(--muted)]">
+                    {bundlePrintFormat === "full"
+                      ? "Question paper + 1 OMR sample page"
+                      : "1 OMR sample page"}
+                    {" · "}
+                    {bundlePageSize.toUpperCase()}
+                    {bundleCopies > 1
+                      ? ` · print/download will include ${bundleCopies} OMR copies`
+                      : ""}
+                  </p>
+                </div>
+                {bundlePreviewLoading ? (
+                  <p className="text-xs text-[var(--muted)]">Building preview…</p>
+                ) : null}
+                {bundlePreviewErr ? (
+                  <p className="text-xs text-red-600">{bundlePreviewErr}</p>
+                ) : null}
+                {bundlePreviewUrl && !bundlePreviewLoading ? (
+                  <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-white shadow-sm">
+                    <iframe
+                      title={
+                        bundlePrintFormat === "omr"
+                          ? "OMR sheet preview"
+                          : "Complete OMR bundle preview"
+                      }
+                      src={bundlePreviewUrl}
+                      className="h-[min(80vh,900px)] w-full bg-white"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         );
       case "capture":
         return (
           <div className="space-y-3">
+            {lockedTemplateBanner}
             <label className="block text-xs text-[var(--muted)]">
               Question paper and answer key
               <select
                 value={scanPaper}
                 onChange={(e) => {
-                  setScanPaper(e.target.value);
+                  const id = e.target.value;
+                  setScanPaper(id);
+                  const paper = papers.find((p) => p.id === id);
+                  if (paper) void lockTemplateFromPaper(paper);
                   setScanResult(null);
+                  setScanBatch([]);
                   setScanStatus(null);
                   setScanError(null);
                 }}
@@ -693,14 +937,20 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
               </select>
               <span className="mt-1 block">
                 The saved answer key for this paper will be fetched securely and used for scoring.
+                OMR layout locks to this paper&apos;s track automatically.
               </span>
             </label>
             <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] px-4 py-8 text-center text-sm text-[var(--muted)] hover:border-[var(--accent)]">
-              <span className="font-medium text-[var(--foreground)]">Choose OMR image</span>
-              <span className="mt-1 text-xs">JPG, PNG, or WebP · maximum 15 MB</span>
+              <span className="font-medium text-[var(--foreground)]">
+                Choose OMR image or PDF
+              </span>
+              <span className="mt-1 text-xs">
+                JPG, PNG, WebP (15 MB) · or multi-page PDF of scanned sheets (50 MB, up to{" "}
+                {OMR_PDF_MAX_PAGES} pages)
+              </span>
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/jpeg,image/png,image/webp,application/pdf,.pdf"
                 className="sr-only"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -709,10 +959,17 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   setScanStatus(null);
                   setScanError(null);
                   setScanResult(null);
+                  setScanBatch([]);
+                  setScanSavedMsg(null);
                 }}
               />
             </label>
-            {scanName ? <p className="text-xs text-[var(--muted)]">Selected: {scanName}</p> : null}
+            {scanName ? (
+              <p className="text-xs text-[var(--muted)]">
+                Selected: {scanName}
+                {scanFile && isOmrScanPdf(scanFile) ? " (PDF batch)" : ""}
+              </p>
+            ) : null}
             <label className="block w-full cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-center text-sm">
               Open camera capture
               <input
@@ -727,6 +984,8 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   setScanStatus(null);
                   setScanError(null);
                   setScanResult(null);
+                  setScanBatch([]);
+                  setScanSavedMsg(null);
                 }}
               />
             </label>
@@ -748,15 +1007,77 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                 onClick={() => void runDetection()}
                 disabled={scanLoading || !scanPaper || !scanFile}
               >
-                {scanLoading ? "Detecting and scoring…" : "Detect bubbles and calculate score"}
+                {scanLoading
+                  ? "Detecting and scoring…"
+                  : scanFile && isOmrScanPdf(scanFile)
+                    ? "Evaluate all PDF pages"
+                    : "Detect bubbles and calculate score"}
               </button>
               {scanStatus ? <p className="mt-3 text-xs text-[var(--muted)]">{scanStatus}</p> : null}
-              {scanError ? <p className="mt-3 text-xs text-red-600">{scanError}</p> : null}
+              {scanError && scanBatch.length === 0 ? (
+                <p className="mt-3 text-xs text-red-600">{scanError}</p>
+              ) : null}
             </div>
+
+            {scanBatch.length > 0 ? (
+              <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                <p className="text-xs font-semibold text-[var(--foreground)]">
+                  Sheets in this upload ({scanBatch.length})
+                </p>
+                <ul className="max-h-56 space-y-1.5 overflow-auto">
+                  {scanBatch.map((page) => {
+                    const active = page.pageIndex === scanBatchActive;
+                    const matchName =
+                      page.result?.matchedStudent?.name ??
+                      page.result?.studentName ??
+                      null;
+                    const roll = page.result?.rollNumber;
+                    return (
+                      <li key={page.pageIndex}>
+                        <button
+                          type="button"
+                          onClick={() => selectBatchPage(page.pageIndex)}
+                          className={`w-full rounded-md border px-3 py-2 text-left text-xs transition ${
+                            active
+                              ? "border-[var(--accent)] bg-[var(--card)]"
+                              : "border-[var(--border)] hover:border-[var(--accent)]"
+                          }`}
+                        >
+                          <span className="font-medium text-[var(--foreground)]">
+                            {page.pageLabel}
+                          </span>
+                          {page.error ? (
+                            <span className="mt-0.5 block text-red-600">{page.error}</span>
+                          ) : page.result ? (
+                            <span className="mt-0.5 block text-[var(--muted)]">
+                              {matchName ?? "Unmatched"}
+                              {roll ? ` · Roll ${roll}` : ""}
+                              {` · ${page.result.score.obtained}/${page.result.score.maximum}`}
+                              {page.savedMsg
+                                ? " · saved"
+                                : page.result.matchedStudent
+                                  ? ""
+                                  : " · needs student"}
+                              {page.saving ? " · saving…" : ""}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
             {scanResult ? (
               <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
                 <div>
-                  <p className="text-xs text-[var(--muted)]">Evaluation result</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Evaluation result
+                    {scanBatch.length > 1
+                      ? ` · ${scanBatch.find((p) => p.pageIndex === scanBatchActive)?.pageLabel ?? ""}`
+                      : ""}
+                  </p>
                   <p className="text-lg font-bold text-[var(--foreground)]">
                     {scanResult.score.obtained} / {scanResult.score.maximum}
                   </p>
@@ -767,7 +1088,7 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   </p>
                   {scanResult.rollDigits && scanResult.rollDigits.length > 0 ? (
                     <p className="mt-1 font-mono text-[11px] text-[var(--muted)]">
-                      Roll grid (column position → bubbled row label):{" "}
+                      Roll grid (column → digit):{" "}
                       {scanResult.rollDigits
                         .map((d) => `P${d.position}→${d.digit ?? "—"}`)
                         .join(" · ")}
@@ -792,28 +1113,44 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                     Review
                   </div>
                 </div>
-                {scanResult.matchedStudent ? (
+                {scanResult.matchedStudent &&
+                (scanSavedMsg ||
+                  scanBatch.find((p) => p.pageIndex === scanBatchActive)?.savedMsg) ? (
                   <div className="rounded-md border border-[var(--border)] bg-[var(--card)] p-3">
                     <p className="text-xs font-semibold text-[var(--foreground)]">
                       Saved to student profile
                     </p>
                     {scanSaving ? (
                       <p className="mt-1 text-xs text-[var(--muted)]">
-                        Saving analysis notes to {scanResult.matchedStudent.name}
-                        {scanResult.matchedStudent.matchedBy === "name"
-                          ? " (matched by name)"
-                          : scanResult.rollNumber
-                            ? ` (roll ${scanResult.rollNumber})`
-                            : ""}
-                        …
+                        Saving analysis notes to {scanResult.matchedStudent.name}…
                       </p>
-                    ) : scanSavedMsg ? (
-                      <p className="mt-1 text-xs text-emerald-700">{scanSavedMsg}</p>
                     ) : (
-                      <p className="mt-1 text-xs text-red-600">
-                        {scanError ?? "The score could not be saved automatically."}
+                      <p className="mt-1 text-xs text-emerald-700">
+                        {scanSavedMsg ??
+                          scanBatch.find((p) => p.pageIndex === scanBatchActive)?.savedMsg}
                       </p>
                     )}
+                  </div>
+                ) : scanResult.matchedStudent &&
+                  !scanBatch.find((p) => p.pageIndex === scanBatchActive)?.savedMsg ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-xs font-semibold text-amber-900">
+                      Matched {scanResult.matchedStudent.name}
+                      {scanResult.matchedStudent.matchedBy === "name"
+                        ? " by name"
+                        : " by roll"}
+                      , but not saved yet.
+                    </p>
+                    <button
+                      type="button"
+                      className={`${dashBtnPrimary} mt-3 w-full`}
+                      disabled={scanSaving}
+                      onClick={() =>
+                        void saveScoreToStudent(scanResult, scanResult.matchedStudent!.id)
+                      }
+                    >
+                      {scanSaving ? "Saving…" : "Save score to matched student"}
+                    </button>
                   </div>
                 ) : (
                   <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
@@ -858,7 +1195,9 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   </div>
                 )}
                 <details>
-                  <summary className="cursor-pointer text-sm font-medium">Question-wise evaluation</summary>
+                  <summary className="cursor-pointer text-sm font-medium">
+                    Question-wise evaluation
+                  </summary>
                   <div className="mt-2 max-h-72 overflow-auto rounded-md border border-[var(--border)]">
                     <table className="w-full text-left text-xs">
                       <thead className="sticky top-0 bg-[var(--background)]">
@@ -899,10 +1238,15 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
                   Scoring follows the {scanResult.track.replace("_", " ")} marking scheme
                   {scanResult.track === "JEE_ADVANCE"
                     ? " (per-section: Section I +3/−1, Section II +4/−2, Section III +4/0)."
-                    : " (+4 correct, −1 wrong for MCQs, 0 for unanswered)."}
-                  {" "}Review all flagged bubbles before saving the score.
+                    : " (+4 correct, −1 wrong for MCQs, 0 for unanswered)."}{" "}
+                  Review all flagged bubbles before saving the score.
                 </p>
               </div>
+            ) : scanBatch.length > 0 &&
+              scanBatch.find((p) => p.pageIndex === scanBatchActive)?.error ? (
+              <p className="text-xs text-red-600">
+                {scanBatch.find((p) => p.pageIndex === scanBatchActive)?.error}
+              </p>
             ) : null}
           </div>
         );
@@ -924,9 +1268,6 @@ export function OmrSheetManagementPanel({ resetKey }: { resetKey?: string }) {
       features={OMR_ACTIVITIES}
       renderFeature={renderFeature}
       resetKey={resetKey}
-      validateNext={(activeId) =>
-        activeId === "template" && !templateSavedForNextStep ? "Save the Template first" : null
-      }
     />
   );
 }

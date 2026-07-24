@@ -9,6 +9,8 @@ import { resolveTrackForPaper, scoreAnswersForTrack } from "@/lib/omr-scoring";
 import { matchStudentForOmr } from "@/lib/omr-student-match";
 import { getAiConfigError } from "@/lib/ai-paper-config";
 import { getTeacherOmrTemplate } from "@/lib/omr-template-db";
+import { OMR_SHEET_ROLL_COLUMNS } from "@/lib/omr-sheet-html";
+import { OMR_LAYOUT, type OmrTrack } from "@/lib/omr-pdf";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -46,7 +48,7 @@ export async function POST(request: Request) {
   const requestedSensitivity = Number(form.get("sensitivity") ?? 72);
   const sensitivity = Number.isFinite(requestedSensitivity)
     ? Math.min(100, Math.max(40, Math.round(requestedSensitivity)))
-    : 72;
+    : 80;
 
   if (!paperId) {
     return NextResponse.json({ error: "Select a question paper." }, { status: 400 });
@@ -56,7 +58,10 @@ export async function POST(request: Request) {
   }
   if (!SUPPORTED_IMAGE_TYPES.has(image.type)) {
     return NextResponse.json(
-      { error: "Upload a JPG, PNG, or WebP image. PDF scans are not supported for AI detection." },
+      {
+        error:
+          "Upload a JPG, PNG, or WebP image. For multi-sheet PDFs, upload the PDF in the OMR Evaluation panel (pages are converted automatically).",
+      },
       { status: 415 }
     );
   }
@@ -103,14 +108,27 @@ export async function POST(request: Request) {
   const columns = paper.category === "NEET" ? 4 : 3;
   const bytes = Buffer.from(await image.arrayBuffer());
   const omrTemplate = await getTeacherOmrTemplate(session.sub);
-  const rollDigits = Math.min(12, Math.max(5, omrTemplate.rollDigits ?? 10));
+  const rollDigits = Math.min(
+    12,
+    Math.max(5, omrTemplate.rollDigits ?? OMR_SHEET_ROLL_COLUMNS)
+  );
+
+  // Detect against the printed sheet grid (fixed track layout), not just key length,
+  // so column-major Q numbering matches the Sri Sai OMR template.
+  const track = resolveTrackForPaper(paper.category, paper.questionContent);
+  const layoutTrack: OmrTrack =
+    track === "NEET" ? "NEET" : track === "JEE_ADVANCE" ? "JEE_ADVANCE" : "JEE_MAINS";
+  const sheetQuestionCount = Math.max(
+    questionIds.length,
+    OMR_LAYOUT[layoutTrack].questions
+  );
 
   let vision;
   try {
     vision = await detectOmrBubbles({
       imageBytes: bytes,
       imageMime: image.type,
-      questionCount: questionIds.length,
+      questionCount: sheetQuestionCount,
       columns,
       sensitivity,
       rollDigits,
@@ -147,7 +165,6 @@ export async function POST(request: Request) {
     };
   });
 
-  const track = resolveTrackForPaper(paper.category, paper.questionContent);
   const { obtained, scoreMax } = scoreAnswersForTrack({
     track,
     questionContent: paper.questionContent,

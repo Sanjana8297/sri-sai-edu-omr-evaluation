@@ -1,5 +1,7 @@
 import { callOpenAiChatCompletion } from "@/lib/openai-runtime";
+import { readAnswersFromUploadedImage } from "@/lib/omr-answers-opencv";
 import { readRollFromUploadedImage } from "@/lib/omr-roll-opencv";
+import { OMR_SHEET_ROLL_COLUMNS } from "@/lib/omr-sheet-html";
 
 export type DetectedAnswer = {
   question: number;
@@ -9,19 +11,19 @@ export type DetectedAnswer = {
 };
 
 export type OmrVisionResult = {
-  /** Handwritten name from the CANDIDATE DETAILS "Name:" line. */
+  /** Handwritten name from the "Student's Name:" line. */
   studentName: string | null;
   rollNumber: string | null;
   answers: DetectedAnswer[];
   issues: string[];
-  /** Per-column roll grid readings (position = top header, digit = left row label). */
+  /** Per-column roll readings (1 = leftmost vertical column). */
   rollDigits?: RollDigitReading[];
 };
 
 export type RollDigitReading = {
-  /** Column header on the sheet (1 = leftmost digit place). */
+  /** Vertical column from the LEFT of the Roll Number grid (1 = first digit). */
   position: number;
-  /** Row label 0–9 that was bubbled in that column. */
+  /** Digit 0–9 from the top write-in box and/or filled bubble in that column. */
   digit: number | null;
   confidence: number;
   flagged: boolean;
@@ -57,10 +59,9 @@ function normalizeRollDigit(raw: unknown): number | null {
 }
 
 /**
- * Build the roll number from the grid:
- * - Top column headers = digit positions (1st, 2nd, …)
- * - Left row labels = digit values (0–9)
- * Concatenate left→right; trailing blank columns are ignored; any blank in the middle fails.
+ * Build the roll number from vertical Roll Number columns (left→right).
+ * Each position is a top write-in digit and/or filled bubble digit 0–9.
+ * Trailing blank columns are ignored; any blank in the middle fails.
  */
 export function assembleRollNumberFromDigits(digits: RollDigitReading[]): {
   rollNumber: string | null;
@@ -70,7 +71,10 @@ export function assembleRollNumberFromDigits(digits: RollDigitReading[]): {
   let end = sorted.length;
   while (end > 0 && sorted[end - 1].digit == null) end -= 1;
   if (end === 0) {
-    return { rollNumber: null, issues: ["No roll-number bubbles were detected in the ROLL NUMBER grid."] };
+    return {
+      rollNumber: null,
+      issues: ["No roll digits were detected in the Roll Number top boxes or bubbles."],
+    };
   }
 
   const active = sorted.slice(0, end);
@@ -79,8 +83,8 @@ export function assembleRollNumberFromDigits(digits: RollDigitReading[]): {
     return {
       rollNumber: null,
       issues: [
-        `Roll number incomplete: no bubble in column(s) ${missing.map((m) => m.position).join(", ")} ` +
-          "(column headers are digit positions; row labels 0–9 are the values).",
+        `Roll number incomplete: missing digit in column(s) ${missing.map((m) => m.position).join(", ")} ` +
+          "(positions are vertical columns left→right; values come from top write-in boxes or bubbles).",
       ],
     };
   }
@@ -175,8 +179,11 @@ export function mergeDetectedAnswers(
       merged.push({
         question: q,
         answer: leftAns,
-        confidence: Math.max(leftConf, rightConf),
-        flagged: Boolean(left.flagged || right.flagged) && leftAns == null,
+        // Agreement across passes → higher confidence and clear flag when filled.
+        confidence: leftAns
+          ? Math.min(1, Math.max(leftConf, rightConf) + 0.08)
+          : Math.max(leftConf, rightConf),
+        flagged: leftAns == null,
       });
       continue;
     }
@@ -267,9 +274,14 @@ async function callBubbleVision(input: {
   };
 
   const layoutHint =
-    `Grid layout: ${columns} response columns × ${rows} rows, numbered column-major ` +
+    `Grid layout (Sri Sai sheet): ${columns} response columns × ${rows} rows, numbered column-major ` +
     `(column 1 = Q1–Q${rows}, column 2 continues after that, and so on). ` +
-    "A/B/C/D option letters appear once at the top of each column above the bubbles.";
+    "Each question row has four circular bubbles with the letter A, B, C, or D printed INSIDE the bubble " +
+    "(left→right = A, B, C, D). A filled mark darkens most of the bubble interior beyond the printed letter.";
+
+  // Map UI sensitivity to an explicit darkness rule the model must follow.
+  const acceptLightFills = sensitivity >= 75;
+  const strictFills = sensitivity <= 55;
 
   let taskText: string;
   if (mode === "column" && input.columnIndex != null) {
@@ -280,7 +292,7 @@ async function callBubbleVision(input: {
   } else if (mode === "fill" && focusQuestions) {
     taskText =
       `Re-inspect ONLY these question numbers: ${focusQuestions.join(", ")}. ` +
-      "Previously they were marked blank or uncertain. Look again for any darkened / filled A–D bubble. " +
+      "Previously they were blank or uncertain. Look again for any darkened / filled A–D bubble. " +
       `Return exactly ${expectedCount} records — one per listed question, in ascending order. Do not invent other question numbers. ` +
       layoutHint;
   } else {
@@ -291,17 +303,22 @@ async function callBubbleVision(input: {
   }
 
   const fillRules =
-    "A bubble is FILLED when most of its interior is dark (pencil, pen, or ink). " +
-    "Do NOT mark a filled bubble as null. Prefer the darkest single option among A–D. " +
-    "Use null only when all four bubbles are empty OR two+ options are equally dark (then flagged=true). " +
-    "Faint but clearly intended marks should still return a letter when sensitivity is mid/high. " +
-    `Sensitivity setting: ${sensitivity}% (higher = accept lighter fills, still flag low-confidence). ` +
-    "Never invent answers from an answer key — none is provided. Never skip the required question numbers.";
+    "FILL RULES (apply consistently — same sheet scanned twice must yield the same letters):\n" +
+    "1) Compare the four bubbles in the SAME question row; pick the single darkest interior.\n" +
+    "2) Printed A/B/C/D glyphs alone are NOT fills — require pencil/pen darkening beyond the letter ink.\n" +
+    "3) If two options are nearly equally dark, return null with flagged=true (do not guess).\n" +
+    "4) If none is clearly darker than the others, return null.\n" +
+    (strictFills
+      ? "5) Sensitivity is LOW: only accept clearly blacked-out bubbles.\n"
+      : acceptLightFills
+        ? "5) Sensitivity is HIGH: accept light but deliberate pencil shading if it is clearly darker than siblings.\n"
+        : "5) Sensitivity is MEDIUM: accept definite fills; skip faint smudges.\n") +
+    `Sensitivity setting: ${sensitivity}%. Never invent answers. Never skip required question numbers.`;
 
   const response = await callOpenAiChatCompletion({
     temperature: 0,
     top_p: 1,
-    seed: DETECTION_SEED,
+    seed: DETECTION_SEED + (input.columnIndex ?? 0) * 17 + (mode === "fill" ? 91 : 0),
     max_tokens: Math.min(16_000, Math.max(2500, expectedCount * 45)),
     response_format: {
       type: "json_schema",
@@ -311,8 +328,10 @@ async function callBubbleVision(input: {
       {
         role: "system",
         content:
-          "You are a precise OMR bubble reader. Your job is to report which A–D bubble is filled for each question number. " +
-          "Missed filled bubbles are worse than over-flagging. Be thorough and consistent.",
+          "You are a deterministic OMR bubble reader for Sri Sai sheets. " +
+          "Report which A–D bubble is filled for each question. " +
+          "Be consistent across rescans: use relative darkness within each question row. " +
+          "Missed clear fills are worse than over-flagging uncertain ones.",
       },
       {
         role: "user",
@@ -427,16 +446,15 @@ async function detectRollNumberGridSlice(input: {
       : `the ${startPos}${ordinalSuffix(startPos)} column from the LEFT of the ROLL NUMBER grid`;
 
   const instructions =
-    "Look ONLY at the ROLL NUMBER bubble grid (header text ROLL NUMBER). Ignore A–D exam responses.\n\n" +
-    "Grid rules:\n" +
-    `- ${totalDigits} columns. TOP printed numbers (1…${totalDigits}) are POSITIONS from LEFT to RIGHT.\n` +
-    "- LEFT printed numbers (0…9) are DIGIT VALUES for each row.\n" +
-    "- In each column, the filled row's left label is that position's digit.\n\n" +
+    "Look ONLY at the pink \"Roll Number\" panel (upper-left). Ignore A–D responses and Student's Name.\n\n" +
+    "Grid rules (Sri Sai sheet):\n" +
+    `- ${totalDigits} VERTICAL columns left→right. Position = column index from the LEFT (1…${totalDigits}).\n` +
+    "- TOP ROW: square write-in boxes — prefer OCR of handwritten digits there.\n" +
+    "- BELOW: circular bubbles; digit printed inside; rows top→bottom = 0…9.\n\n" +
     `YOUR TASK: Read column position(s) ${positionList} only.\n` +
-    `Start at ${leftOrdinal} and move right through the requested columns.\n` +
-    `Return exactly ${count} objects with position set to the absolute header number(s): ${positionList}.\n` +
-    "For each column, pair the TOP column label (position) with the LEFT row label (digit) of its darkest fill.\n" +
-    "Example: row label 7 filled below column label 3 means position=3, digit=7.\n" +
+    `Start at ${leftOrdinal} and move right.\n` +
+    `Return exactly ${count} objects with position: ${positionList}.\n` +
+    "Prefer the top write-in digit; if blank, use the filled oval's row digit in that column.\n" +
     "digit=null only if empty or double-marked (flagged=true).\n" +
     `Sensitivity: ${sensitivity}%.`;
 
@@ -453,8 +471,8 @@ async function detectRollNumberGridSlice(input: {
       {
         role: "system",
         content:
-          "You read OMR roll-number columns. Absolute column headers are positions counted from the LEFT. " +
-          "Row labels are digit values 0–9. Never use A–D response bubbles.",
+          "You read Sri Sai OMR Roll Number columns. Position = left→right column. " +
+          "Digit = top write-in box or filled bubble row (0–9). Never use A–D bubbles.",
       },
       {
         role: "user",
@@ -591,17 +609,13 @@ async function detectRollNumberGridFull(input: {
   };
 
   const instructions =
-    "This image is the ROLL NUMBER bubble grid only (or the top-left of an OMR sheet).\n" +
-    `There are exactly ${rollDigits} columns left→right. Top headers 1…${rollDigits} are positions.\n` +
-    "Left labels 0…9 are digit values (top=0 … bottom=9).\n" +
-    "For EACH filled bubble, pair its LEFT row label with its TOP column label.\n" +
-    "Row labels are fixed: top row = 0, then 1,2,3,4,5,6,7,8, bottom row = 9.\n" +
-    "Example: a filled bubble on row label 7 under column label 3 means position=3, digit=7.\n" +
-    "Never use the row number as the position and never use the column header as the digit.\n" +
-    "Never shift row labels (do not read row 7 as 6 or 8).\n" +
-    "digit=null only if empty or double-marked (set flagged=true).\n" +
+    "This image shows the \"Roll Number\" panel on a Sri Sai OMR sheet (or the full sheet).\n" +
+    `There are exactly ${rollDigits} VERTICAL columns left→right. Position = column index 1…${rollDigits}.\n` +
+    "TOP ROW: square write-in boxes — OCR handwritten digits there first.\n" +
+    "BELOW: circular bubbles with the digit printed inside; rows top→bottom = 0…9.\n" +
+    "For each column: use the top-box digit if readable; else the filled bubble's row digit.\n" +
+    "Never use A–D exam answers. digit=null only if empty or double-marked (flagged=true).\n" +
     `Return exactly ${rollDigits} digit objects with positions 1…${rollDigits}.\n` +
-    "Ignore A–D exam responses and handwritten boxes.\n" +
     `Sensitivity: ${input.sensitivity}%.`;
 
   const response = await callOpenAiChatCompletion({
@@ -617,7 +631,8 @@ async function detectRollNumberGridFull(input: {
       {
         role: "system",
         content:
-          "You read OMR roll-number grids. Column headers are positions; row labels are digits 0–9.",
+          "You read Sri Sai OMR Roll Number grids. Prefer top write-in boxes; " +
+          "fallback to filled digit bubbles (0–9 top→bottom) in each vertical column.",
       },
       {
         role: "user",
@@ -748,7 +763,7 @@ export type DetectOmrBubblesInput = {
 };
 
 /**
- * Read the handwritten name on the OMR "CANDIDATE DETAILS" Name line.
+ * Read the handwritten name on the OMR "Student's Name:" dotted line.
  * This runs before roll/bubble work so sheets can be matched to student profiles by name.
  */
 async function detectStudentNameFromSheet(imageUrl: string): Promise<{
@@ -780,7 +795,7 @@ async function detectStudentNameFromSheet(imageUrl: string): Promise<{
         role: "system",
         content:
           "You read handwritten student names from OMR answer sheets. " +
-          "Return only the name written on the Name line — never invent one.",
+          "Return only the name written on the Student's Name line — never invent one.",
       },
       {
         role: "user",
@@ -788,11 +803,12 @@ async function detectStudentNameFromSheet(imageUrl: string): Promise<{
           {
             type: "text",
             text:
-              "Find the CANDIDATE DETAILS block near the top of this OMR sheet " +
-              '(next to the ROLL NUMBER grid). Read the handwritten text on the "Name:" line. ' +
+              "On this Sri Sai OMR sheet, find the pink-bordered field labeled " +
+              '"Student\'s Name:" (wide box to the RIGHT of the Roll Number grid, near the top). ' +
+              "Read the handwritten name on the dotted line. " +
               "Return studentName as the full name exactly as written (fix obvious letter confusions only if clear). " +
-              "If the Name line is blank, illegible, or missing, return studentName null and explain in issues. " +
-              "Do not return roll numbers, exam titles, dates, batch codes, or printed labels as the name.",
+              "If the name line is blank, illegible, or missing, return studentName null and explain in issues. " +
+              "Do not return roll numbers, exam titles, dates, batch codes, class labels, or printed headings as the name.",
           },
           { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
         ],
@@ -828,7 +844,7 @@ async function detectStudentNameFromSheet(imageUrl: string): Promise<{
   if (!rawName || confidence < 0.35) {
     return {
       name: null,
-      issues: issues.length > 0 ? issues : ["Could not read a clear student name from the Name line."],
+      issues: issues.length > 0 ? issues : ["Could not read a clear student name from the Student's Name line."],
     };
   }
 
@@ -844,16 +860,143 @@ async function detectStudentNameFromSheet(imageUrl: string): Promise<{
 }
 
 /**
- * High-accuracy OMR detection:
- * 1) Read the handwritten student name from CANDIDATE DETAILS (for profile matching).
- * 2) Read the ROLL NUMBER grid from the uploaded image (OpenCV first, AI fallback).
- * 3) Read each response column separately (smaller ranges → fewer misses).
- * 4) Re-read any blank / low-confidence questions in a focused fill-in pass.
- * 5) Merge with a second full-column pass when question count is moderate, for stability.
+ * Primary roll read: OCR digits in the TOP ROW of square boxes inside "Roll Number"
+ * (one box per vertical column, left→right). Falls back to filled bubbles in that column.
+ */
+async function detectRollFromTopWriteInBoxes(input: {
+  imageUrl: string;
+  rollDigits: number;
+  sensitivity: number;
+}): Promise<{ digits: RollDigitReading[]; issues: string[] }> {
+  const { rollDigits, sensitivity } = input;
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["digits", "issues"],
+    properties: {
+      digits: {
+        type: "array",
+        minItems: rollDigits,
+        maxItems: rollDigits,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["position", "digit", "confidence", "flagged", "source"],
+          properties: {
+            position: { type: "integer", minimum: 1, maximum: rollDigits },
+            digit: { type: ["integer", "null"], minimum: 0, maximum: 9 },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            flagged: { type: "boolean" },
+            source: { type: "string", enum: ["write_in", "bubble", "none"] },
+          },
+        },
+      },
+      issues: { type: "array", items: { type: "string" } },
+    },
+  };
+
+  const instructions =
+    "Find the pink box titled \"Roll Number\" (upper-left of the sheet).\n\n" +
+    "Layout:\n" +
+    `- Exactly ${rollDigits} VERTICAL columns left→right.\n` +
+    `- TOP ROW: ${rollDigits} square write-in boxes (one per column). Students write one digit 0–9 in each.\n` +
+    "- BELOW: circular bubbles per column; digit printed inside; rows top→bottom = 0…9.\n\n" +
+    "Read the roll from those vertical columns:\n" +
+    `1) PRIMARY: OCR the handwritten digit in each TOP square box (positions 1…${rollDigits} left→right).\n` +
+    "2) If a top box is blank/illegible, use the filled circular bubble in that SAME column " +
+    "(bubble row digit: top=0 … bottom=9).\n" +
+    "3) If write-in and bubble disagree, prefer the darker filled bubble and set flagged=true.\n" +
+    `Return exactly ${rollDigits} objects with positions 1…${rollDigits}.\n` +
+    "Ignore Student's Name, booklet code, date, class, barcode, and A–D responses.\n" +
+    `Sensitivity: ${sensitivity}%.`;
+
+  const response = await callOpenAiChatCompletion({
+    temperature: 0,
+    top_p: 1,
+    seed: DETECTION_SEED + 3,
+    max_tokens: 1200,
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "omr_roll_top_boxes", strict: true, schema },
+    },
+    messages: [
+      {
+        role: "system",
+        content:
+          "You read Sri Sai OMR roll numbers from the Roll Number panel. " +
+          "Primary: top-row square write-in boxes (left→right). " +
+          "Fallback: filled digit bubbles in the same vertical column.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: instructions },
+          { type: "image_url", image_url: { url: input.imageUrl, detail: "high" } },
+        ],
+      },
+    ],
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Roll top-box detection failed (${response.status}): ${message.slice(0, 300)}`);
+  }
+
+  const payload = (await response.json()) as OpenAiResponse;
+  const content = payload.choices?.[0]?.message?.content;
+  if (!content) throw new Error("AI returned no roll top-box result.");
+
+  let parsed: { digits?: unknown[]; issues?: unknown };
+  try {
+    parsed = JSON.parse(content) as { digits?: unknown[]; issues?: unknown };
+  } catch {
+    throw new Error("AI returned an invalid roll top-box result.");
+  }
+
+  const byPos = new Map<number, RollDigitReading>();
+  for (const item of Array.isArray(parsed.digits) ? parsed.digits : []) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const position = Number(row.position);
+    if (!Number.isInteger(position) || position < 1 || position > rollDigits) continue;
+    if (byPos.has(position)) continue;
+    const digit = normalizeRollDigit(row.digit);
+    const source = String(row.source ?? "none");
+    byPos.set(position, {
+      position,
+      digit,
+      confidence: clampConfidence(row.confidence),
+      flagged: Boolean(row.flagged) || digit == null || source === "none",
+    });
+  }
+
+  const digits: RollDigitReading[] = Array.from({ length: rollDigits }, (_, i) => {
+    const position = i + 1;
+    return byPos.get(position) ?? { position, digit: null, confidence: 0, flagged: true };
+  });
+
+  const issues = Array.isArray(parsed.issues)
+    ? parsed.issues.filter((i): i is string => typeof i === "string").slice(0, 10)
+    : [];
+  if (digits.every((d) => d.digit == null)) {
+    issues.push("Could not read digits from the Roll Number top write-in boxes or bubbles.");
+  }
+
+  return { digits, issues };
+}
+
+/**
+ * High-accuracy OMR detection for the Sri Sai sheet:
+ * 1) Read "Student's Name:" for profile matching.
+ * 2) Read roll from top-row write-in boxes (primary), then OpenCV/AI column bubbles.
+ * 3) Read A–D responses via OpenCV lattice (deterministic), with AI fill for gaps only.
  */
 export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<OmrVisionResult> {
   const { questionCount, columns, sensitivity } = input;
-  const rollDigitCount = Math.min(12, Math.max(5, input.rollDigits ?? 10));
+  const rollDigitCount = Math.min(
+    12,
+    Math.max(5, input.rollDigits ?? OMR_SHEET_ROLL_COLUMNS)
+  );
   const rows = Math.max(1, Math.ceil(questionCount / columns));
   const imageUrl = `data:${input.imageMime};base64,${input.imageBytes.toString("base64")}`;
 
@@ -876,13 +1019,37 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
     );
   }
 
-  // Prefer OpenCV on the uploaded sheet bytes (temp file only — no fixed path).
-  // Keep confident OpenCV digits; only AI-fill blank / low-confidence positions.
+  // Roll PRIMARY: top-row write-in boxes in each vertical column of "Roll Number".
   let rollDigits: RollDigitReading[] = [];
   let rollNumber: string | null = null;
-  let rollFromOpencv = false;
+  let rollFromPrimary = false;
   let rollCropUrl: string | null = null;
 
+  try {
+    const topPass = await detectRollFromTopWriteInBoxes({
+      imageUrl,
+      rollDigits: rollDigitCount,
+      sensitivity,
+    });
+    rollDigits = topPass.digits;
+    issues.push(...topPass.issues);
+    const assembled = assembleRollNumberFromDigits(rollDigits);
+    rollNumber = assembled.rollNumber;
+    if (rollNumber) {
+      rollFromPrimary = true;
+      issues.push("Roll number read from Roll Number top write-in boxes / column bubbles.");
+    } else {
+      issues.push(...assembled.issues);
+    }
+  } catch (error) {
+    issues.push(
+      error instanceof Error
+        ? `Roll top-box read skipped: ${error.message}`
+        : "Roll top-box read skipped."
+    );
+  }
+
+  // OpenCV bubble lattice fills blank / low-confidence columns.
   try {
     const opencv = await readRollFromUploadedImage({
       imageBytes: input.imageBytes,
@@ -890,23 +1057,43 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
       columns: rollDigitCount,
     });
     if (opencv) {
-      rollDigits = opencv.digits;
-      const assembled = assembleRollNumberFromDigits(rollDigits);
-      rollNumber = opencv.rollNumber ?? assembled.rollNumber;
-      issues.push(...opencv.issues);
       if (opencv.cropDataUrl) rollCropUrl = opencv.cropDataUrl;
-      const markedCount = rollDigits.filter(
-        (d) => d.digit != null && !d.flagged && d.confidence >= 0.5
-      ).length;
-      if (rollNumber) {
-        rollFromOpencv = true;
-        issues.push("Roll number read with OpenCV from the uploaded OMR image.");
-      } else if (markedCount > 0) {
-        issues.push(
-          `OpenCV read ${markedCount}/${rollDigitCount} roll columns; filling remaining with AI.`
+      issues.push(...opencv.issues);
+      const byPos = new Map(rollDigits.map((d) => [d.position, d]));
+      for (const d of opencv.digits) {
+        const prev = byPos.get(d.position);
+        if (
+          !prev ||
+          prev.digit == null ||
+          prev.flagged ||
+          prev.confidence < d.confidence
+        ) {
+          byPos.set(d.position, {
+            position: d.position,
+            digit: d.digit,
+            confidence: d.confidence,
+            flagged: d.flagged,
+          });
+        }
+      }
+      rollDigits = Array.from({ length: rollDigitCount }, (_, i) => {
+        const position = i + 1;
+        return (
+          byPos.get(position) ?? {
+            position,
+            digit: null,
+            confidence: 0,
+            flagged: true,
+          }
         );
-      } else {
-        issues.push(...assembled.issues);
+      });
+      const assembled = assembleRollNumberFromDigits(rollDigits);
+      if (assembled.rollNumber) {
+        rollNumber = assembled.rollNumber;
+        if (!rollFromPrimary) {
+          rollFromPrimary = true;
+          issues.push("Roll number completed with OpenCV column bubbles.");
+        }
       }
     }
   } catch (error) {
@@ -917,7 +1104,10 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
     );
   }
 
-  if (!rollFromOpencv) {
+  if (
+    !rollFromPrimary ||
+    rollDigits.some((d) => d.digit == null || d.flagged || d.confidence < 0.45)
+  ) {
     const rollImageUrl = rollCropUrl ?? imageUrl;
     const missingPositions = rollDigits
       .filter((d) => d.digit == null || d.flagged || d.confidence < 0.45)
@@ -931,10 +1121,32 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
           rollDigits: rollDigitCount,
           sensitivity,
         });
-        rollDigits = fullPass.digits;
+        // Merge: keep confident top-box digits.
+        const merged = new Map(rollDigits.map((d) => [d.position, d]));
+        for (const d of fullPass.digits) {
+          const prev = merged.get(d.position);
+          if (
+            !prev ||
+            prev.digit == null ||
+            prev.flagged ||
+            prev.confidence < d.confidence
+          ) {
+            merged.set(d.position, d);
+          }
+        }
+        rollDigits = Array.from({ length: rollDigitCount }, (_, i) => {
+          const position = i + 1;
+          return (
+            merged.get(position) ?? {
+              position,
+              digit: null,
+              confidence: 0,
+              flagged: true,
+            }
+          );
+        });
         issues.push(...fullPass.issues);
       } else if (missingPositions.length > 0) {
-        // Re-read only the remaining columns with the same column→row-label logic.
         const byPos = new Map(rollDigits.map((d) => [d.position, d]));
         for (const position of missingPositions) {
           const slice = await detectRollNumberGridSlice({
@@ -973,7 +1185,6 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
           rollDigits: rollDigitCount,
           sensitivity,
         });
-        // Prefer already-confident OpenCV digits over a weaker full AI pass.
         const merged = new Map(rollDigits.map((d) => [d.position, d]));
         for (const d of rollPass.digits) {
           const prev = merged.get(d.position);
@@ -1011,32 +1222,87 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
     }
   }
 
-  const firstPass: DetectedAnswer[] = [];
+  // ── A–D responses: OpenCV lattice (deterministic) first, AI only for gaps ──
+  let answersImageUrl = imageUrl;
+  let opencvAnswers: DetectedAnswer[] | null = null;
 
-  for (let col = 0; col < columns; col++) {
-    const startQ = col * rows + 1;
-    if (startQ > questionCount) break;
-    const endQ = Math.min(questionCount, (col + 1) * rows);
-    const chunk = await callBubbleVision({
-      imageUrl,
+  try {
+    const opencv = await readAnswersFromUploadedImage({
+      imageBytes: input.imageBytes,
       imageMime: input.imageMime,
-      startQ,
-      endQ,
       columns,
       rows,
+      questionCount,
       sensitivity,
-      mode: "column",
-      columnIndex: col,
     });
-    issues.push(...chunk.issues);
-    firstPass.push(...chunk.answers);
+    if (opencv) {
+      opencvAnswers = opencv.answers;
+      if (opencv.cropDataUrl) answersImageUrl = opencv.cropDataUrl;
+      issues.push(...opencv.issues);
+      const marked = opencv.answers.filter((a) => a.answer != null).length;
+      issues.push(`OpenCV response grid read ${marked}/${questionCount} marked bubbles.`);
+    }
+  } catch (error) {
+    issues.push(
+      error instanceof Error
+        ? `OpenCV answer read skipped: ${error.message}`
+        : "OpenCV answer read skipped."
+    );
   }
 
-  // Fill-in pass(es): anything still blank or very low confidence.
+  const needsAiFullPass =
+    !opencvAnswers ||
+    opencvAnswers.filter((a) => a.answer != null && !a.flagged && a.confidence >= 0.55).length <
+      Math.max(1, Math.floor(questionCount * 0.15));
+
+  let firstPass: DetectedAnswer[] = opencvAnswers
+    ? opencvAnswers.map((a) => ({ ...a }))
+    : [];
+
+  if (needsAiFullPass || !opencvAnswers) {
+    const aiPass: DetectedAnswer[] = [];
+    for (let col = 0; col < columns; col++) {
+      const startQ = col * rows + 1;
+      if (startQ > questionCount) break;
+      const endQ = Math.min(questionCount, (col + 1) * rows);
+      const chunk = await callBubbleVision({
+        imageUrl: answersImageUrl,
+        imageMime: input.imageMime,
+        startQ,
+        endQ,
+        columns,
+        rows,
+        sensitivity,
+        mode: "column",
+        columnIndex: col,
+      });
+      issues.push(...chunk.issues);
+      aiPass.push(...chunk.answers);
+    }
+    if (opencvAnswers) {
+      firstPass = mergeDetectedAnswers(opencvAnswers, aiPass, questionCount);
+      // Prefer OpenCV when both agree or OpenCV is confident — re-apply for consistency.
+      firstPass = firstPass.map((merged) => {
+        const cv = opencvAnswers!.find((a) => a.question === merged.question);
+        if (!cv) return merged;
+        if (cv.answer != null && cv.confidence >= 0.55 && !cv.flagged) {
+          if (merged.answer != null && merged.answer !== cv.answer) {
+            return { ...cv, flagged: true, confidence: Math.min(cv.confidence, 0.7) };
+          }
+          return cv;
+        }
+        return merged;
+      });
+    } else {
+      firstPass = aiPass;
+    }
+  }
+
+  // Fill-in pass(es): anything still blank, ambiguous, or very low confidence.
   let afterFill = firstPass;
   for (let attempt = 0; attempt < 2; attempt++) {
     const needsRetry = afterFill
-      .filter((row) => row.answer == null || row.confidence < 0.45)
+      .filter((row) => row.answer == null || row.flagged || row.confidence < 0.5)
       .map((row) => row.question)
       .filter((q) => q >= 1 && q <= questionCount);
     if (needsRetry.length === 0) break;
@@ -1047,13 +1313,13 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
       const startQ = Math.min(...batch);
       const endQ = Math.max(...batch);
       const fill = await callBubbleVision({
-        imageUrl,
+        imageUrl: answersImageUrl,
         imageMime: input.imageMime,
         startQ,
         endQ,
         columns,
         rows,
-        sensitivity: Math.min(100, sensitivity + 10 + attempt * 5),
+        sensitivity: Math.min(100, sensitivity + 8 + attempt * 5),
         mode: "fill",
         focusQuestions: batch,
       });
@@ -1066,6 +1332,13 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
     afterFill = afterFill.map((row) => {
       const retry = fillMap.get(row.question);
       if (!retry) return row;
+      // Keep a confident OpenCV/AI mark unless the retry is clearly better.
+      if (row.answer != null && row.confidence >= 0.7 && !row.flagged) {
+        if (retry.answer != null && retry.answer !== row.answer) {
+          return { ...row, flagged: true };
+        }
+        return row;
+      }
       if (row.answer == null && retry.answer != null) {
         return {
           ...retry,
@@ -1085,16 +1358,21 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
     });
   }
 
-  // Stability pass for papers that fit in a reasonable number of column calls (≤120 Q).
+  // Stability pass: second column read merged in (≤120 Q) for AI-heavy paths.
   let finalAnswers = afterFill;
-  if (questionCount <= 120) {
+  const shouldStabilityPass =
+    questionCount <= 120 &&
+    (!opencvAnswers ||
+      afterFill.filter((a) => a.answer == null || a.flagged).length > questionCount * 0.2);
+
+  if (shouldStabilityPass) {
     const secondPass: DetectedAnswer[] = [];
     for (let col = 0; col < columns; col++) {
       const startQ = col * rows + 1;
       if (startQ > questionCount) break;
       const endQ = Math.min(questionCount, (col + 1) * rows);
       const chunk = await callBubbleVision({
-        imageUrl,
+        imageUrl: answersImageUrl,
         imageMime: input.imageMime,
         startQ,
         endQ,
@@ -1111,7 +1389,21 @@ export async function detectOmrBubbles(input: DetectOmrBubblesInput): Promise<Om
     finalAnswers = mergeDetectedAnswers(afterFill, afterFill, questionCount);
   }
 
-  const uniqueIssues = [...new Set(issues)].slice(0, 20);
+  // Ensure every question slot exists exactly once (deterministic output shape).
+  const byFinal = new Map(finalAnswers.map((a) => [a.question, a]));
+  finalAnswers = Array.from({ length: questionCount }, (_, i) => {
+    const question = i + 1;
+    return (
+      byFinal.get(question) ?? {
+        question,
+        answer: null,
+        confidence: 0,
+        flagged: true,
+      }
+    );
+  });
+
+  const uniqueIssues = [...new Set(issues)].slice(0, 24);
   return {
     studentName,
     rollNumber,

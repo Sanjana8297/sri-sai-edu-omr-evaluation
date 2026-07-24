@@ -155,8 +155,7 @@ const sections: HelpSection[] = [
         title: "OMR Sheet Management",
         subtitle: "Design, print and scan",
         items: [
-          "OMR template designer (NEET/JEE)",
-          "Print-ready OMR + paper bundle",
+          "Print-ready OMR + paper bundle (template locks to paper track)",
           "Camera / scanner capture + AI bubble-fill detection",
           "Error and smudge alert flags",
         ],

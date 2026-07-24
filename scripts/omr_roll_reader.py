@@ -121,13 +121,17 @@ def find_roll_bbox(
     image: np.ndarray,
     columns: int,
 ) -> tuple[int, int, int, int] | None:
-    """Locate the pink-bordered ROLL NUMBER panel in the upper-left."""
+    """Locate the pink-bordered ROLL NUMBER panel in the upper-left.
+
+    New Sri Sai sheet: compact "Roll Number" box left of Student's Name, with
+    top write-in squares and circular bubbles (digit printed inside each oval).
+    """
     height, width = image.shape[:2]
     mask = pink_mask(image)
     search = np.zeros_like(mask)
-    y0, y1 = int(height * 0.04), int(height * 0.48)
-    # Search far enough right to include 10–12 column roll grids.
-    x0, x1 = int(width * 0.01), int(width * min(0.72, 0.34 + columns * 0.035))
+    y0, y1 = int(height * 0.04), int(height * 0.52)
+    # Prefer the left third — roll sits beside the name field on the new sheet.
+    x0, x1 = int(width * 0.01), int(width * min(0.55, 0.28 + columns * 0.04))
     search[y0:y1, x0:x1] = mask[y0:y1, x0:x1]
 
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -138,11 +142,11 @@ def find_roll_bbox(
     best_score = -1.0
     for contour in contours:
         x, y, bw, bh = cv2.boundingRect(contour)
-        if x > width * 0.40 or y > height * 0.35:
+        if x > width * 0.40 or y > height * 0.40:
             continue
         score = _score_roll_rect(bw, bh, width, height, columns)
         score += max(0.0, 0.30 - x / max(width, 1)) * 0.8
-        if 0.10 < y / max(height, 1) < 0.30:
+        if 0.08 < y / max(height, 1) < 0.35:
             score += 0.25
         # Prefer panels wide enough for the configured column count.
         min_width = bh * (0.45 + max(0, columns - 5) * 0.08)
@@ -536,12 +540,16 @@ def merge_circle_sets(*sets: np.ndarray | None) -> np.ndarray | None:
 def lattice_from_crop(
     gray: np.ndarray, columns: int, rows: int
 ) -> tuple[list[list[Point]], float, np.ndarray]:
-    """Fallback lattice when Hough fails: regular grid inside the roll panel."""
+    """Fallback lattice when Hough fails: regular grid inside the roll panel.
+
+    New Sri Sai sheet: top row is square write-in boxes; below are 5×10 (or N×10)
+    circular bubbles with digit printed inside (rows 0–9 top→bottom). No left labels.
+    """
     height, width = gray.shape[:2]
-    # Skip title / write-in boxes at the top of the roll panel.
-    top = int(height * 0.28)
+    # Skip title + top write-in squares; keep only the circular digit rows.
+    top = int(height * 0.22)
     bottom = int(height * 0.98)
-    left = int(width * 0.14)
+    left = int(width * 0.04)
     right = int(width * 0.98)
     usable_h = max(bottom - top, rows * 8)
     usable_w = max(right - left, columns * 8)
@@ -864,7 +872,12 @@ if __name__ == "__main__":
     parser.add_argument("--crop-out", default=None, help="Write the detected roll crop image.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--auto", action="store_true", help="Auto-crop roll region (default for uploads).")
-    parser.add_argument("--columns", type=int, default=10, help="Roll digit columns (default: 10).")
+    parser.add_argument(
+        "--columns",
+        type=int,
+        default=5,
+        help="Roll digit columns (default: 5 — matches printed Sri Sai OMR sheet).",
+    )
     parser.add_argument("--min-darkness", type=float, default=0.62)
     parser.add_argument("--darkness-margin", type=float, default=0.08)
     args = parser.parse_args()

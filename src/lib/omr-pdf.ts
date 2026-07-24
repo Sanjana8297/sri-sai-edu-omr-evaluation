@@ -56,7 +56,7 @@ function layoutScaleForWidth(pageW: number): number {
 }
 
 const OMR_LAYOUT: Record<OmrTrack, { questions: number; sections: string }> = {
-  NEET: { questions: 200, sections: "Physics · Chemistry · Botany · Zoology (50 each)" },
+  NEET: { questions: 180, sections: "Physics · Chemistry · Botany · Zoology (45 each)" },
   JEE: { questions: 75, sections: "Maths · Physics · Chemistry (25 each)" },
   JEE_MAINS: { questions: 75, sections: "Maths · Physics · Chemistry (25 each)" },
   JEE_ADVANCE: {
@@ -81,7 +81,7 @@ function isAnyJeeTrack(track: OmrTrack): boolean {
   return isJeeMainsTrack(track) || isJeeAdvanceTrack(track);
 }
 
-const SRI_SAI_LOGO_SRC = "/images/Sri-Sai-logo.png?v=20260722b";
+const SRI_SAI_LOGO_SRC = "/images/Sri-Sai-logo.png?v=20260722c";
 
 /** Pink accent matching the official Sri Sai OMR sheet. */
 const OMR_PINK: [number, number, number] = [201, 32, 99];
@@ -982,16 +982,47 @@ async function addOmrPages(doc: jsPDF, opts: OmrPdfOptions, options?: { prependN
   }
 }
 
+import {
+  appendOmrHtmlPagesToPdf,
+  buildOmrSheetPdfBlobFromHtml,
+  downloadBlob,
+  printOmrSheetHtml,
+} from "@/lib/omr-sheet-html";
+
 export async function buildOmrSheetPdfBlob(opts: OmrPdfOptions): Promise<Blob> {
-  const doc = new jsPDF({ unit: "pt", format: jsPdfFormat(opts.pageSize ?? "a4") });
-  await addOmrPages(doc, opts);
-  return doc.output("blob");
+  // HTML Sri Sai template is the source of truth; only response rows follow the track.
+  return buildOmrSheetPdfBlobFromHtml(
+    {
+      track: opts.track,
+      questionCount: opts.questionCount,
+      paperTitle: opts.paperTitle,
+      rollDigits: opts.rollDigits,
+      copies: opts.copies,
+    },
+    opts.pageSize ?? "a4"
+  );
 }
 
 export async function downloadOmrSheetPdf(opts: OmrPdfOptions): Promise<void> {
   const blob = await buildOmrSheetPdfBlob(opts);
   const name = slugify(opts.paperTitle || "omr");
-  triggerBlobDownload(blob, `${name}-omr.pdf`);
+  downloadBlob(blob, `${name}-omr.pdf`);
+}
+
+/** Print the HTML OMR sheet (preferred) — falls back to PDF blob print if pop-ups are blocked. */
+export async function printOmrSheet(opts: OmrPdfOptions): Promise<void> {
+  try {
+    printOmrSheetHtml({
+      track: opts.track,
+      questionCount: opts.questionCount,
+      paperTitle: opts.paperTitle,
+      rollDigits: opts.rollDigits,
+      copies: opts.copies,
+    });
+  } catch {
+    const blob = await buildOmrSheetPdfBlob(opts);
+    await printPdfBlob(blob);
+  }
 }
 
 async function addQuestionPaperPages(
@@ -1185,7 +1216,17 @@ export async function buildOmrBundlePdfBlob(
 ): Promise<Blob> {
   const doc = new jsPDF({ unit: "pt", format: jsPdfFormat(opts.pageSize ?? "a4") });
   await addQuestionPaperPages(doc, opts, opts.questionContent, opts.keyContent);
-  await addOmrPages(doc, opts, { prependNewPage: true });
+  await appendOmrHtmlPagesToPdf(
+    doc,
+    {
+      track: opts.track,
+      questionCount: opts.questionCount,
+      paperTitle: opts.paperTitle,
+      rollDigits: opts.rollDigits,
+      copies: opts.copies,
+    },
+    { prependNewPage: true, pageSize: opts.pageSize ?? "a4" }
+  );
   return doc.output("blob");
 }
 

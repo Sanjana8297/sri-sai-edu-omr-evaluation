@@ -30,7 +30,7 @@ export type OmrTemplateSettings = {
 
 export const DEFAULT_OMR_TEMPLATE: OmrTemplateSettings = {
   track: "NEET",
-  rollDigits: 10,
+  rollDigits: 5,
   examPreset: "NEET",
 };
 

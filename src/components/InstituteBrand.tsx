@@ -35,7 +35,7 @@ export function InstituteBrand({ compact = false, className = "", onDark = false
           compact
             ? "h-14 w-14 shrink-0 object-contain sm:h-16 sm:w-16"
             : "h-[4.75rem] w-[4.75rem] shrink-0 object-contain sm:h-24 sm:w-24"
-        }${onDark ? " rounded-md bg-white/95 p-0.5 shadow-sm" : ""}`}
+        }`}
       />
       <div className="flex min-w-0 flex-col justify-center leading-none">
         <p
